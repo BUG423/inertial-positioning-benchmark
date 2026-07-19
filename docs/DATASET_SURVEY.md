@@ -1,210 +1,249 @@
-# 惯性定位公开数据集调研（第一版）
+# 惯性定位公开数据集调研
 
-> 状态：持续更新  
+> 版本：v2（论文反向追踪版）  
 > 最近核验：2026-07-19  
-> 目标：为 Inertial Positioning Benchmark 确定数据集范围、接入优先级和统一格式需求。
+> 状态：持续更新
 
-## 1. 调研范围与判定标准
+## 1. 调研方法
 
-“包含 IMU 的定位数据集”并不等于“惯性定位数据集”。本调研按以下三层划分：
+本版采用“最新论文反向追踪”：
 
-1. **核心惯性定位数据集**：原始加速度计/陀螺仪可作为主要输入，具有轨迹、速度或位姿真值，适合评测 IMU-only 方法。
-2. **扩展平台数据集**：面向足绑、车辆、轮载、多 IMU、无人机等特定平台，可用于扩展 benchmark 的覆盖范围。
-3. **辅助多模态数据集**：包含高质量 IMU 与真值，但原始目标通常是视觉—惯性、激光—惯性或多传感器融合。可用于跨域泛化，不能与纯惯性主榜直接混排。
+1. 从近年代表性论文与综述的实验章节抽取全部数据集；
+2. 回溯数据集原始论文、官网、GitHub 和长期存储地址；
+3. 核验是否真实公开、公开比例、文件内容、划分和许可；
+4. 区分方法名、论文名与数据集名；
+5. 建立“论文 → 数据集 → 下载入口 → 可接入状态”的证据链。
 
-纳入前需要逐项核验：
+公开状态分为：
 
-- 数据是否仍可下载，下载是否需要登录或签署协议；
-- 原始 IMU、设备姿态、磁力计等字段的定义与单位；
-- 时间戳时基、采样频率、丢帧和同步方式；
-- 设备坐标系、世界坐标系、重力方向和四元数顺序；
-- 真值来源、精度、覆盖范围及是否存在伪真值；
-- 官方训练/验证/测试划分和被后续论文实际采用的划分；
-- 数据与代码许可证是否允许再分发、转换格式和公开 benchmark 结果。
+- **公开可下载**：当前存在无需作者审批的下载入口；
+- **受协议约束公开**：可下载，但需要接受非商业或特定用途协议；
+- **未完整公开**：论文使用了数据，但公开比例不足、需要申请或尚未发布。
 
-## 2. 第一阶段最值得接入的数据集
+## 2. 名称辨析
 
-| 数据集 | 平台/设备 | 规模与多样性 | 真值 | 主要价值 | 初步优先级 |
-|---|---|---|---|---|---|
-| [RIDI](https://yanhangpublic.github.io/ridi/) | 手持/口袋/包内智能手机 | 约 150 分钟，200 Hz，多种人体运动与携带方式 | Google Tango 视觉—惯性轨迹 | 早期学习式惯性定位代表数据集；格式和规模适合首批适配 | P0 |
-| [OxIOD](https://deepio.cs.ox.ac.uk/) | 4 类消费级手机；手持、口袋、手提包、推车 | 158 条序列，总距离超过 42 km；5 名用户，多速度模式 | 多数序列为光学动捕；长距离序列含其他参考来源 | 携带方式、设备、用户和运动模式较丰富，文献使用广泛 | P0 |
-| [RoNIN](https://ronin.cs.sfu.ca/) | 人体携带智能设备 | 超过 40 小时、100 名受试者、自然人体运动 | 3D 轨迹真值 | 当前行人神经惯性导航最重要的公共基准之一；具有 seen/unseen 泛化设置 | P0 |
-| [UTIAS Foot-Mounted INS](https://starslab.ca/foot-mounted-inertial-navigation-dataset/) | 足绑 IMU | 5 名受试者，总行程超过 7.6 km | 多种位置参考 | 足绑 ZUPT/INS 的高价值公共数据；可形成独立 foot-mounted 轨道 | P0 |
-| [pyShoe Hallway](https://github.com/utiasSTARS/pyshoe) | 足绑 IMU | 39 次走/跑试验，3 条走廊 | 路径上的中间真值位置 | 数据、算法和代码结合紧密，适合作为足绑流水线的最小可运行样例 | P0 |
-| [IPIN 2019 Track 4](https://zenodo.org/records/3937220) | 足绑 IMU | IPIN 2019 离线竞赛数据 | 竞赛配套参考与评分材料 | 有真实竞赛协议，适合验证 leaderboard 与盲测式评测设计 | P1 |
-| [Pedestrian Inertial Navigation Dataset with Wearable Sensor](https://recherche.data.gouv.fr/en/dataset/pedestrian-inertial-navigation-dataset-with-wearable-sensor) | 可穿戴惯性传感器 | 2 名受试者、6 条真实路线、总计超过 2 km；校园、办公楼、城市、树林、商场停车场 | 数据页提供配套定位参考 | 场景跨度较好，但规模较小，适合外部测试 | P1 |
-| SIMD | 智能手机 | 论文报告超过 4,500 条轨迹、约 190 小时、超过 700 km | 需进一步核验真值生成与公开下载内容 | 规模很大，若数据和许可完整，可能成为重要训练集 | P1，待核验 |
+| 名称 | 类型 | 独立数据集 | 说明 |
+|---|---|---:|---|
+| RoNIN | 方法、论文、数据集 | 是 | 官方仅公开约 50%，但仍是最常用行人基准之一 |
+| RIDI | 方法、论文、数据集 | 是 | Robust IMU Double Integration |
+| OxIOD | 数据集、论文 | 是 | Oxford Inertial Odometry Dataset |
+| TLIO | 方法、论文、数据集 | 是 | EqNIO 官方仓库现提供可下载的 TLIO golden 数据 |
+| IDOL | 方法、论文、数据集 | 是 | 20+ 小时数据公开在 Zenodo |
+| IMUNet | 方法、论文 | 是，另有 IMUNet_dataset | 论文还使用 RoNIN、RIDI、OxIOD |
+| CTIN | 方法、论文 | 自有数据未完整公开 | 论文使用 RIDI、OxIOD、RoNIN、IDOL 和自有数据 |
+| iMoT | 方法、论文 | 否 | AAAI 2025，实验使用 RIDI、RoNIN、OxIOD、IDOL |
+| EqNIO | 方法、论文 | 否 | ICLR 2025；官方仓库提供 TLIO 数据下载 |
+| AirIO | 方法、论文 | 有 Pegasus 仿真集 | 使用 EuRoC、Blackbird、Pegasus |
+| X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
 
-### 2.1 RIDI
+## 3. 论文到数据集的溯源矩阵
 
-RIDI 在 ECCV 2018 论文中提出。论文报告数据约 150 分钟、200 Hz，覆盖手机从手持到口袋、包内等放置变化；真值由 Google Tango 设备的视觉—惯性系统产生。它不是最精确或最大的集合，但具有以下 benchmark 价值：
+| 论文 | 年份/出处 | 实验数据集 |
+|---|---|---|
+| [Deep Learning for Inertial Positioning: A Survey](https://arxiv.org/abs/2303.03757) | IEEE T-ITS 2024 | 行人、车辆、无人机、机器人等领域数据 |
+| [IMUNet](https://ieeexplore.ieee.org/document/10480886/) | IEEE TIM 2024 | RoNIN、RIDI、OxIOD、IMUNet_dataset |
+| [CTIN](https://arxiv.org/abs/2112.02143) | AAAI 2022 | RIDI、OxIOD、RoNIN、IDOL、自有数据 |
+| [iMoT](https://ojs.aaai.org/index.php/AAAI/article/view/32664) | AAAI 2025 | RIDI、RoNIN、OxIOD、IDOL |
+| [EqNIO](https://openreview.net/forum?id=C8jXEugWkq) | ICLR 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
+| [Neural Inertial Odometry from Lie Events](https://arxiv.org/abs/2505.09780) | RSS 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
+| [AirIO](https://arxiv.org/abs/2501.15659) | 2025 | EuRoC、Blackbird、Pegasus |
+| [X-IONet](https://arxiv.org/abs/2511.08277) | 2026 | RoNIN、GrandTour、Go2 |
+| [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
+| [TLIO](https://arxiv.org/abs/2007.01867) | IEEE RA-L 2020 | TLIO 自建数据 |
 
-- 是学习式行人惯性定位发展史上的关键数据集；
-- 文件规模适中，适合先建立下载、校验、预处理和缓存机制；
-- 后续 RoNIN、EqNIO 等工作仍将其用于跨数据集测试。
+论文证据得到的主干集合是：
 
-风险：真值属于视觉—惯性估计而非全程独立高精度动捕；需要核验各序列的手机姿态、坐标变换和时间同步定义。
+> **行人/人体：RIDI、OxIOD、RoNIN、IDOL、TLIO、IMUNet_dataset**  
+> **跨平台：Aria、EuRoC、Blackbird、GrandTour、Pegasus、Go2**
 
-主要来源：[项目主页](https://yanhangpublic.github.io/ridi/)、[ECCV 2018 论文](https://openaccess.thecvf.com/content_ECCV_2018/papers/Hang_Yan_RIDI_Robust_IMU_ECCV_2018_paper.pdf)、[官方代码](https://github.com/higerra/ridi_imu)。
+## 4. 核心行人和人体携带数据集
 
-### 2.2 OxIOD
+### 4.1 RoNIN — P0
 
-OxIOD 是专门面向深度惯性里程计的数据集。官方论文报告：
+- 超过 40 小时、100 名受试者、自然人体运动；
+- 200 Hz IMU 和 3D 轨迹真值；
+- 包含 seen/unseen 测试；
+- 官方说明因安全原因仅公开约 50% 数据；
+- EqNIO 与 RSS 2025 Lie Events 均只使用公开部分。
 
-- 158 条序列，总距离超过 42 km；
-- 4 种携带方式：手持、口袋、手提包、推车；
-- 4 种运动模式：停止、慢走、正常行走、跑步；
-- 5 名用户、4 类消费级手机；
-- 主要为室内场景；多数序列使用光学动捕提供位置、速度和姿态标签。
+入口：[论文](https://arxiv.org/abs/1905.12853)、[代码](https://github.com/Sachini/ronin)、[数据页](https://ronin.cs.sfu.ca/)。
 
-它适合评测携带方式变化、设备差异以及二维/三维输出的兼容性。需要特别注意：并非所有序列的真值来源和质量完全一致，不能在预处理时将其无差别合并。
+接入要求：明确标记 public subset，不能声称复现原论文全量训练。
 
-主要来源：[官方数据页](https://deepio.cs.ox.ac.uk/)、[论文](https://arxiv.org/abs/1809.07491)。
+### 4.2 RIDI — P0
 
-### 2.3 RoNIN
+- 约 150 分钟，200 Hz；
+- 手持、口袋、包内等携带方式；
+- 真值来自 Google Tango 视觉—惯性系统；
+- 被 RoNIN、CTIN、iMoT、EqNIO、Lie Events、IMUNet 等反复使用。
 
-RoNIN 将任务定义为从 IMU 序列估计移动主体的位置与方向。论文报告超过 40 小时的数据、100 名受试者以及自然人体运动下的 3D 轨迹真值。它的重要性不仅在规模，还在于强调跨人员和跨场景泛化。
+入口：[项目页](https://yanhangpublic.github.io/ridi/)、[论文](https://openaccess.thecvf.com/content_ECCV_2018/papers/Hang_Yan_RIDI_Robust_IMU_ECCV_2018_paper.pdf)、[代码](https://github.com/higerra/ridi_imu)。
 
-首版实现时应保留官方序列级划分，禁止随机切窗后再随机分配训练/测试，否则同一轨迹会发生数据泄漏。benchmark 至少应分别报告：
+风险：真值属于 VIO 参考，不能与独立 Vicon 真值等价描述。
 
-- seen subjects/scenes；
-- unseen subjects/scenes；
-- 跨数据集 zero-shot 测试；
-- 端到端轨迹指标与固定时间窗相对误差。
+### 4.3 OxIOD — P0
 
-主要来源：[论文](https://arxiv.org/abs/1905.12853)。
+- 158 条序列、总距离超过 42 km；
+- 4 类手机、5 名用户；
+- 手持、口袋、手提包、推车；
+- 停止、慢走、正常行走、跑步；
+- 多数序列为光学动捕真值，长距离序列参考来源不同；
+- 被 RoNIN、CTIN、iMoT、EqNIO、Lie Events、IMUNet 使用。
 
-### 2.4 SIMD
+入口：[官方页面](https://deepio.cs.ox.ac.uk/)、[论文](https://arxiv.org/abs/1809.07491)。
 
-《Smartphone-Based Pedestrian Inertial Tracking: Dataset, Model, and Deployment》报告了一个大规模 Smartphone Inertial Measurement Dataset：超过 4,500 条行走轨迹、约 190 小时、总距离超过 700 km。其规模非常有吸引力，但目前必须先完成以下核验再决定是否接入：
+风险：必须按序列记录真值来源，不能假设所有序列同精度。
 
-- 官方下载入口是否长期可访问；
-- 公开部分是否包含全部轨迹和足够的真值；
-- 采集设备、采样率和时间同步细节；
-- 数据许可是否允许建立自动下载器或只允许用户手动申请；
-- 论文中的训练划分是否能够复现。
+### 4.4 IDOL — P0
 
-因此，SIMD 暂列 P1，而不是在仅凭论文规模描述的情况下直接列为 P0。
+- 20+ 小时室内行人手机 IMU；
+- 15 名用户、3 栋建筑；
+- 同时评测设备方向与位置；
+- 完整数据公开在 Zenodo；
+- CTIN 与 iMoT 均将其作为核心实验数据。
 
-## 3. 足绑惯性导航轨道
+入口：[论文](https://arxiv.org/abs/2102.04024)、[仓库](https://github.com/KlabCMU/IDOL)、[Zenodo](https://zenodo.org/records/4484093)。
 
-足绑 IMU 与自由携带手机的运动约束完全不同：足部周期性静止使零速更新（ZUPT）成为核心机制。因此应建立独立任务，不与手机神经惯性里程计共享排行榜。
+上一版漏掉 IDOL 是明确缺项。
 
-建议首批接入：
+### 4.5 TLIO Dataset — P0
 
-1. [UTIAS Foot-Mounted Inertial Navigation Dataset](https://starslab.ca/foot-mounted-inertial-navigation-dataset/)；
-2. [pyShoe Hallway Dataset](https://github.com/utiasSTARS/pyshoe)；
-3. [IPIN 2019 Competition Track 4](https://zenodo.org/records/3937220)；
-4. 早期高精度光学参考足绑数据集（需继续确认官方下载与许可）。
+EqNIO 论文附录和官方仓库说明：
 
-建议任务：
+- 400 条序列，总计约 60 小时；
+- 原始 IMU 1 kHz，发布版本含 200 Hz 处理数据；
+- Bosch BMI055 安装在与相机刚性连接的头戴设备上；
+- 超过 5 名受试者；
+- 包含行走、整理厨房、上下楼梯等活动；
+- 参考状态含位置、方向、速度、IMU bias 和 noise；
+- 80%/10%/10% train/val/test；
+- 发布数据包含校准、原始测试 IMU、处理后的 IMU/VIO ground truth 和 split；
+- attitude filter data 未包含。
 
-- 零速区间检测；
-- 姿态/航向估计；
-- 纯足绑 INS 轨迹估计；
-- 不同步态（走、跑）与不同受试者泛化。
+入口：[论文](https://arxiv.org/abs/2007.01867)、[项目页](https://cathias.github.io/TLIO/)、[EqNIO 数据说明](https://github.com/RoyinaJayanth/EqNIO)。
 
-## 4. 特定载体与新型 IMU 配置
+关键修正：TLIO 原始代码仓库没有直接给出完整下载，不等于数据无法获得；EqNIO 后续已经提供 TLIO golden v1.5 下载。许可与原始权属仍需核验。
 
-这些数据不应进入第一阶段的行人主榜，但适合后续建立独立 track。
+### 4.6 IMUNet_dataset — P1
 
-| 数据集 | 平台 | 特点 | 建议用途 |
-|---|---|---|---|
-| [IO-VNBD](https://doi.org/10.1016/j.dib.2021.106885) | 汽车 | 文献报告超过 58 小时、约 4,400 km 的惯性与里程计数据 | 车辆惯性/里程计融合轨道；需核验原始下载入口 |
-| [AI-IMU Dead-Reckoning](https://github.com/mbrossar/ai-imu-dr) | 轮式车辆 | IMU-only 车辆航位推算代码与配套数据流程 | 学习辅助滤波基线与车辆轨道 |
-| [Multiple and Gyro-Free Inertial Datasets](https://pmc.ncbi.nlm.nih.gov/articles/PMC11450167/) | 移动机器人、乘用车、转台 | 54 个惯性传感器组成 9 个 IMU；支持 MIMU/GFINS；约 45 小时并带真值 | 多 IMU、无陀螺仪结构研究 |
-| [Wheel-Mounted Inertial Datasets](https://www.nature.com/articles/s41597-025-06224-w) | 乘用车、移动机器人 | 14 个 IMU，其中包含轮载 IMU；约 73.75 分钟采集，按全部 IMU 计约 578 分钟数据 | 轮载 IMU 与车体 IMU 对比 |
-| [i2Nav-Robot](https://github.com/i2Nav-WHU/i2Nav-Robot) | 轮式机器人 | 大尺度室内外、多传感器、提供 ROS bag 与原始文本格式 | 多传感器导航扩展轨道与格式适配参考 |
-| [UrbanNav](https://www.polyu-ipn-lab.com/) | 城市车辆 | 面向城市峡谷的 GNSS/INS/多传感器定位 | GNSS 退化与融合导航，不宜放入纯 IMU 主榜 |
-| [UrbanLoco](https://github.com/weisongwen/UrbanLoco) | 城市车辆 | 13 条轨迹、超过 40 km，含 LiDAR、相机、IMU、GNSS | 城市多模态定位扩展 |
-| [KITTI Raw](https://www.cvlibs.net/datasets/kitti/raw_data.php) | 汽车 | 广泛使用的相机、激光、GPS/IMU 数据 | 生态兼容性测试；并非纯惯性专用数据集 |
+IMUNet 是方法，但官方仓库还发布了独立数据：
 
-## 5. 视觉—惯性与多模态辅助数据集
+- Android 手机 IMU；
+- Google ARCore API 提供轨迹参考；
+- 结合 RIDI 的 Lenovo Tango 真值采集思路；
+- 提供数据下载、预处理代码与 Android 采集应用；
+- IMUNet 论文还使用 RoNIN、RIDI、OxIOD。
 
-这些数据具有高质量同步 IMU 和位姿真值，可用于验证统一读取接口、六自由度输出和跨平台泛化，但其采集目标不是 IMU-only 定位。建议单独标记为 **auxiliary**。
+入口：[论文](https://arxiv.org/abs/2208.00068)、[仓库与数据](https://github.com/BehnamZeinali/IMUNet)。
 
-| 数据集 | 平台与规模 | 可用于惯性研究的价值 | 限制 |
-|---|---|---|---|
-| [ADVIO](https://github.com/AaltoVision/ADVIO) | 手持智能手机；室内外、楼梯、扶梯、电梯、商场、地铁站等 | 自然人类移动、多场景、手机级 IMU | 原始任务是视觉—惯性里程计；真值和纯 IMU可观测性需分开讨论 |
-| [EuRoC MAV](https://projects.asl.ethz.ch/datasets/euroc-mav/) | 微型飞行器；双目、同步 IMU、精确真值 | 高频动态、标准化格式、6-DoF 轨迹 | 仅 11 条主要序列，平台与行人差异大 |
-| [TUM-VI](https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset) | 手持相机—IMU 装置；室内外多类序列 | 时间戳、标定、IMU 坐标系与真值组织规范，适合作为格式设计参考 | 许多长序列只在起止段提供动捕真值 |
-| [UZH-FPV](https://fpv.ifi.uzh.ch/) | 激进飞行无人机；27+ 序列、10+ km | 极端角速度、加速度和高速 6-DoF 运动 | 非行人域；许可为非商业使用 |
-| [Aria Everyday Activities](https://www.projectaria.com/datasets/aea) | Aria 眼镜；143 条日常活动序列、5 个地点 | 头戴式 IMU、全局对齐高频轨迹、真实日常活动 | 下载需接受专用协议；许可限制非商业研究及特定研究领域 |
-| [InCrowd-VI](https://incrowd-vi.cloudlab.zhaw.ch/) | Aria 眼镜；58 条序列、约 5 km、1.5 小时 | 室内人群遮挡条件下的人体导航与高质量轨迹 | 主要为 VIO/SLAM 评测，真值来自机器感知服务而非独立动捕 |
+待核验：规模、设备、采样率、ARCore/Tango 真值质量和许可证。
 
-## 6. 明确不纳入定位主榜的数据
+## 5. 最新论文引出的跨平台数据集
 
-以下数据即使包含 IMU，也不应仅凭“有加速度和陀螺仪”而加入定位 benchmark：
+### Aria Everyday Activities — P1
 
-- 只有活动类别、没有连续轨迹或位姿真值的 HAR 数据集；
-- 只有步数、步态、关节角或医学标签的数据集；
-- 只有原始 IMU、没有可靠定位参考的数据；
-- 仅提供论文统计、没有可访问数据文件的数据；
-- 真值与 IMU 时间不同步且无法修复的数据；
-- 许可禁止目标用途、结果公开或必要格式转换的数据。
+EqNIO 与 Lie Events 用它测试 TLIO 类模型。包含 143 条日常活动序列、多名佩戴者和 5 个地点，并提供 Project Aria 眼镜的高频全局轨迹。下载需接受专用许可。
 
-这类数据未来可以用于 IMU 表征预训练，但必须与定位评测数据分离。
+入口：[官方页面](https://www.projectaria.com/datasets/aea)。
 
-## 7. 初步结论
+### Blackbird — P1
 
-### 7.1 第一阶段不宜覆盖所有载体
+AirIO 使用的高动态 UAV 数据集：
 
-如果一开始同时支持手机、足绑、汽车、无人机、多 IMU 和视觉—惯性，统一格式会迅速变成一个过度抽象的容器，评测协议也无法保持公平。
+- 168 次飞行、17 种轨迹、5 个环境；
+- 超过 10 小时、最高 7 m/s；
+- 100 Hz IMU、约 190 Hz 电机转速；
+- 360 Hz 毫米级动捕真值。
 
-建议第一版聚焦：
+入口：[论文](https://arxiv.org/abs/1810.01987)、[数据页](http://blackbird-dataset.mit.edu/)。
 
-> **人体携带式、IMU-only、学习式惯性里程计**
+### EuRoC MAV — P1
 
-首批 P0 数据集：
+AirIO 已将 EuRoC 用于纯惯性学习实验，而不只是 VIO。它有 11 条主要飞行序列、同步 IMU/双目和精确真值；应放入 UAV track。
 
-1. RIDI；
-2. OxIOD；
-3. RoNIN。
+入口：[官方页面](https://projects.asl.ethz.ch/datasets/euroc-mav/)。
 
-随后新增一个独立的足绑轨道：
+### Pegasus — P2
 
-4. UTIAS Foot-Mounted；
-5. pyShoe；
-6. IPIN 2019 Track 4。
+AirIO 的仿真 UAV 数据，共 7 条轨迹，4 条训练、3 条测试。是否随代码完整公开仍需核验。
 
-### 7.2 “统一”不等于强行同质化
+### GrandTour — P1
 
-统一格式应该保留三层信息：
+X-IONet 使用的四足机器人数据：
 
-- **raw**：尽可能忠实保存原始字段；
-- **canonical**：统一时间戳、单位、坐标约定和真值接口；
-- **derived**：重采样、重力对齐、滑窗、速度/位移标签等可再生成特征。
+- ANYmal-D、49+ 环境/任务；
+- 多相机、LiDAR、IMU、本体感知；
+- RTK-GNSS 与 Leica 全站仪真值；
+- 官网、GitHub、Hugging Face 均有入口；
+- 可提取 IMU-only 子集，但不能忽略其多模态原始定位。
 
-不能只发布处理后的网络输入，否则会丢失复现实验和改变预处理策略的能力。
+入口：[官网](https://grand-tour.leggedrobotics.com/)、[GitHub](https://github.com/leggedrobotics/grand_tour_dataset)、[论文](https://arxiv.org/abs/2602.18164)。
 
-### 7.3 统一评测至少需要两类协议
+### Go2 — P2
 
-- **in-domain**：遵循数据集官方或文献通用划分；
-- **cross-domain**：在一个或多个数据集训练，在完全不同数据集上测试。
+X-IONet 自采 Unitree Go2 数据。论文有结果，但完整数据的稳定公开入口仍需核验。
 
-其中 train/val/test 必须按受试者、场景或完整序列切分，不能先切滑窗再随机划分。
+## 6. 独立扩展轨道
 
-## 8. 下一轮核验任务
+| 数据集 | 平台 | 状态与用途 |
+|---|---|---|
+| [UTIAS Foot-Mounted INS](https://starslab.ca/foot-mounted-inertial-navigation-dataset/) | 足绑 | 公开；ZUPT/足绑 INS |
+| [pyShoe](https://github.com/utiasSTARS/pyshoe) | 足绑 | 公开；39 次走/跑试验 |
+| [IPIN 2019 Track 4](https://zenodo.org/records/3937220) | 足绑 | 公开；竞赛式评测 |
+| [IO-VNBD](https://doi.org/10.1016/j.dib.2021.106885) | 车辆 | 下载与许可待深查 |
+| [AI-IMU-DR](https://github.com/mbrossar/ai-imu-dr) | 车辆 | 公开代码与数据流程 |
+| [Multiple and Gyro-Free](https://pmc.ncbi.nlm.nih.gov/articles/PMC11450167/) | 车/机器人/转台 | 公开；MIMU/GFINS |
+| [Wheel-Mounted](https://www.nature.com/articles/s41597-025-06224-w) | 车辆/机器人 | 公开；轮载 IMU |
+| [ADVIO](https://github.com/AaltoVision/ADVIO) | 手持 | 公开；多模态辅助 |
+| [TUM-VI](https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset) | 手持 | 公开；VIO/格式兼容 |
+| [UZH-FPV](https://fpv.ifi.uzh.ch/) | UAV | 非商业使用限制 |
 
-- [ ] 下载并检查 RIDI 的真实目录结构、字段、单位、坐标系与许可；
-- [ ] 下载并检查 OxIOD，不同子集分别记录真值来源；
-- [ ] 获取 RoNIN 官方数据与 split 文件，核对 seen/unseen 定义；
-- [ ] 查找 SIMD 的官方长期下载入口、许可和完整元数据；
-- [ ] 对 UTIAS、pyShoe、IPIN 2019 做足绑数据字段对照；
-- [ ] 建立数据集许可证与再分发矩阵；
-- [ ] 统计每个数据集的实际序列数、时长、距离、采样率、缺失率和文件体积；
-- [ ] 根据前三个 P0 数据集反推 unified schema，而不是预先设计过度通用的格式。
+## 7. 推荐的 benchmark tracks
 
-## 参考入口
+### Track A：手机/人体携带式 2D IO
 
-- [RoNIN paper](https://arxiv.org/abs/1905.12853)
-- [RIDI paper](https://openaccess.thecvf.com/content_ECCV_2018/papers/Hang_Yan_RIDI_Robust_IMU_ECCV_2018_paper.pdf)
-- [OxIOD paper](https://arxiv.org/abs/1809.07491)
-- [TLIO paper](https://arxiv.org/abs/2007.01867)
-- [EqNIO / ICLR 2025](https://proceedings.iclr.cc/paper_files/paper/2025/hash/6554c4151c2ccbd36da2d55c015b2039-Abstract-Conference.html)
-- [ADVIO repository](https://github.com/AaltoVision/ADVIO)
-- [EuRoC official page](https://projects.asl.ethz.ch/datasets/euroc-mav/)
-- [TUM-VI official page](https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset)
-- [Aria Everyday Activities](https://www.projectaria.com/datasets/aea)
-- [Multiple and Gyro-Free Inertial Datasets](https://pmc.ncbi.nlm.nih.gov/articles/PMC11450167/)
-- [Wheel-Mounted Inertial Datasets](https://www.nature.com/articles/s41597-025-06224-w)
+RoNIN、RIDI、OxIOD、IDOL、IMUNet_dataset。
+
+兼容 RoNIN、CTIN、iMoT、IMUNet 类速度/位移回归，报告 in-domain 和 cross-dataset 泛化。
+
+### Track B：头戴式 3D IO
+
+TLIO、Aria Everyday Activities。
+
+兼容 TLIO、EqNIO、Lie Events 类 3D displacement + uncertainty + EKF。
+
+### Track C：高动态 UAV IO
+
+Blackbird、EuRoC、Pegasus（确认公开后）。
+
+### Track D：足绑 INS
+
+UTIAS、pyShoe、IPIN 2019 Track 4。
+
+### Track E：腿式机器人 IO
+
+GrandTour、Go2（若公开）。
+
+不同 track 可以共享基础 IMU schema，但不能强行共享输出定义、训练协议和排行榜。
+
+## 8. 下一阶段实物核验
+
+- [ ] RoNIN：公开序列数、体积、字段和 seen/unseen split；
+- [ ] RIDI：目录、坐标系、Tango 真值和许可；
+- [ ] OxIOD：逐序列设备、携带方式和真值来源；
+- [ ] IDOL：Zenodo 文件、方向/位置标签、建筑/人员划分；
+- [ ] TLIO：下载 golden v1.5，核验列描述、raw/resampled IMU、calibration、split 和 CC BY-NC 条款；
+- [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
+- [ ] 为每个数据集记录下载方式、SHA256、许可和不可再分发要求；
+- [ ] 根据六个核心数据集反推 unified schema；
+- [ ] 建立论文—数据集引用数据库，以后新增论文时自动暴露遗漏项。
+
+## 9. 修正后的结论
+
+上一版识别 RIDI、OxIOD、RoNIN 为核心没有错，但明显不完整：漏掉了 IDOL、TLIO 后续公开版本和 IMUNet_dataset，也没有从最新方法论文建立证据链。
+
+当前核心范围应至少包括：
+
+> **RoNIN、RIDI、OxIOD、IDOL、TLIO、IMUNet_dataset**
+
+并将 **Aria、Blackbird、EuRoC、GrandTour** 纳入跨设备、UAV 与腿式机器人扩展。TLIO 类 3D 头戴式任务和 RoNIN 类 2D 手机任务应属于同一项目下的不同 track，而不是混在一个排行榜中。
