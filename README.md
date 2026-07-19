@@ -39,7 +39,7 @@
 - [x] 调研公开惯性定位数据集与开源方法
 - [x] 设计统一数据格式（草案 v0.1）
 - [x] 统一预处理流程与坐标系约定（草案 v0.1）
-- [ ] 实现通用数据集接口
+- [x] 实现通用数据集接口（核心层 v0.1）
 - [ ] 接入首个数据集
 - [ ] 集成具有代表性的基线方法
 - [ ] 定义评测指标与基准协议
@@ -55,6 +55,28 @@
 - [数据集](docs/DATASETS.md)：记录数据规模、真值、许可、下载与接入状态。
 
 两份文档持续更新；论文信息只进入论文表，数据细节只进入数据集表，避免重复。
+
+## 快速使用
+
+当前代码假设数据已转换为[统一数据规范](docs/FORMAT.md)中的 HDF5 格式：
+
+\`\`\`bash
+pip install -e ".[test]"
+pytest
+\`\`\`
+
+\`\`\`python
+from inertial_benchmark import CanonicalSequence, WindowDataset
+
+sequence = CanonicalSequence.from_hdf5("sequence.h5")
+dataset = WindowDataset(sequence, window_size=200, stride=10, target="velocity")
+
+sample = dataset[0]
+print(sample.features.shape)  # (6, 200)
+print(sample.target.shape)    # (3,)
+\`\`\`
+
+核心层不依赖 PyTorch；后续可在训练框架中直接封装 \`WindowDataset\`。
 
 ## 项目状态
 
