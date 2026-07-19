@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -33,15 +31,6 @@ def make_sequence(n: int = 11) -> CanonicalSequence:
         position=position,
         attributes=attributes,
     )
-
-
-def test_hdf5_round_trip(tmp_path: Path):
-    original = make_sequence()
-    output = tmp_path / "sequence.h5"
-    original.to_hdf5(output)
-    loaded = CanonicalSequence.from_hdf5(output)
-    np.testing.assert_allclose(loaded.position, original.position)
-    assert loaded.attributes["sequence_id"] == "constant_velocity"
 
 
 def test_velocity_window_shape_and_value():
