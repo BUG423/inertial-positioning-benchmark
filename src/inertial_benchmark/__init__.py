@@ -1,4 +1,4 @@
-"""Core data interface for the inertial positioning benchmark."""
+"""惯性定位基准的统一数据核心接口。"""
 
 from .data import CanonicalSequence, SequenceValidationError, WindowDataset, WindowSample
 
