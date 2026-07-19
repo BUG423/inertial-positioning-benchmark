@@ -45,14 +45,12 @@
 - [ ] 定义评测指标与基准协议
 - [ ] 提供可复现的基准实验结果
 
-## 调研与追踪
+## 调研
 
-- [论文 Review](docs/PAPER_REVIEW.md)
-- [Dataset Review](docs/DATASET_REVIEW.md)
-- [完整数据集调研](docs/DATASET_SURVEY.md)
-- [领域时间线](docs/TIMELINE.md)
+- [论文与时间表](docs/PAPERS.md)：按年份追踪论文、方法、实验数据和开放状态。
+- [数据集](docs/DATASETS.md)：记录数据规模、真值、许可、下载与接入状态。
 
-这些文档持续追踪新论文、数据集、代码、模型、许可和下载状态。
+两份文档持续更新；论文信息只进入论文表，数据细节只进入数据集表，避免重复。
 
 ## 项目状态
 
