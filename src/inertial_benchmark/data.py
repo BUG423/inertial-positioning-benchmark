@@ -1,4 +1,4 @@
-"""统一序列的读写、校验，以及与模型框架无关的滑窗视图。"""
+"""统一序列的读取、校验，以及与模型框架无关的滑窗视图。"""
 
 from __future__ import annotations
 
@@ -74,33 +74,6 @@ class CanonicalSequence:
         if validate:
             sequence.validate()
         return sequence
-
-    def to_hdf5(self, path: PathLike, *, overwrite: bool = False) -> None:
-        """校验后将完整序列写入 HDF5；默认禁止覆盖已有文件。"""
-
-        self.validate()
-        output = Path(path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        mode = "w" if overwrite else "x"
-        with h5py.File(output, mode) as handle:
-            handle.require_group("imu")
-            handle.require_group("pose")
-            handle.require_group("valid")
-            handle.create_dataset("timestamp", data=self.timestamp)
-            handle.create_dataset("imu/gyroscope", data=self.gyroscope)
-            handle.create_dataset("imu/accelerometer", data=self.accelerometer)
-            handle.create_dataset("pose/orientation", data=self.orientation)
-            handle.create_dataset("pose/position", data=self.position)
-            for name, value in (
-                ("pose/velocity", self.velocity),
-                ("valid/imu", self.valid_imu),
-                ("valid/orientation", self.valid_orientation),
-                ("valid/position", self.valid_position),
-            ):
-                if value is not None:
-                    handle.create_dataset(name, data=value)
-            for key, value in self.attributes.items():
-                handle.attrs[key] = value
 
     def validate(self, *, quaternion_atol: float = 1e-3) -> None:
         """检查维度、数值、时间戳、四元数、元数据和坐标约定。"""
