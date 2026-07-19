@@ -1,4 +1,4 @@
-"""Canonical sequence IO, validation, and model-agnostic window views."""
+"""统一序列的读写、校验，以及与模型框架无关的滑窗视图。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 Array = NDArray[np.floating]
 PathLike = Union[str, Path]
 
+# 统一维护必需属性，避免各数据集适配器产生不兼容的元数据。
 REQUIRED_ATTRIBUTES = {
     "schema_version",
     "dataset",
@@ -30,16 +31,15 @@ REQUIRED_ATTRIBUTES = {
 
 
 class SequenceValidationError(ValueError):
-    """Raised when a sequence violates the canonical data contract."""
+    """当一条序列不满足统一数据契约时抛出。"""
 
 
 @dataclass(frozen=True)
 class CanonicalSequence:
-    """One time-aligned trajectory in the canonical representation.
+    """统一表示下的一条时间对齐轨迹。
 
-    Gyroscope and accelerometer samples are body-frame measurements. Orientation
-    is a body-to-world unit quaternion in ``wxyz`` order. Position and optional
-    velocity are expressed in the declared world frame.
+    陀螺仪和加速度计均保留在机体系；姿态为 ``wxyz`` 顺序的 body-to-world
+    单位四元数；位置和可选速度位于 ``world_frame`` 声明的世界坐标系中。
     """
 
     timestamp: Array
@@ -55,7 +55,7 @@ class CanonicalSequence:
 
     @classmethod
     def from_hdf5(cls, path: PathLike, *, validate: bool = True) -> "CanonicalSequence":
-        """Load one canonical sequence from an HDF5 file."""
+        """从 HDF5 文件读取一条统一序列，并默认立即校验。"""
 
         with h5py.File(path, "r") as handle:
             optional = lambda name: np.asarray(handle[name]) if name in handle else None
@@ -76,7 +76,7 @@ class CanonicalSequence:
         return sequence
 
     def to_hdf5(self, path: PathLike, *, overwrite: bool = False) -> None:
-        """Validate and write the complete sequence to an HDF5 file."""
+        """校验后将完整序列写入 HDF5；默认禁止覆盖已有文件。"""
 
         self.validate()
         output = Path(path)
@@ -103,7 +103,7 @@ class CanonicalSequence:
                 handle.attrs[key] = value
 
     def validate(self, *, quaternion_atol: float = 1e-3) -> None:
-        """Validate dimensions, values, timestamps, metadata, and conventions."""
+        """检查维度、数值、时间戳、四元数、元数据和坐标约定。"""
 
         errors = []
         n = len(self.timestamp)
@@ -127,6 +127,7 @@ class CanonicalSequence:
         elif not np.all(np.diff(self.timestamp) > 0):
             errors.append("timestamp: values must be strictly increasing")
 
+        # 先确认形状和有限性，再检查范数，避免次生异常掩盖真正的数据问题。
         if self.orientation.shape == (n, 4) and np.isfinite(self.orientation).all():
             norm = np.linalg.norm(self.orientation, axis=1)
             if not np.allclose(norm, 1.0, atol=quaternion_atol, rtol=0.0):
@@ -154,7 +155,7 @@ class CanonicalSequence:
 
 @dataclass(frozen=True)
 class WindowSample:
-    """A model-ready IMU window and its endpoint target."""
+    """可直接交给模型的 IMU 窗口及其端点目标。"""
 
     features: Array
     target: Array
@@ -165,10 +166,10 @@ class WindowSample:
 
 
 class WindowDataset:
-    """Lazy sliding-window view over canonical sequences.
+    """统一序列之上的惰性滑窗视图。
 
-    The view preserves native timestamps. Targets are endpoint displacement or
-    average endpoint velocity and can be 2D or 3D.
+    该视图不假设固定采样率。目标为窗口首尾位置的位移，或位移除以真实时间差
+    得到的平均速度；输出维度可选 2D 或 3D。
     """
 
     def __init__(
@@ -196,6 +197,8 @@ class WindowDataset:
         self._index = self._build_index()
 
     def _build_index(self) -> list[tuple[int, int]]:
+        """只建立轻量索引，不复制窗口数据。"""
+
         index = []
         for sequence_index, sequence in enumerate(self.sequences):
             sequence.validate()
@@ -217,9 +220,11 @@ class WindowDataset:
         sequence = self.sequences[sequence_index]
         stop = start + self.window_size
         end = stop - 1
+        # 统一通道顺序：[gyro_xyz, accelerometer_xyz]，输出形状为 (6, T)。
         features = np.concatenate(
             (sequence.gyroscope[start:stop], sequence.accelerometer[start:stop]), axis=1
         ).T.astype(np.float32, copy=False)
+        # 目标使用窗口首、末样本，因此 duration 对应 T-1 个采样间隔。
         displacement = sequence.position[end] - sequence.position[start]
         duration = float(sequence.timestamp[end] - sequence.timestamp[start])
         value = displacement / duration if self.target == "velocity" else displacement
@@ -234,6 +239,8 @@ class WindowDataset:
 
 
 def _window_is_valid(sequence: CanonicalSequence, start: int, stop: int) -> bool:
+    """任一已提供的有效掩码为 False 时，丢弃整个窗口。"""
+
     for mask in (sequence.valid_imu, sequence.valid_orientation, sequence.valid_position):
         if mask is not None and not np.asarray(mask[start:stop], dtype=bool).all():
             return False
