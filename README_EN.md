@@ -36,14 +36,18 @@ Raw Dataset
 
 ## Roadmap
 
-- [ ] Survey public inertial positioning datasets and open-source methods
-- [ ] Design the unified data schema
-- [ ] Define preprocessing and coordinate conventions
+- [x] Survey public inertial positioning datasets and open-source methods
+- [x] Design the unified data schema (draft v0.1)
+- [x] Define preprocessing and coordinate conventions (draft v0.1)
 - [ ] Implement the common dataset interface
 - [ ] Add the first supported dataset
 - [ ] Integrate representative baselines
 - [ ] Define evaluation metrics and benchmark protocols
 - [ ] Provide reproducible benchmark results
+
+## Data Interface
+
+- [Unified data specification](docs/FORMAT.md): canonical sequences, coordinates, units, preprocessing rules, and the first six adapters.
 
 ## Research
 
