@@ -45,6 +45,15 @@
 - [ ] 定义评测指标与基准协议
 - [ ] 提供可复现的基准实验结果
 
+## 调研与追踪
+
+- [论文 Review](docs/PAPER_REVIEW.md)
+- [Dataset Review](docs/DATASET_REVIEW.md)
+- [完整数据集调研](docs/DATASET_SURVEY.md)
+- [领域时间线](docs/TIMELINE.md)
+
+这些文档持续追踪新论文、数据集、代码、模型、许可和下载状态。
+
 ## 项目状态
 
 本项目目前处于早期阶段。数据格式、支持的任务、数据集、基线方法和评测协议将逐步完善，并以开放方式记录设计与讨论过程。
