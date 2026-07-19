@@ -45,6 +45,11 @@ Raw Dataset
 - [ ] Define evaluation metrics and benchmark protocols
 - [ ] Provide reproducible benchmark results
 
+## Research
+
+- [Papers and timeline](docs/PAPERS.md): papers, methods, experimental datasets, and release status by year.
+- [Datasets](docs/DATASETS.md): scope, ground truth, licensing, availability, and integration status.
+
 ## Project Status
 
 This project is at an early stage. The data schema, supported tasks, datasets, baselines, and evaluation protocols will be developed incrementally, with design decisions and discussions documented openly.
