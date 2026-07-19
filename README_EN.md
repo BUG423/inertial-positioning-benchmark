@@ -58,12 +58,12 @@ Raw Dataset
 
 The current code assumes that data already follow the canonical HDF5 [data specification](docs/FORMAT.md):
 
-\`\`\`bash
+```bash
 pip install -e ".[test]"
 pytest
-\`\`\`
+```
 
-\`\`\`python
+```python
 from inertial_benchmark import CanonicalSequence, WindowDataset
 
 sequence = CanonicalSequence.from_hdf5("sequence.h5")
@@ -72,7 +72,7 @@ dataset = WindowDataset(sequence, window_size=200, stride=10, target="velocity")
 sample = dataset[0]
 print(sample.features.shape)  # (6, 200)
 print(sample.target.shape)    # (3,)
-\`\`\`
+```
 
 The core layer is framework-agnostic and can be wrapped by a PyTorch data pipeline later.
 
