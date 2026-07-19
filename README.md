@@ -1,62 +1,68 @@
-# Inertial Positioning Benchmark
+<div align="center">
 
-A unified, reproducible, and extensible benchmark for inertial positioning research.
+# 惯性定位基准
 
-## Motivation
+一个统一、可复现、可扩展的惯性定位研究基准。
 
-Research in inertial positioning currently relies on heterogeneous datasets, preprocessing pipelines, data formats, evaluation protocols, and baseline implementations. These inconsistencies make fair comparison difficult and create unnecessary overhead when reproducing or extending prior work.
+[中文](README.md) | [English](README_EN.md)
 
-This project aims to provide a common foundation for the community by organizing representative datasets and methods under a unified workflow.
+</div>
 
-## Goals
+## 项目动机
 
-- Define a unified data format for inertial positioning datasets.
-- Provide reproducible preprocessing pipelines for supported datasets.
-- Offer a simple and consistent API for loading processed data.
-- Integrate representative open-source baseline methods.
-- Establish standardized evaluation protocols and metrics.
-- Make it easier to reproduce, compare, and extend existing research.
+目前，惯性定位研究所使用的数据集、预处理流程、数据格式、评测协议和基线实现各不相同。这些差异使算法之间难以进行公平比较，也给复现和拓展已有工作带来了不必要的负担。
 
-## Planned Workflow
+本项目希望将具有代表性的数据集与方法组织在一套统一流程下，为惯性定位社区提供一个开放、规范且易用的研究基础设施。
+
+## 项目目标
+
+- 为惯性定位数据集定义统一的数据格式；
+- 为支持的数据集提供可复现的预处理流程；
+- 提供简单、一致的数据加载接口；
+- 集成具有代表性的开源基线方法；
+- 建立标准化的评测协议与指标；
+- 降低复现、比较和拓展现有研究的门槛。
+
+## 规划中的工作流程
 
 ```text
-Raw Dataset
-    -> Dataset-specific Preprocessing
-    -> Unified Data Format
-    -> Common Data Loader
-    -> Baseline Methods
-    -> Standardized Evaluation
+原始数据集
+    -> 数据集专用预处理
+    -> 统一数据格式
+    -> 通用数据加载器
+    -> 基线方法
+    -> 标准化评测
 ```
 
-## Roadmap
+## 路线图
 
-- [ ] Survey public inertial positioning datasets and open-source methods
-- [ ] Design the unified data schema
-- [ ] Define preprocessing and coordinate conventions
-- [ ] Implement the common dataset interface
-- [ ] Add the first supported dataset
-- [ ] Integrate representative baselines
-- [ ] Define evaluation metrics and benchmark protocols
-- [ ] Provide reproducible benchmark results
+- [ ] 调研公开惯性定位数据集与开源方法
+- [ ] 设计统一数据格式
+- [ ] 统一预处理流程与坐标系约定
+- [ ] 实现通用数据集接口
+- [ ] 接入首个数据集
+- [ ] 集成具有代表性的基线方法
+- [ ] 定义评测指标与基准协议
+- [ ] 提供可复现的基准实验结果
 
-## Project Status
+## 项目状态
 
-This project is at an early stage. The data schema, supported tasks, datasets, baselines, and evaluation protocols will be developed incrementally and documented openly.
+本项目目前处于早期阶段。数据格式、支持的任务、数据集、基线方法和评测协议将逐步完善，并以开放方式记录设计与讨论过程。
 
-## Contributing
+## 参与贡献
 
-Contributions and discussions are welcome.
+我们欢迎任何形式的贡献与讨论，也特别期待数据集作者、算法作者以及从事惯性导航与定位研究的同行参与。
 
-We especially welcome participation from dataset authors, method authors, and researchers working on inertial navigation and positioning. You can contribute by:
+你可以通过以下方式帮助建设本项目：
 
-- suggesting datasets, methods, tasks, or evaluation protocols;
-- helping validate preprocessing pipelines and coordinate conventions;
-- contributing dataset adapters or baseline implementations;
-- reporting reproducibility issues;
-- sharing feedback on the benchmark design.
+- 推荐值得纳入的数据集、方法、任务或评测协议；
+- 协助验证预处理流程和坐标系约定；
+- 贡献数据集适配器或基线实现；
+- 报告复现过程中遇到的问题；
+- 对 benchmark 的整体设计提出建议。
 
-Contribution guidelines will be added as the project structure matures. For now, please open an issue to introduce your proposal or start a discussion.
+随着项目结构逐渐成熟，我们会补充完整的贡献指南。现阶段，欢迎通过 Issue 介绍你的建议、方案或合作意向。
 
-## License
+## 许可证
 
-A license will be selected before the first code release. Individual datasets and baseline methods will retain their original licenses and terms of use.
+本项目将在首次代码发布前确定许可证。所接入的数据集和基线方法仍遵循各自原有的许可证与使用条款。
