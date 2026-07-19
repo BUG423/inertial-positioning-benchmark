@@ -39,7 +39,7 @@ Raw Dataset
 - [x] Survey public inertial positioning datasets and open-source methods
 - [x] Design the unified data schema (draft v0.1)
 - [x] Define preprocessing and coordinate conventions (draft v0.1)
-- [ ] Implement the common dataset interface
+- [x] Implement the common dataset interface (core v0.1)
 - [ ] Add the first supported dataset
 - [ ] Integrate representative baselines
 - [ ] Define evaluation metrics and benchmark protocols
@@ -53,6 +53,28 @@ Raw Dataset
 
 - [Papers and timeline](docs/PAPERS.md): papers, methods, experimental datasets, and release status by year.
 - [Datasets](docs/DATASETS.md): scope, ground truth, licensing, availability, and integration status.
+
+## Quick Start
+
+The current code assumes that data already follow the canonical HDF5 [data specification](docs/FORMAT.md):
+
+\`\`\`bash
+pip install -e ".[test]"
+pytest
+\`\`\`
+
+\`\`\`python
+from inertial_benchmark import CanonicalSequence, WindowDataset
+
+sequence = CanonicalSequence.from_hdf5("sequence.h5")
+dataset = WindowDataset(sequence, window_size=200, stride=10, target="velocity")
+
+sample = dataset[0]
+print(sample.features.shape)  # (6, 200)
+print(sample.target.shape)    # (3,)
+\`\`\`
+
+The core layer is framework-agnostic and can be wrapped by a PyTorch data pipeline later.
 
 ## Project Status
 
