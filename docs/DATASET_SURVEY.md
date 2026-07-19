@@ -34,7 +34,8 @@
 | iMoT | 方法、论文 | 否 | AAAI 2025，实验使用 RIDI、RoNIN、OxIOD、IDOL |
 | EqNIO | 方法、论文 | 否 | ICLR 2025；官方仓库提供 TLIO 数据下载 |
 | AirIO | 方法、论文 | 有 Pegasus 仿真集 | 使用 EuRoC、Blackbird、Pegasus |
-| RNIN-VIO | 方法、论文 | 是，另有自采 SenseINS 数据 | 使用 IDOL 20 小时与约 7 小时自采多手机数据 |\n| X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
+| RNIN-VIO | 方法、论文 | 是，另有自采 SenseINS 数据 | 使用 IDOL 20 小时与约 7 小时自采多手机数据 |
+| X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
 
 ## 3. 论文到数据集的溯源矩阵
 
@@ -48,7 +49,8 @@
 | [Neural Inertial Odometry from Lie Events](https://arxiv.org/abs/2505.09780) | RSS 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
 | [AirIO](https://arxiv.org/abs/2501.15659) | 2025 | EuRoC、Blackbird、Pegasus |
 | [X-IONet](https://arxiv.org/abs/2511.08277) | 2026 | RoNIN、GrandTour、Go2 |
-| [RNIN-VIO](https://zju3dv.github.io/rnin-vio/) | ISMAR 2021 | IDOL 约 20 小时、自采 SenseINS 约 7 小时 |\n| [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
+| [RNIN-VIO](https://zju3dv.github.io/rnin-vio/) | ISMAR 2021 | IDOL 约 20 小时、自采 SenseINS 约 7 小时 |
+| [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
 | [TLIO](https://arxiv.org/abs/2007.01867) | IEEE RA-L 2020 | TLIO 自建数据 |
 
 论文证据得到的主干集合是：
@@ -254,7 +256,8 @@ GrandTour、Go2（若公开）。
 - [ ] OxIOD：逐序列设备、携带方式和真值来源；
 - [ ] IDOL：Zenodo 文件、方向/位置标签、建筑/人员划分；
 - [ ] TLIO：下载 golden v1.5，核验列描述、raw/resampled IMU、calibration、split 和 CC BY-NC 条款；
-- [ ] RNIN-VIO/SenseINS：下载约 7 小时自采数据，区分 BVIO 与 Vicon 真值并核验字段和数据许可；\n- [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
+- [ ] RNIN-VIO/SenseINS：下载约 7 小时自采数据，区分 BVIO 与 Vicon 真值并核验字段和数据许可；
+- [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
 - [ ] 为每个数据集记录下载方式、SHA256、许可和不可再分发要求；
 - [ ] 根据六个核心数据集反推 unified schema；
 - [ ] 建立论文—数据集引用数据库，以后新增论文时自动暴露遗漏项。
