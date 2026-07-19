@@ -60,12 +60,12 @@
 
 当前代码假设数据已转换为[统一数据规范](docs/FORMAT.md)中的 HDF5 格式：
 
-\`\`\`bash
+```bash
 pip install -e ".[test]"
 pytest
-\`\`\`
+```
 
-\`\`\`python
+```python
 from inertial_benchmark import CanonicalSequence, WindowDataset
 
 sequence = CanonicalSequence.from_hdf5("sequence.h5")
@@ -74,9 +74,9 @@ dataset = WindowDataset(sequence, window_size=200, stride=10, target="velocity")
 sample = dataset[0]
 print(sample.features.shape)  # (6, 200)
 print(sample.target.shape)    # (3,)
-\`\`\`
+```
 
-核心层不依赖 PyTorch；后续可在训练框架中直接封装 \`WindowDataset\`。
+核心层不依赖 PyTorch；后续可在训练框架中直接封装 `WindowDataset`。
 
 ## 项目状态
 
