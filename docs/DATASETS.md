@@ -1,7 +1,7 @@
 # 惯性定位数据集
 
 > 版本：v2（论文反向追踪版）  
-> 最近核验：2026-07-19  
+> 最近核验：2026-07-27  
 > 状态：持续更新
 
 ## 1. 调研方法
@@ -36,6 +36,8 @@
 | AirIO | 方法、论文 | 有 Pegasus 仿真集 | 使用 EuRoC、Blackbird、Pegasus |
 | RNIN-VIO | 方法、论文 | 是，另有自采 SenseINS 数据 | 使用 IDOL 20 小时与约 7 小时自采多手机数据 |
 | X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
+| DINS-IO | 方法、论文 | 否 | 使用 TLIO 与自采 Tango；无位置标签预训练不等于完全不需要姿态输入或少量度量标定 |
+| Tango（DINS-IO） | 数据集 | 是 | 作者自采头戴式行人数据，与 RIDI 使用的 Google Tango 设备/数据不可混同；当前未公开 |
 
 ## 3. 论文到数据集的溯源矩阵
 
@@ -52,6 +54,7 @@
 | [RNIN-VIO](https://zju3dv.github.io/rnin-vio/) | ISMAR 2021 | IDOL 约 20 小时、自采 SenseINS 约 7 小时 |
 | [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
 | [TLIO](https://arxiv.org/abs/2007.01867) | IEEE RA-L 2020 | TLIO 自建数据 |
+| [DINS-IO](https://arxiv.org/abs/2607.20232) | arXiv 2026-07-22 | TLIO、自采 Tango |
 
 论文证据得到的主干集合是：
 
@@ -161,6 +164,21 @@ RNIN-VIO 是 ISMAR 2021 的视觉—惯性融合方法，但其核心 RNIN 网�
 
 接入结论：**自采 SenseINS 数据列为 P0/P1 之间的高优先级候选。** 它补足了多手机、上下楼、跑步和 3D 人体运动，但 BVIO 真值与 Vicon 真值必须分别标记，不能混成统一精度。
 
+### 4.8 Tango（DINS-IO）— P2
+
+DINS-IO 论文报告的自采行人惯性数据，需与 RIDI 中使用的 Google Tango 设备及其数据严格区分：
+
+- 超过 40 小时，6 名受试者；
+- 使用 ASUS Tango 手机，以头戴方式采集，并覆盖多个物理设备；
+- 包含行走、静止、坐下和上下楼梯；
+- 鱼眼全局快门相机与内置 IMU 提供视觉—惯性参考轨迹，采集时关闭 area learning；
+- DINS-IO 将其余完整轨迹视作无标签预训练池，仅抽取少量有标签轨迹做 LoRA 度量校准；
+- 截至 2026-07-27，论文及 arXiv 页面未给出稳定的数据下载、代码、权重或数据许可证入口。
+
+入口：[论文](https://arxiv.org/abs/2607.20232)。
+
+接入结论：当前只能登记为论文内自采数据，不能视为公开数据集，也不能纳入可复现排行榜。
+
 ## 5. 最新论文引出的跨平台数据集
 
 ### Aria Everyday Activities — P1
@@ -264,6 +282,7 @@ GrandTour、Go2（若公开）。
 - [ ] TLIO：下载 golden v1.5，核验列描述、raw/resampled IMU、calibration、split 和 CC BY-NC 条款；
 - [ ] RNIN-VIO/SenseINS：下载约 7 小时自采数据，区分 BVIO 与 Vicon 真值并核验字段和数据许可；
 - [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
+- [ ] Tango（DINS-IO）：持续追踪官方数据、代码、权重和许可证是否发布；
 - [ ] 为每个数据集记录下载方式、SHA256、许可和不可再分发要求；
 - [ ] 根据六个核心数据集反推 unified schema；
 - [ ] 建立论文—数据集引用数据库，以后新增论文时自动暴露遗漏项。
