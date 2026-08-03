@@ -1,7 +1,7 @@
 # 惯性定位数据集
 
 > 版本：v2（论文反向追踪版）  
-> 最近核验：2026-07-27  
+> 最近核验：2026-08-03  
 > 状态：持续更新
 
 ## 1. 调研方法
@@ -34,6 +34,8 @@
 | iMoT | 方法、论文 | 否 | AAAI 2025，实验使用 RIDI、RoNIN、OxIOD、IDOL |
 | EqNIO | 方法、论文 | 否 | ICLR 2025；官方仓库提供 TLIO 数据下载 |
 | AirIO | 方法、论文 | 有 Pegasus 仿真集 | 使用 EuRoC、Blackbird、Pegasus |
+| TartanIMU | 方法、论文；亦有同名论文配套数据 | 是 | CVPR 2025，多平台预训练数据超过 100 小时；不要与规模较小的 IROS 2026 Challenge 数据混同 |
+| IROS 2026 TartanIMU Challenge | 数据集、竞赛协议 | 是 | 37.9 小时四平台统一模型基准；下载受 Hugging Face/Kaggle 登录与条款约束 |
 | RNIN-VIO | 方法、论文 | 是，另有自采 SenseINS 数据 | 使用 IDOL 20 小时与约 7 小时自采多手机数据 |
 | X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
 | DINS-IO | 方法、论文 | 否 | 使用 TLIO 与自采 Tango；无位置标签预训练不等于完全不需要姿态输入或少量度量标定 |
@@ -50,6 +52,7 @@
 | [EqNIO](https://openreview.net/forum?id=C8jXEugWkq) | ICLR 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
 | [Neural Inertial Odometry from Lie Events](https://arxiv.org/abs/2505.09780) | RSS 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
 | [AirIO](https://arxiv.org/abs/2501.15659) | 2025 | EuRoC、Blackbird、Pegasus |
+| [TartanIMU](https://openaccess.thecvf.com/content/CVPR2025/papers/Zhao_Tartan_IMU_A_Light_Foundation_Model_for_Inertial_Positioning_in_CVPR_2025_paper.pdf) | CVPR 2025 | SubT-MRS、IDOL、Blackbird、UZH 等八个平台数据；另有同名论文配套发布 |
 | [X-IONet](https://arxiv.org/abs/2511.08277) | 2026 | RoNIN、GrandTour、Go2 |
 | [RNIN-VIO](https://zju3dv.github.io/rnin-vio/) | ISMAR 2021 | IDOL 约 20 小时、自采 SenseINS 约 7 小时 |
 | [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
@@ -59,7 +62,7 @@
 论文证据得到的主干集合是：
 
 > **行人/人体：RIDI、OxIOD、RoNIN、IDOL、TLIO、RNIN-VIO/SenseINS、IMUNet_dataset**  
-> **跨平台：Aria、EuRoC、Blackbird、GrandTour、Pegasus、Go2**
+> **跨平台：Aria、EuRoC、Blackbird、GrandTour、Pegasus、Go2、IROS 2026 TartanIMU Challenge**
 
 ## 4. 核心行人和人体携带数据集
 
@@ -181,6 +184,25 @@ DINS-IO 论文报告的自采行人惯性数据，需与 RIDI 中使用的 Googl
 
 ## 5. 最新论文引出的跨平台数据集
 
+### IROS 2026 TartanIMU Challenge — P1
+
+这是 IROS 2026 竞赛数据集，需与 CVPR 2025 论文的 **TartanIMU 方法**及其超过 100 小时的同名配套数据严格区分：
+
+- 车、四足机器人、无人机、手持人体四个平台，共 37.9 小时、136,289 个 1 秒窗口；
+- 200 Hz 六轴 IMU；每个窗口 200 帧，目标为 3D body-frame 平均速度；
+- train/val/test 为 81,931 / 23,714 / 30,644 个窗口；公开页列出 395 条训练轨迹和 80 条验证轨迹；
+- train/val 提供平台标签、位置、四元数和 body-frame 速度；test 隐藏平台与真值，要求单一共享模型；
+- 官方说明按整条记录划分并用原始 IMU 的 SHA-256 去重，public/private test 也按整轨迹分离；
+- 2026-08-01 发布官方 TartanIMU LSTM 训练/推理代码、starter kit 与 Hugging Face 基线权重；代码为 Apache-2.0；
+- 2026-08-02 官方仓库用当前 Kaggle 评分器替换已退役的单一 ATE20 评分。当前主指标为 `0.6 × (AVE / 0.7356384388) + 0.4 × (ATE20 / 3.1160277267)`，四个平台宏平均，越低越好；
+- 截至 2026-08-03，Challenge 概览/数据页仍有仅写宏平均 ATE 的旧说明；接入时以 Kaggle Evaluation 页和仓库中的当前评分器为准；
+- Hugging Face 数据入口在未登录核验时返回 401，Kaggle 也要求登录并接受竞赛规则，因此归为“受协议约束公开”，不是匿名直链；
+- 许可证必须拆分记录：代码仓库为 Apache-2.0；模型仓库页面标记 MIT，但模型卡同时写明训练数据与相关权重限研究/非商业使用；数据集自身许可仍需在获准下载后逐文件核验，不能从代码许可推断。
+
+入口：[官方数据说明](https://superodometry.com/imuchallenge/data/)、[Kaggle 竞赛](https://www.kaggle.com/competitions/tartan-imu-challenge-iros2026)、[代码与评分器](https://github.com/superxslam/TartanIMU)、[基线权重](https://huggingface.co/Tartan-IMU/TartanIMU)。
+
+接入结论：结构和任务定义清晰，适合作为跨载体统一模型 Track；在完成条款留档、实物下载、字段校验和哈希记录前维持 P1。
+
 ### Aria Everyday Activities — P1
 
 EqNIO 与 Lie Events 用它测试 TLIO 类模型。包含 143 条日常活动序列、多名佩戴者和 5 个地点，并提供 Project Aria 眼镜的高频全局轨迹。下载需接受专用许可。
@@ -265,6 +287,10 @@ UTIAS、pyShoe、IPIN 2019 Track 4。
 
 GrandTour、Go2（若公开）。
 
+### Track F：跨载体统一 3D body-frame velocity
+
+IROS 2026 TartanIMU Challenge。必须使用一套共享权重同时处理车、四足机器人、无人机和手持人体，test 不提供平台标签；采用当前 Kaggle TartanIMU Score，不与单平台排行榜直接混排。
+
 不同 track 可以共享基础 IMU schema，但不能强行共享输出定义、训练协议和排行榜。
 
 ## 8. 接入状态
@@ -283,6 +309,7 @@ GrandTour、Go2（若公开）。
 - [ ] RNIN-VIO/SenseINS：下载约 7 小时自采数据，区分 BVIO 与 Vicon 真值并核验字段和数据许可；
 - [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
 - [ ] Tango（DINS-IO）：持续追踪官方数据、代码、权重和许可证是否发布；
+- [ ] TartanIMU Challenge：接受条款后核验实际文件、数据许可、split 哈希与当前评分器，并固定版本；
 - [ ] 为每个数据集记录下载方式、SHA256、许可和不可再分发要求；
 - [ ] 根据六个核心数据集反推 unified schema；
 - [ ] 建立论文—数据集引用数据库，以后新增论文时自动暴露遗漏项。
@@ -295,4 +322,4 @@ GrandTour、Go2（若公开）。
 
 > **RoNIN、RIDI、OxIOD、IDOL、TLIO、RNIN-VIO/SenseINS、IMUNet_dataset**
 
-并将 **Aria、Blackbird、EuRoC、GrandTour** 纳入跨设备、UAV 与腿式机器人扩展。TLIO 类 3D 头戴式任务和 RoNIN 类 2D 手机任务应属于同一项目下的不同 track，而不是混在一个排行榜中。
+并将 **Aria、Blackbird、EuRoC、GrandTour** 纳入跨设备、UAV 与腿式机器人扩展，同时把 **IROS 2026 TartanIMU Challenge** 作为跨车、四足、无人机和人体的统一模型 Track。TLIO 类 3D 头戴式任务和 RoNIN 类 2D 手机任务应属于同一项目下的不同 track，而不是混在一个排行榜中。
