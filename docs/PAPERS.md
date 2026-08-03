@@ -1,6 +1,6 @@
 # 惯性定位论文
 
-> 最近更新：2026-07-27  
+> 最近更新：2026-08-03  
 > 维护规则：新增论文必须同时登记实验数据集、代码/模型状态、任务定义和对 benchmark 的影响。
 
 ## 状态标记
@@ -28,6 +28,7 @@
 | 2025 | [iMoT](https://ojs.aaai.org/index.php/AAAI/article/view/32664) | Motion Transformer，建模运动/旋转跨模态关系 | RIDI、RoNIN、OxIOD、IDOL | 代码状态待核验 | 已核验论文 |
 | 2025 | [EqNIO](https://openreview.net/forum?id=C8jXEugWkq) | 子等变 canonicalization，适配 TLIO/RoNIN | TLIO、Aria、RoNIN、RIDI、OxIOD | 代码与 TLIO 数据入口公开 | 已核验 |
 | 2025 | [AirIO](https://arxiv.org/abs/2501.15659) | 面向高动态 UAV 的 body-frame IO | EuRoC、Blackbird、Pegasus | 公开性逐项核验中 | 部分核验 |
+| 2025 / 2026-08-01 开源 | [TartanIMU](https://openaccess.thecvf.com/content/CVPR2025/papers/Zhao_Tartan_IMU_A_Light_Foundation_Model_for_Inertial_Positioning_in_CVPR_2025_paper.pdf) | 以多平台预训练、LoRA 和在线适配实现跨载体 3D body-frame 速度估计 | SubT-MRS、IDOL、Blackbird、UZH 等八个平台数据 | 2026-08-01 首次公开 LSTM 训练/推理代码与基线权重；Transformer 核心未发布；2026-08-02 同步当前 Challenge 评分器 | 已核验 |
 | 2025 | [Neural IO from Lie Events](https://arxiv.org/abs/2505.09780) | 用 Lie Events 表示替代固定频率 IMU 序列 | TLIO、Aria、RoNIN、RIDI、OxIOD | 论文公开 | 已核验论文 |
 | 2026 | [X-IONet](https://arxiv.org/abs/2511.08277) | 行人与四足机器人跨平台 IO | RoNIN、GrandTour、Go2 | GrandTour 公开；Go2 待核验 | 部分核验 |
 | 2026-07-22 | [DINS-IO](https://arxiv.org/abs/2607.20232) | 用可微分捷联 INS 速度递推残差进行无位置标签预训练，再用少量有标签轨迹和 LoRA 校准度量速度 | TLIO、自采 Tango | 论文公开；截至 2026-07-27 未发现官方代码、权重或数据入口 | 部分核验 |
