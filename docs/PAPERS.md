@@ -1,6 +1,6 @@
 # 惯性定位论文
 
-> 最近更新：2026-08-03  
+> 最近更新：2026-08-10  
 > 维护规则：新增论文必须同时登记实验数据集、代码/模型状态、任务定义和对 benchmark 的影响。
 
 ## 状态标记
@@ -32,6 +32,7 @@
 | 2025 | [Neural IO from Lie Events](https://arxiv.org/abs/2505.09780) | 用 Lie Events 表示替代固定频率 IMU 序列 | TLIO、Aria、RoNIN、RIDI、OxIOD | 论文公开 | 已核验论文 |
 | 2026 | [X-IONet](https://arxiv.org/abs/2511.08277) | 行人与四足机器人跨平台 IO | RoNIN、GrandTour、Go2 | GrandTour 公开；Go2 待核验 | 部分核验 |
 | 2026-07-22 | [DINS-IO](https://arxiv.org/abs/2607.20232) | 用可微分捷联 INS 速度递推残差进行无位置标签预训练，再用少量有标签轨迹和 LoRA 校准度量速度 | TLIO、自采 Tango | 论文公开；截至 2026-07-27 未发现官方代码、权重或数据入口 | 部分核验 |
+| 2026-08-06 | [TRACE](https://arxiv.org/abs/2608.05975) | 用足感知 cross-attention 和物理辅助损失，从 IMU 与关节状态端到端预测相对位移、旋转和 body-frame 速度；仿真预训练后少量实机微调 | RaiSim 仿真、Raibo2 自采室内外日志 | arXiv 论文为 CC BY 4.0；投稿 RA-L、尚未正式录用；截至 2026-08-10 未发现官方代码、权重或数据入口 | 部分核验 |
 
 ## 追踪规则
 
