@@ -1,7 +1,7 @@
 # 惯性定位数据集
 
 > 版本：v2（论文反向追踪版）  
-> 最近核验：2026-08-03  
+> 最近核验：2026-08-10  
 > 状态：持续更新
 
 ## 1. 调研方法
@@ -36,6 +36,7 @@
 | AirIO | 方法、论文 | 有 Pegasus 仿真集 | 使用 EuRoC、Blackbird、Pegasus |
 | TartanIMU | 方法、论文；亦有同名论文配套数据 | 是 | CVPR 2025，多平台预训练数据超过 100 小时；不要与规模较小的 IROS 2026 Challenge 数据混同 |
 | IROS 2026 TartanIMU Challenge | 数据集、竞赛协议 | 是 | 37.9 小时四平台统一模型基准；下载受 Hugging Face/Kaggle 登录与条款约束 |
+| TRACE | 方法、论文 | 否（仅有未命名、未发布的自采日志） | 腿式机器人本体感知里程计；输入为 IMU 与关节状态，不属于纯 IMU 数据集 |
 | RNIN-VIO | 方法、论文 | 是，另有自采 SenseINS 数据 | 使用 IDOL 20 小时与约 7 小时自采多手机数据 |
 | X-IONet | 方法、论文 | 有自采 Go2 数据 | 使用 RoNIN、GrandTour、Go2 |
 | DINS-IO | 方法、论文 | 否 | 使用 TLIO 与自采 Tango；无位置标签预训练不等于完全不需要姿态输入或少量度量标定 |
@@ -53,6 +54,7 @@
 | [Neural Inertial Odometry from Lie Events](https://arxiv.org/abs/2505.09780) | RSS 2025 | TLIO、Aria、RoNIN、RIDI、OxIOD |
 | [AirIO](https://arxiv.org/abs/2501.15659) | 2025 | EuRoC、Blackbird、Pegasus |
 | [TartanIMU](https://openaccess.thecvf.com/content/CVPR2025/papers/Zhao_Tartan_IMU_A_Light_Foundation_Model_for_Inertial_Positioning_in_CVPR_2025_paper.pdf) | CVPR 2025 | SubT-MRS、IDOL、Blackbird、UZH 等八个平台数据；另有同名论文配套发布 |
+| [TRACE](https://arxiv.org/abs/2608.05975) | arXiv 2026-08-06；投稿 RA-L | RaiSim 仿真、Raibo2 未命名自采室内外日志 |
 | [X-IONet](https://arxiv.org/abs/2511.08277) | 2026 | RoNIN、GrandTour、Go2 |
 | [RNIN-VIO](https://zju3dv.github.io/rnin-vio/) | ISMAR 2021 | IDOL 约 20 小时、自采 SenseINS 约 7 小时 |
 | [RoNIN](https://arxiv.org/abs/1905.12853) | 2019/2020 | RoNIN、RIDI、OxIOD |
@@ -203,6 +205,21 @@ DINS-IO 论文报告的自采行人惯性数据，需与 RIDI 中使用的 Googl
 
 接入结论：结构和任务定义清晰，适合作为跨载体统一模型 Track；在完成条款留档、实物下载、字段校验和哈希记录前维持 P1。
 
+### TRACE 自采 Raibo2 日志 — P2
+
+TRACE 是方法名，论文没有为其实机日志给出独立数据集名称：
+
+- 仿真预训练使用 RaiSim 生成数据；传感输入包含 500 Hz IMU、12 个关节的位置/速度、目标关节力矩及前一时刻估计量；
+- 实机微调使用 6 条各 150 秒的 Raibo2 日志：草地和平地各 3 条，最高速度 1–3 m/s，以 FAST-LIO2 为参考；原始微调日志合计约 15 分钟；
+- 室内测试覆盖平地、粗糙、低摩擦和软质地形，Vicon 真值为 200 Hz 并插值到 500 Hz；
+- 室外测试覆盖草地、硬地、楼梯和综合路线，以 10 Hz FAST-LIO2 轨迹插值为参考；测试轨迹与微调日志分离；
+- 该任务依赖 IMU 与腿部运动学，不应混入只接受六轴 IMU 的手机/人体 Track；
+- 截至 2026-08-10，论文和 arXiv 页面未给出官方数据、代码或权重入口；论文的 CC BY 4.0 仅适用于文稿，不能据此推断自采日志许可。
+
+入口：[论文与实验说明](https://arxiv.org/html/2608.05975v1)。
+
+接入结论：仅作为腿式机器人 Track 的 P2 线索。发布原始日志、真值来源说明、split、许可证和下载入口后才能进入可复现 benchmark。
+
 ### Aria Everyday Activities — P1
 
 EqNIO 与 Lie Events 用它测试 TLIO 类模型。包含 143 条日常活动序列、多名佩戴者和 5 个地点，并提供 Project Aria 眼镜的高频全局轨迹。下载需接受专用许可。
@@ -285,7 +302,7 @@ UTIAS、pyShoe、IPIN 2019 Track 4。
 
 ### Track E：腿式机器人 IO
 
-GrandTour、Go2（若公开）。
+GrandTour、Go2（若公开）；TRACE 自采日志在正式发布并核验许可后再纳入。
 
 ### Track F：跨载体统一 3D body-frame velocity
 
@@ -310,6 +327,7 @@ IROS 2026 TartanIMU Challenge。必须使用一套共享权重同时处理车、
 - [ ] IMUNet_dataset：规模、设备、真值、采样率和许可；
 - [ ] Tango（DINS-IO）：持续追踪官方数据、代码、权重和许可证是否发布；
 - [ ] TartanIMU Challenge：接受条款后核验实际文件、数据许可、split 哈希与当前评分器，并固定版本；
+- [ ] TRACE：追踪官方代码、权重及 Raibo2 自采日志是否发布，核验 Vicon/FAST-LIO2 真值与数据许可；
 - [ ] 为每个数据集记录下载方式、SHA256、许可和不可再分发要求；
 - [ ] 根据六个核心数据集反推 unified schema；
 - [ ] 建立论文—数据集引用数据库，以后新增论文时自动暴露遗漏项。
