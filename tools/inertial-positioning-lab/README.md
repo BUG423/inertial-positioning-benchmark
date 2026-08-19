@@ -18,6 +18,10 @@ Android IMU + ARCore VIO
 
 在 benchmark 单仓库中，本工具位于 `tools/inertial-positioning-lab/`；本仓库仍可独立构建和开发。两种入口使用相同的数据与模型契约。
 
+## 安装
+
+可从 benchmark 的 [Inertial Positioning Lab 1.1.0 Release](https://github.com/BUG423/inertial-positioning-benchmark/releases/tag/inertial-lab-v1.1.0) 下载 Android 预览安装包。该 APK 使用 Android debug 签名，适合真机功能验证、数据采集与实验，不作为应用商店生产签名版本。
+
 ## 能力
 
 - 规范目标固定为 200 Hz；若加速度计与陀螺仪的共同硬件上限不足，自动使用可达的最高频率并提示后续重采样；
