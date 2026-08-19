@@ -1,0 +1,16 @@
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+dist/
+*.h5
+*.iplab
+*.iplmodel
