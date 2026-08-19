@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+*.h5
+*.iplab
+*.iplmodel

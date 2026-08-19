@@ -34,12 +34,23 @@ Raw Dataset
     -> Standardized Evaluation
 ```
 
+Real-device recordings enter the same workflow through the bundled Android tool:
+
+```text
+Android IMU + ARCore VIO
+    -> Inertial Positioning Lab
+    -> Lossless .iplab archive
+    -> Canonical HDF5
+    -> Common loader and standardized evaluation
+```
+
 ## Roadmap
 
 - [x] Survey public inertial positioning datasets and open-source methods
 - [x] Design the unified data schema (draft v0.1)
 - [x] Define preprocessing and coordinate conventions (draft v0.1)
 - [x] Implement the common dataset interface (core v0.1)
+- [x] Provide Android data capture and on-device model evaluation tooling
 - [ ] Add the first supported dataset
 - [ ] Integrate representative baselines
 - [ ] Define evaluation metrics and benchmark protocols
@@ -48,6 +59,14 @@ Raw Dataset
 ## Data Interface
 
 - [Unified data specification](docs/FORMAT.md): canonical sequences, coordinates, units, preprocessing rules, and the first six adapters.
+
+## Benchmark Tools
+
+- [Inertial Positioning Lab](tools/inertial-positioning-lab): captures phone IMU and ARCore VIO reference trajectories, exports `.iplab`, converts recordings to canonical HDF5, and runs LiteRT/TFLite models on Android devices;
+- [Tooling and data-flow guide](docs/TOOLS.md): role, build and installation instructions, format boundaries, and maintenance workflow;
+- [GitHub Releases](https://github.com/BUG423/inertial-positioning-benchmark/releases): downloadable Android preview builds produced by the repository release workflow.
+
+The tool stabilizes only the on-screen trajectory to suppress stationary drift and tracking jumps. Archives retain the unfiltered ARCore VIO samples. VIO is a reference trajectory, not independent Vicon/RTK-grade ground truth.
 
 ## Research
 
@@ -61,6 +80,9 @@ The current code assumes that data already follow the canonical HDF5 [data speci
 ```bash
 pip install -e ".[test]"
 pytest
+
+# Convert an Android .iplab export to benchmark canonical HDF5
+python tools/inertial-positioning-lab/tools/convert_dataset.py recording.iplab -o datasets/android
 ```
 
 ```python
@@ -96,4 +118,4 @@ Contribution guidelines will be added as the project structure matures. For now,
 
 ## License
 
-A license will be selected before the first code release. Individual datasets and baseline methods will retain their original licenses and terms of use.
+The repository-wide open-source license is still being determined; source availability alone does not grant redistribution or commercial-use rights. Integrated datasets, baselines, and tools retain the licenses and terms declared in their respective directories.

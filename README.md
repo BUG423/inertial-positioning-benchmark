@@ -34,12 +34,23 @@
     -> 标准化评测
 ```
 
+真实设备数据还可以通过仓库内置的 Android 工具进入同一流程：
+
+```text
+Android IMU + ARCore VIO
+    -> Inertial Positioning Lab
+    -> .iplab 无损归档
+    -> canonical HDF5
+    -> 通用数据加载器与标准化评测
+```
+
 ## 路线图
 
 - [x] 调研公开惯性定位数据集与开源方法
 - [x] 设计统一数据格式（草案 v0.1）
 - [x] 统一预处理流程与坐标系约定（草案 v0.1）
 - [x] 实现通用数据集接口（核心层 v0.1）
+- [x] 提供 Android 端数据采集与真机模型评测工具
 - [ ] 接入首个数据集
 - [ ] 集成具有代表性的基线方法
 - [ ] 定义评测指标与基准协议
@@ -48,6 +59,14 @@
 ## 数据接口
 
 - [统一数据规范](docs/FORMAT.md)：规范序列、坐标系、单位、预处理规则与六个首批适配器。
+
+## Benchmark 工具
+
+- [Inertial Positioning Lab](tools/inertial-positioning-lab)：采集手机 IMU 与 ARCore VIO 参考轨迹、导出 `.iplab`、转换 canonical HDF5，并在 Android 真机上运行 LiteRT/TFLite 模型；
+- [工具与数据流说明](docs/TOOLS.md)：工具定位、构建安装、格式边界和维护方式；
+- [GitHub Releases](https://github.com/BUG423/inertial-positioning-benchmark/releases)：下载自动构建的 Android 预览安装包。
+
+该工具的界面轨迹会抑制静止漂移与跟踪跳点，但归档始终保留未经显示滤波的 ARCore VIO 样本。VIO 是参考轨迹，不等同于 Vicon/RTK 级独立真值。
 
 ## 调研
 
@@ -63,6 +82,9 @@
 ```bash
 pip install -e ".[test]"
 pytest
+
+# 将 Android 工具导出的 .iplab 转为 benchmark canonical HDF5
+python tools/inertial-positioning-lab/tools/convert_dataset.py recording.iplab -o datasets/android
 ```
 
 ```python
@@ -98,4 +120,4 @@ print(sample.target.shape)    # (3,)
 
 ## 许可证
 
-本项目将在首次代码发布前确定许可证。所接入的数据集和基线方法仍遵循各自原有的许可证与使用条款。
+本项目的统一开源许可证仍在确定中；公开源码不自动授予再分发或商业使用权。所接入的数据集、基线方法和工具仍遵循各自目录中声明的许可证与使用条款。

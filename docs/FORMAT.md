@@ -106,6 +106,8 @@
 
 表中只描述公开实现所需的通用转换职责；具体字段映射将以各数据集公开文档为准独立实现。
 
+除公开数据集适配器外，仓库内置的 [Inertial Positioning Lab](../tools/inertial-positioning-lab) 提供真实 Android 设备采集入口。其 `.iplab` 转换器输出同一 HDF5 契约，并明确保存 ARCore VIO 来源、局部坐标系和逐样本有效掩码；它不会把 VIO 标记为独立高精度真值。
+
 ### 6. 任务视图
 
 默认惯性速度回归视图可产生：
@@ -145,3 +147,5 @@ The canonical representation uses seconds, rad/s, m/s², metres, `wxyz` quaterni
 Official dataset splits take priority. Derived splits must record their method and random seed and must prevent subject or scene leakage. Reference sources such as Vicon, VIO, Tango, and ARCore remain explicitly distinguished.
 
 The first adapter set covers RoNIN, RIDI, OxIOD, IMUNet_dataset, TLIO, and RNIN-VIO/SenseINS. Conversion code will be independently implemented from public dataset documentation. This public repository does not redistribute source datasets or private reference material.
+
+The bundled [Inertial Positioning Lab](../tools/inertial-positioning-lab) additionally provides a real-device Android capture path. Its `.iplab` converter writes the same HDF5 contract while retaining the ARCore VIO provenance, local frame, and per-sample validity masks; it does not present VIO as independent precision ground truth.
