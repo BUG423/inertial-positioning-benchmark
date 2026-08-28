@@ -1,3 +1,5 @@
+> **整合说明**：本研究提案已迁入 `inertial-positioning-benchmark`，当前状态为 Proposal，尚未进入正式基准排行榜。
+
 # ModeMoEIO：面向学习式惯性里程计的运动模式条件混合专家方法
 
 **ModeMoEIO: Motion-Mode-Conditioned Mixture-of-Experts for Learning-Based Inertial Odometry**
@@ -365,7 +367,7 @@ ModeMoEIO 的核心假设是：惯性里程计中的运动状态并非单一同�
   title        = {{ModeMoEIO}: Motion-Mode-Conditioned Mixture-of-Experts for Learning-Based Inertial Odometry},
   year         = {2026},
   publisher    = {GitHub},
-  url          = {https://github.com/BUG423/moe-io},
+  url          = {https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/methods/moe-io},
   note         = {Preliminary Working Paper, version 0.1.0}
 }
 ```
