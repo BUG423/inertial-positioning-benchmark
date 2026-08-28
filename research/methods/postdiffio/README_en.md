@@ -1,3 +1,5 @@
+> **Consolidation note:** This research proposal now lives in `inertial-positioning-benchmark`. Its maturity is Proposal and it is not yet an official benchmark entry.
+
 <p align="right">
   <a href="README.md">🇨🇳 中文</a> | <b>🇬🇧 English</b>
 </p>
@@ -6,7 +8,6 @@
 
 > **Status**: Preprint · Code release pending · Validation in progress
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.0+](https://img.shields.io/badge/pytorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 
@@ -213,7 +214,7 @@ If you find this work useful, please cite:
   author    = {Your Name and Collaborators},
   journal   = {arXiv preprint},
   year      = {2025},
-  note      = {Work in progress. Code: https://github.com/BUG423/diffusion-io}
+  note      = {Work in progress. Code: https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/methods/postdiffio}
 }
 ```
 
@@ -221,7 +222,7 @@ If you find this work useful, please cite:
 
 ## 7. License
 
-This project is released under the [MIT License](LICENSE).
+The original project documentation stated an MIT license, but the source repository did not contain a standalone LICENSE file. Review this repository's licensing notice before use or redistribution.
 
 **Copyright Notice**: The code and methodology in this repository are provided for research and academic purposes only. Please comply with all applicable copyright and intellectual property laws. Redistribution and derivative works must retain this notice.
 
