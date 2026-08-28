@@ -110,7 +110,7 @@ The core data layer is framework-agnostic.
 
 ## Contributing
 
-Contributions of dataset adapters, baselines, coordinate validation, evaluation protocols, and reproduction reports are welcome. Include provenance, licensing, and redistribution constraints for datasets and third-party methods.
+Contributions of dataset adapters, baselines, coordinate validation, evaluation protocols, and reproduction reports are welcome. Read the [contribution guide](CONTRIBUTING.md) before submitting changes. Include provenance, licensing, and redistribution constraints for datasets and third-party methods.
 
 ## License
 

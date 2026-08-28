@@ -56,16 +56,9 @@ cd tools/inertial-positioning-lab
 
 本地 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。带 `inertial-lab-v*` 的仓库标签会触发 GitHub Actions，创建 GitHub Release 并附加可安装的 debug 预览 APK。debug 签名只用于测试；生产分发应使用维护者控制的 release keystore。
 
-### 源码同步
+### 维护方式
 
-Android 工具同时在 [`BUG423/inertial-positioning-lab`](https://github.com/BUG423/inertial-positioning-lab) 独立开发。本仓库使用 Git subtree 保存完整源码，普通用户无需初始化 submodule。维护者同步新版时运行：
-
-```bash
-git subtree pull \
-  --prefix tools/inertial-positioning-lab \
-  git@github.com:BUG423/inertial-positioning-lab.git <branch-or-tag> \
-  --squash
-```
+Android 工具作为本仓库的一部分直接维护，唯一规范位置为 `tools/inertial-positioning-lab/`。修改工具时应在同一个 `main` 提交中同步更新代码、测试和相关文档，不依赖 submodule、subtree 或外部镜像仓库。
 
 ---
 
@@ -105,4 +98,4 @@ cd tools/inertial-positioning-lab
 
 The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Tags matching `inertial-lab-v*` trigger the release workflow and publish an installable debug preview APK. Production distribution should use a maintainer-controlled release signing key.
 
-The standalone source lives at [`BUG423/inertial-positioning-lab`](https://github.com/BUG423/inertial-positioning-lab). This repository carries a full Git subtree, so regular users do not need to initialize a submodule.
+The Android tool is maintained directly in `tools/inertial-positioning-lab/`, which is its canonical source. Changes should update code, tests, and documentation together in the same `main` history; no submodule, subtree, or external mirror is required.

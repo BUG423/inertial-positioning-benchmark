@@ -19,7 +19,7 @@ Inertial odometry (IO) estimates motion trajectories from raw inertial measureme
 
 We present **PostDiffIO**, a two-stage framework that augments a deterministic IO backbone with a conditional diffusion process over velocity residuals. In the first stage, a ResNet1D backbone adapted from RoNIN predicts baseline velocities from IMU sliding windows. In the second stage, a lightweight conditional diffusion refiner models the posterior distribution of the residual between the backbone prediction and ground-truth velocity. During training, the refiner learns to denoise the residual distribution conditioned on backbone features via a standard noise-prediction objective. At inference, deterministic DDIM sampling generates a set of residual samples whose mean refines the backbone estimate and whose variance quantifies prediction uncertainty. For sequential trajectory recovery, we further introduce an error-state Extended Kalman Filter (EKF) that fuses the diffusion-derived velocity observations with IMU strapdown mechanization, producing position and velocity estimates with full covariance tracking.
 
-Preliminary experiments on synthetic and public inertial datasets demonstrate that PostDiffIO outperforms the backbone alone in both velocity accuracy and uncertainty calibration, validating the effectiveness of diffusion-based residual refinement for IO.
+This directory defines the method and evaluation plan. It does not yet release auditable training code, configurations, logs, or result tables, and therefore makes no empirical claim about velocity accuracy, uncertainty calibration, or superiority over a baseline.
 
 ---
 
@@ -163,7 +163,7 @@ where H is the velocity observation matrix and R is the observation covariance d
 - **NLL**: Negative log-likelihood under the predicted uncertainty
 - **ECE**: Expected calibration error for uncertainty quality
 
-**Implementation**: PyTorch 2.0+, Python 3.10+, single NVIDIA RTX 3090. AdamW optimizer with cosine learning rate schedule. 100 diffusion training steps; 10-step DDIM sampling at inference.
+**Planned implementation**: PyTorch 2.0+ and Python 3.10+. The optimizer, training schedule, sampling schedule, and hardware budget will be frozen when the implementation and reproducible experiments are released.
 
 ### 4.2 Main Results
 
@@ -198,7 +198,7 @@ Planned ablations examine:
 
 We presented PostDiffIO, a conditional diffusion framework for uncertainty-aware inertial odometry. By decomposing velocity estimation into a deterministic backbone prediction and a diffusion-refined residual posterior, the proposed method achieves both real-time inference speed and principled uncertainty quantification. Integration with an error-state EKF further enables robust trajectory recovery with full covariance tracking.
 
-Preliminary experiments show that diffusion-based residual refinement improves both point-estimate accuracy and uncertainty calibration over the backbone alone. We believe this "deterministic prediction + diffusion refinement" paradigm is broadly applicable, extending beyond inertial odometry to any regression task that requires uncertainty awareness.
+The proposal hypothesizes that "deterministic prediction + diffusion refinement" can improve both point estimation and uncertainty modeling. This hypothesis remains to be tested with fixed data splits, parameter-matched baselines, and public configurations.
 
 Future work includes extending the framework to multi-modal sensor fusion, designing adaptive diffusion schedules conditioned on motion dynamics, and conducting comprehensive real-world deployment evaluations.
 
@@ -206,17 +206,7 @@ Future work includes extending the framework to multi-modal sensor fusion, desig
 
 ## 6. Citation
 
-If you find this work useful, please cite:
-
-```bibtex
-@article{postdiffio2025,
-  title     = {PostDiffIO: Conditional Diffusion Posterior Refinement for Uncertainty-Aware Inertial Odometry},
-  author    = {Your Name and Collaborators},
-  journal   = {arXiv preprint},
-  year      = {2025},
-  note      = {Work in progress. Code: https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/methods/postdiffio}
-}
-```
+Until a paper or preprint is released, cite this directory as a research proposal in the repository and link to a fixed commit. Formal BibTeX will be added after the authorship, title, and publication status are finalized.
 
 ---
 

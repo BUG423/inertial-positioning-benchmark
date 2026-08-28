@@ -14,7 +14,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[test]"
-      - run: pytest
+      - run: python -m compileall -q src tests tools
+      - run: pytest -q
 
   android-tool:
     runs-on: ubuntu-latest

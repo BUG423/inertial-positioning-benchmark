@@ -1,6 +1,6 @@
 # 🚶 Pedestrian Inertial Odometry 中 Global Frame 与 Body Frame 表征的实验与分析
 
-**Language:** 简体中文 | [English](README.en.md)
+**Language:** 简体中文 | [English](README_EN.md)
 
 > 🧭 本仓库用于整理一组关于**行人惯性里程计（Pedestrian Inertial Odometry, Pedestrian IO）中坐标系表征选择**的实验观察、理论分析与可视化结果。
 
@@ -322,9 +322,10 @@ $$
 ```bibtex
 @misc{pedestrian_io_frame_analysis,
   title  = {Global Frame vs Body Frame Representation in Pedestrian Inertial Odometry},
-  author = {233},
+  author = {BUG423},
   year   = {2026},
-  note   = {GitHub repository}
+  url    = {https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/studies/pedestrian-coordinate-frames},
+  note   = {Experimental study}
 }
 ```
 

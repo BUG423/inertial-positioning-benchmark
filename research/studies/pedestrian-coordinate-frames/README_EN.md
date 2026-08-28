@@ -212,33 +212,15 @@ This repository supports the following conclusions:
 
 ---
 
-## Suggested Repository Structure
-
-```text
-.
-├── README.md                         # Chinese version
-├── README.en.md                      # English version
-├── assets/
-│   ├── collect_data.png              # RoNIN-style data collection illustration
-│   ├── RoNIN-resnet18_global_vs_body.png
-│   └── 12_RoNIN-resnet18_comparison.png
-├── docs/
-│   ├── theory.md                     # Optional detailed derivation
-│   └── experiments.md                # Optional detailed experimental settings
-└── scripts/
-    └── ...                           # Optional training/inference/visualization code
-```
-
----
-
 ## Suggested Citation
 
 ```bibtex
 @misc{pedestrian_io_frame_analysis,
   title  = {Global Frame vs Body Frame Representation in Pedestrian Inertial Odometry},
-  author = {Your Name},
+  author = {BUG423},
   year   = {2026},
-  note   = {GitHub repository}
+  url    = {https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/studies/pedestrian-coordinate-frames},
+  note   = {Experimental study}
 }
 ```
 

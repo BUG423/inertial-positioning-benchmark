@@ -10,7 +10,7 @@
 
 > **Preliminary Disclosure**
 >
-> This repository presents an ongoing research effort. The research concept was developed using the author's self-built tool **PaperFlow** for problem decomposition, method organization, and early experiment planning, with limited preliminary validation conducted. A complete benchmark comparison, ablation experiments, cross-dataset validation, and statistical analysis have not yet been completed; therefore, no final performance conclusions are reported here.
+> This repository presents an ongoing research proposal. No auditable implementation, complete benchmark comparison, ablation study, cross-dataset validation, or statistical analysis has been released; therefore, no performance conclusion is reported here.
 >
 > This disclosure aims to establish a traceable original record of the **ModeMoEIO** concept, technical approach, and early implementation ideas. Complete experiments, model parameters, training code, and reproduction materials will be released after the research has been thoroughly validated and formed into a complete paper.
 
@@ -259,9 +259,7 @@ Target velocity, motion mode rules, and pseudo-labels do not participate in the 
 
 ### 4.1 Current Validation Status
 
-Limited-scale internal feasibility testing has been completed. Preliminary observations show that on the basis of maintaining shared temporal encoding capability, introducing motion-mode-conditioned experts allows the model to form non-identical expert responses and shows trends of outperforming a single regression head in some test settings.
-
-Since current validation is incomplete, this paper does not disclose specific numerical results, nor does it claim that the method has stably outperformed existing baselines. Current results only indicate that the following research hypotheses merit further verification:
+This directory does not yet publish auditable training code, configurations, logs, or result tables. It therefore makes no empirical performance claim. Future experiments will test the following hypotheses:
 
 1. Different motion modes may correspond to different local velocity mappings;
 2. Expert specialization based on motion modes may reduce cross-mode averaging in a single model;
@@ -341,7 +339,7 @@ Another important issue is expert granularity. Four basic modes facilitate estab
 
 This paper proposes ModeMoEIO, a motion-mode-conditioned mixture-of-experts framework for learning-based inertial odometry. The method extracts unified inertial representations through a shared temporal encoder and uses gating networks for soft assignment among multiple motion experts. During training, motion mode pseudo-labels constructed from horizontal velocity and yaw angular velocity guide stationary, straight-line, turning, and transitional experts to form physically meaningful specialization, while load-balancing constraints reduce expert collapse risk. During inference, the model relies entirely on IMU features for autonomous routing, requiring no rule labels or additional motion state inputs.
 
-The current work is still in its early stages, with preliminary validation supporting continued in-depth research but not yet sufficient for final performance conclusions. Subsequent work will complete systematic benchmark comparisons, cross-dataset experiments, trajectory-level evaluation, expert specialization analysis, and comprehensive ablation studies, and will further investigate more flexible motion mode discovery and routing mechanisms.
+The current work remains a research proposal and is not sufficient for a performance conclusion. Subsequent work will complete systematic benchmark comparisons, cross-dataset experiments, trajectory-level evaluation, expert specialization analysis, and comprehensive ablation studies.
 
 ---
 
@@ -349,7 +347,7 @@ The current work is still in its early stages, with preliminary validation suppo
 
 This repository constitutes the author's first public disclosure record of the **ModeMoEIO** concept, including the problem definition, motion-mode-conditioned expert framework, training-phase motion mode pseudo-supervision, soft expert fusion, and load-balancing design. Repository commit records, version tags, and release records serve to fix the public content and subsequent evolution at the corresponding time points.
 
-This paper is currently a preliminary working draft, not a final manuscript. The author is continuing to improve experiments, theoretical analysis, and paper writing. To protect the integrity of incomplete research and the rights related to unpublished implementation materials, no training code, model parameters, complete experiment configurations, or directly reproducible implementations are provided at this stage. After the research is completed, the paper is formed, and appropriate publication is achieved, the author will reassess the scope of code and experiment material openness.
+This document is a preliminary working draft, not a final manuscript. No training code, model parameters, complete experiment configurations, or directly reproducible implementation is provided; this directory should therefore be cited as a method proposal rather than a validated benchmark result.
 
 This repository grants no open-source license. Except where explicitly permitted by applicable law or GitHub platform terms, copying, adaptation, redistribution, commercial use, or creation of derivative implementations based on this content is prohibited without the author's written permission. Academic discussion and citation are not affected, but must clearly attribute the author, project name, repository source, and corresponding version.
 
