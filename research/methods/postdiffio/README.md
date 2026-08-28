@@ -1,3 +1,5 @@
+> **整合说明**：本研究提案已迁入 `inertial-positioning-benchmark`，当前状态为 Proposal，尚未进入正式基准排行榜。
+
 <p align="right">
   <b>🇨🇳 中文</b> | <a href="README_en.md">🇬🇧 English</a>
 </p>
@@ -6,7 +8,6 @@
 
 > **状态**：预印本 · 代码待发布 · 实验验证中
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.0+](https://img.shields.io/badge/pytorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 
@@ -213,7 +214,7 @@ PostDiffIO 以长度为 W 的滑动窗口处理 IMU 数据。在每个窗口内�
   author    = {Your Name and Collaborators},
   journal   = {arXiv preprint},
   year      = {2025},
-  note      = {Work in progress. Code: https://github.com/BUG423/diffusion-io}
+  note      = {Work in progress. Code: https://github.com/BUG423/inertial-positioning-benchmark/tree/main/research/methods/postdiffio}
 }
 ```
 
@@ -221,7 +222,7 @@ PostDiffIO 以长度为 W 的滑动窗口处理 IMU 数据。在每个窗口内�
 
 ## 7. 许可证
 
-本项目基于 [MIT 许可证](LICENSE) 发布。
+原始项目文档声明采用 MIT 许可证，但源仓库未包含独立 LICENSE 文件；使用或再分发前请参阅本仓库的许可证说明。
 
 **版权声明**：本仓库中的代码与方法仅用于研究和学术目的。请遵守相关版权及知识产权法规，再分发或衍生作品须保留此声明。
 
