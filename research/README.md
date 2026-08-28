@@ -1,11 +1,10 @@
 # Research
 
-This directory separates research material from the benchmark's executable core.
+Research material is kept outside the executable benchmark core so that proposals, empirical evidence, and production-ready baselines are not confused.
 
-| Area | Path | Maturity |
+| Category | Index | Included content |
 | --- | --- | --- |
-| PostDiffIO | [methods/postdiffio](methods/postdiffio) | Proposal |
-| MoE-IO | [methods/moe-io](methods/moe-io) | Proposal |
-| Pedestrian coordinate frames | [studies/pedestrian-coordinate-frames](studies/pedestrian-coordinate-frames) | Study |
+| Method proposals | [methods/](methods/) | PostDiffIO and ModeMoEIO |
+| Empirical studies | [studies/](studies/) | Pedestrian coordinate-frame analysis |
 
-A proposal is not an official benchmark baseline until its implementation, configuration, datasets, and reproducible results are available.
+A proposal is not an official benchmark baseline until its implementation, configuration, dataset splits, and reproducible results are available. Admission requirements are defined in the [repository layout specification](../docs/REPOSITORY_LAYOUT.md).

@@ -2,79 +2,67 @@
 
 # Inertial Positioning Benchmark
 
-A unified, reproducible, and extensible research platform for inertial positioning, covering data conventions, capture tools, evaluation infrastructure, method proposals, and IO research workflows.
+**Unified data interfaces, capture tooling, and reproducible evaluation infrastructure for inertial positioning research**
 
-[中文](README.md) | [English](README_EN.md)
+[中文](README.md) · [English](README_EN.md) · [Data specification](docs/FORMAT.md) · [Repository layout](docs/REPOSITORY_LAYOUT.md)
 
 </div>
 
-## Scope
+## Why this repository exists
 
-Inertial positioning research commonly relies on incompatible data formats, coordinate conventions, preprocessing pipelines, evaluation protocols, and baseline implementations. This repository consolidates benchmark code, research notes, and IO-specific tooling into one structured entry point from data capture to method development.
+Inertial-odometry studies often use incompatible formats, coordinate frames, window definitions, and evaluation protocols. This repository gives executable benchmark code, Android capture tooling, research proposals, empirical studies, and IO-specific research workflows explicit boundaries inside one maintainable project.
+
+The repository currently provides a canonical sequence representation, HDF5 I/O, windowed datasets, and an Android capture pipeline. Public-dataset adapters, standard baselines, and an official leaderboard remain under development.
+
+## Current capabilities
+
+| Component | Status | What it provides |
+| --- | --- | --- |
+| Benchmark core | **Available** | `CanonicalSequence`, HDF5 I/O, windowing, and tests |
+| Android tooling | **Available** | IMU + ARCore VIO capture, `.iplab` export, HDF5 conversion, and on-device inference |
+| Coordinate-frame study | **Study** | Global-frame versus body-frame analysis for pedestrian IO |
+| PostDiffIO / ModeMoEIO | **Proposal** | Method definitions and experiment plans; no reproducible results yet |
+| PaperFlow IO | **Research tool** | Inertial-odometry-only ideation and experiment-design skills |
+| Public baselines and leaderboard | **Planned** | Dataset adapters, fixed splits, metrics, and reproducible baselines |
+
+> A method proposal is not a benchmark result. Entry into the official baselines requires auditable code, configurations, data splits, and results.
+
+## Data flow
 
 ```text
-Device recordings and public datasets
-    -> Unified formats and coordinates
-    -> Loading and windowing
-    -> Baselines and research methods
-    -> Standardized evaluation
-    -> Ideation, experiments, and reproduction
+Device recordings / public datasets
+                ↓
+CanonicalSequence (timestamps, frames, and units)
+                ↓
+HDF5 persistence and WindowDataset windowing
+                ↓
+Baseline training / evaluation / on-device deployment
 ```
 
-## Repository Layout
+## Repository layout
 
-| Category | Path | Contents |
-| --- | --- | --- |
-| Benchmark core | `src/`, `tests/` | CanonicalSequence, HDF5 I/O, window datasets, and tests |
-| Specifications and surveys | `docs/` | Formats, datasets, paper timeline, and tool documentation |
-| Capture tooling | `tools/inertial-positioning-lab/` | Android IMU + ARCore VIO capture, export, conversion, and on-device evaluation |
-| Research methods | `research/methods/` | PostDiffIO and MoE-IO proposals |
-| Empirical studies | `research/studies/` | Pedestrian IO coordinate-frame experiments and figures |
-| IO research workflows | `tools/research-workflows/inertial/` | IO-specific ideation, literature, experiment, and feasibility-review skills |
+```text
+inertial-positioning-benchmark/
+├── src/inertial_benchmark/       # Stable, tested Python core
+├── tests/                        # Core, integration, and documentation checks
+├── docs/                         # Specifications, surveys, and repository policy
+├── tools/
+│   ├── inertial-positioning-lab/ # Android capture and on-device evaluation
+│   └── paperflow-io/             # Inertial-odometry-only research workflows
+└── research/
+    ├── methods/                  # Proposals that are not official baselines
+    └── studies/                  # Traceable empirical studies and assets
+```
 
-## Benchmark Core
+See the [repository layout specification](docs/REPOSITORY_LAYOUT.md) for ownership rules and guidance on adding components.
 
-- [Unified data specification](docs/FORMAT.md): sequence schema, coordinates, units, preprocessing, and initial adapters;
-- [Dataset survey](docs/DATASETS.md): scope, ground truth, licenses, downloads, and integration status;
-- [Papers and timeline](docs/PAPERS.md): representative methods, experimental datasets, and release status;
-- [Tooling and data flow](docs/TOOLS.md): capture, archive, conversion, and evaluation boundaries.
-
-### Inertial Positioning Lab
-
-The bundled [Android tool](tools/inertial-positioning-lab) captures phone IMU and ARCore VIO reference trajectories, exports lossless `.iplab` archives, converts them to canonical HDF5, and runs LiteRT/TFLite models on-device.
-
-> The UI stabilizes only the displayed trajectory. Archives retain the unfiltered ARCore VIO samples. VIO is a reference trajectory, not independent Vicon/RTK-grade ground truth.
-
-## Integrated Research
-
-### Method Proposals
-
-- [PostDiffIO](research/methods/postdiffio): conditional-diffusion posterior refinement of velocity residuals and predictive uncertainty;
-- [MoE-IO](research/methods/moe-io): motion-aware mixture-of-experts routing for inertial odometry.
-
-These directories are research proposals and experiment designs. They are not official reproducible benchmark baselines until code, configurations, and complete results are released.
-
-### Empirical Study
-
-- [Pedestrian IO coordinate frames](research/studies/pedestrian-coordinate-frames): global-frame versus device-frame representations, with the original figures and bilingual analysis.
-
-### IO Research Workflows
-
-[IO Research Workflows](tools/research-workflows/inertial) contains only the former PaperFlow `IO` branch:
-
-- `paper-ideation-inertial/`: IO ideation and novelty, impact, and feasibility reviews;
-- `paper-experiment-inertial/`: literature re-validation, experiment design, code feasibility, and experiment plans.
-
-Generic paper-writing skills were intentionally excluded to keep this benchmark focused.
-
-## Quick Start
+## Quick start
 
 ```bash
-pip install -e ".[test]"
-pytest
-
-python tools/inertial-positioning-lab/tools/convert_dataset.py \
-  recording.iplab -o datasets/android
+git clone https://github.com/BUG423/inertial-positioning-benchmark.git
+cd inertial-positioning-benchmark
+python -m pip install -e ".[test]"
+pytest -q
 ```
 
 ```python
@@ -85,33 +73,38 @@ dataset = WindowDataset(sequence, window_size=200, stride=10, target="velocity")
 sample = dataset[0]
 ```
 
-The core data layer is framework-agnostic.
+The core data layer is framework-agnostic. Convert an Android recording with:
+
+```bash
+python tools/inertial-positioning-lab/tools/convert_dataset.py \
+  recording.iplab --output datasets/android
+```
+
+## Component index
+
+| Entry | Purpose |
+| --- | --- |
+| [Data format](docs/FORMAT.md) | Sequence schema, coordinate frames, units, and preprocessing |
+| [Dataset catalog](docs/DATASETS.md) | Scale, ground truth, licensing, and integration status |
+| [Paper survey](docs/PAPERS.md) | Representative methods, datasets, and release status |
+| [Tooling](docs/TOOLS.md) | Capture, conversion, and on-device evaluation boundaries |
+| [Research](research/README.md) | Method proposals and empirical studies |
+| [Developer tools](tools/README.md) | Android tooling and PaperFlow IO |
+| [Contributing](CONTRIBUTING.md) | Layout conventions, evidence requirements, and checks |
 
 ## Roadmap
 
-- [x] Define the unified data schema and coordinate conventions (draft v0.1)
-- [x] Implement the common data interface and core tests
-- [x] Provide Android capture and on-device evaluation tooling
-- [x] Consolidate method proposals, coordinate-frame studies, and IO research workflows
-- [ ] Add the first public dataset adapter
-- [ ] Integrate reproducible representative baselines
-- [ ] Freeze metrics, splits, and leaderboard protocols
-- [ ] Publish reproducible benchmark results
+- [x] Define the canonical sequence, coordinate, and unit conventions
+- [x] Implement HDF5 I/O, window datasets, and core tests
+- [x] Integrate Android capture and on-device evaluation tooling
+- [x] Consolidate PostDiffIO, ModeMoEIO, the coordinate study, and PaperFlow IO
+- [ ] Add the first downloadable or automatically convertible public dataset adapter
+- [ ] Integrate at least one end-to-end reproducible baseline
+- [ ] Freeze train/validation/test splits and evaluation metrics
+- [ ] Publish versioned benchmark results and a leaderboard
 
-## Maturity Labels
+## Contributing and license
 
-| Status | Meaning |
-| --- | --- |
-| Core | Integrated into the common interface and covered by tests |
-| Tool | Standalone buildable or runnable supporting tool |
-| Study | Preserved experiment, analysis, and resources |
-| Proposal | Method concept or experiment design, not yet on the official leaderboard |
-| Planned | Designed but not yet implemented |
+This repository is maintained only on `main`. Read the [contribution guide](CONTRIBUTING.md) before changing it, and record provenance, licenses, and redistribution constraints for datasets, models, and third-party assets.
 
-## Contributing
-
-Contributions of dataset adapters, baselines, coordinate validation, evaluation protocols, and reproduction reports are welcome. Read the [contribution guide](CONTRIBUTING.md) before submitting changes. Include provenance, licensing, and redistribution constraints for datasets and third-party methods.
-
-## License
-
-A repository-wide open-source license is still being determined; source availability alone does not grant redistribution or commercial-use rights. Integrated content and third-party resources retain the licenses and terms declared in their respective directories.
+A repository-wide open-source license has not yet been selected. Source availability alone does not grant redistribution or commercial-use rights; independently licensed components retain the terms declared in their directories.

@@ -1,6 +1,6 @@
-# Inertial-Odometry Research Workflows
+# PaperFlow IO
 
-This directory preserves only the former `paperflow` repository's `IO` branch. Generic paper-writing workflows were intentionally excluded.
+This self-contained component preserves only the former `paperflow` repository's `IO` branch. Generic paper-writing workflows were intentionally excluded from the benchmark.
 
 - [Roadmap](ROADMAP.md)
 - [IO ideation skill](paper-ideation-inertial/SKILL.md)
