@@ -42,4 +42,5 @@ Reusable code should then move into a dedicated baseline package rather than rem
 - `README.md` is the default or Chinese entry; bilingual components use `README_EN.md` for English.
 - Repository-relative links are preferred and validated in CI.
 - Generated data, checkpoints, build output, and local environments must not be committed.
+- CI and release workflows belong only in the root `.github/workflows/`; nested `.github/workflows/` directories are not permitted.
 - A path rename must update workflows, tests, documentation, and examples in the same `main` commit.

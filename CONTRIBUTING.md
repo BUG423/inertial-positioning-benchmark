@@ -18,7 +18,8 @@ Method proposals belong in `research/methods/` and must be labeled as proposals 
 
 - Commit changes directly to `main`; this repository does not use feature branches.
 - Use `README.md` for Chinese/default documentation and `README_EN.md` for English.
-- Keep executable benchmark code under `src/`, tests under `tests/`, Android tooling under `tools/inertial-positioning-lab/`, and non-executable research material under `research/`.
+- Keep executable benchmark code under `src/`, tests under `tests/`, independently runnable components under `tools/`, and non-executable research material under `research/`.
+- Treat the root `.github/workflows/` directory as the only CI and release-workflow location; nested component workflows are not active after consolidation.
 - Use repository-relative links for files in this repository.
 - Do not claim performance improvements without an auditable result table, fixed data split, configuration, and source commit.
 - Preserve dataset, model, and third-party asset provenance and licensing information.
