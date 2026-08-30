@@ -53,7 +53,7 @@ HDF5 持久化 + WindowDataset 窗口化
 | Pedestrian Coordinate Frames | 📊 研究记录 | Global frame 与 body frame 的实验分析 |
 | PostDiffIO | 💡 方法提案 | 条件扩散后验细化与不确定性建模 |
 | ModeMoEIO | 💡 方法提案 | 面向不同运动状态的混合专家路由 |
-| PaperFlow IO | 🛠️ 研究工具 | IO 选题、文献复核、可行性评审与实验规划 |
+| PaperFlow IO | 🛠️ 研究工具 | IO 选题、文献复核、可行性评审与实验规划 |\n| FAST-LIVO Setup | 📚 环境文档 | ROS Noetic 下的 FAST-LIVO 历史复现与依赖说明 |
 | Public Baselines & Leaderboard | 🚧 规划中 | 数据适配器、固定划分、统一指标与排行榜 |
 
 ## 🗂️ 目录结构
@@ -62,7 +62,7 @@ HDF5 持久化 + WindowDataset 窗口化
 inertial-positioning-benchmark/
 ├── src/inertial_benchmark/       # Python 核心数据接口
 ├── tests/                        # 核心、集成与文档一致性测试
-├── docs/                         # 数据规范、数据集调研与项目约定
+├── docs/                         # 数据规范、数据集调研、环境配置与项目约定
 ├── tools/
 │   ├── inertial-positioning-lab/ # Android 采集与端侧评测工具
 │   └── paperflow-io/             # 仅面向 IO 的科研工作流
@@ -75,7 +75,7 @@ inertial-positioning-benchmark/
 
 | 目录 | 内容入口 |
 | --- | --- |
-| `docs/` | [文档索引](docs/README.md) · [数据格式](docs/FORMAT.md) · [数据集](docs/DATASETS.md) · [论文](docs/PAPERS.md) |
+| `docs/` | [文档索引](docs/README.md) · [数据格式](docs/FORMAT.md) · [数据集](docs/DATASETS.md) · [论文](docs/PAPERS.md) · [FAST-LIVO 配置](docs/setup/fast-livo.md) |
 | `tools/` | [工具索引](tools/README.md) · [Android 工具](tools/inertial-positioning-lab/) · [PaperFlow IO](tools/paperflow-io/) |
 | `research/` | [研究索引](research/README.md) · [方法提案](research/methods/) · [实验研究](research/studies/) |
 
@@ -142,7 +142,7 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 - 💡 [PostDiffIO](research/methods/postdiffio/)：条件扩散速度残差细化与不确定性建模提案；
 - 💡 [ModeMoEIO](research/methods/moe-io/)：运动模式感知混合专家提案；
 - 📊 [Pedestrian Coordinate Frames](research/studies/pedestrian-coordinate-frames/)：global-frame 与 body-frame 表征研究；
-- 🧠 [PaperFlow IO](tools/paperflow-io/)：仅包含 IO 选题、文献复核、可行性评审与实验设计技能。
+- 🧠 [PaperFlow IO](tools/paperflow-io/)：仅包含 IO 选题、文献复核、可行性评审与实验设计技能；\n- 📚 [FAST-LIVO 环境配置](docs/setup/fast-livo.md)：Ubuntu 20.04 与 ROS Noetic 环境下的历史复现说明。
 
 ## 🛣️ 路线图
 

@@ -53,7 +53,7 @@ Model training / evaluation / on-device deployment
 | Pedestrian Coordinate Frames | 📊 Study | Global-frame versus body-frame analysis |
 | PostDiffIO | 💡 Proposal | Conditional-diffusion posterior refinement and uncertainty modeling |
 | ModeMoEIO | 💡 Proposal | Motion-aware mixture-of-experts routing |
-| PaperFlow IO | 🛠️ Research tool | IO ideation, literature validation, feasibility review, and experiment planning |
+| PaperFlow IO | 🛠️ Research tool | IO ideation, literature validation, feasibility review, and experiment planning |\n| FAST-LIVO Setup | 📚 Environment guide | Historical FAST-LIVO reproduction notes for ROS Noetic |
 | Public Baselines & Leaderboard | 🚧 Planned | Dataset adapters, fixed splits, common metrics, and leaderboard |
 
 ## 🗂️ Repository layout
@@ -62,7 +62,7 @@ Model training / evaluation / on-device deployment
 inertial-positioning-benchmark/
 ├── src/inertial_benchmark/       # Core Python data interfaces
 ├── tests/                        # Core, integration, and documentation checks
-├── docs/                         # Specifications, surveys, and project policy
+├── docs/                         # Specifications, surveys, environment guides, and policy
 ├── tools/
 │   ├── inertial-positioning-lab/ # Android capture and on-device evaluation
 │   └── paperflow-io/             # Inertial-odometry-only research workflows
@@ -75,7 +75,7 @@ inertial-positioning-benchmark/
 
 | Directory | Entry points |
 | --- | --- |
-| `docs/` | [Documentation](docs/README.md) · [Format](docs/FORMAT.md) · [Datasets](docs/DATASETS.md) · [Papers](docs/PAPERS.md) |
+| `docs/` | [Documentation](docs/README.md) · [Format](docs/FORMAT.md) · [Datasets](docs/DATASETS.md) · [Papers](docs/PAPERS.md) · [FAST-LIVO setup](docs/setup/fast-livo.md) |
 | `tools/` | [Tools](tools/README.md) · [Android tool](tools/inertial-positioning-lab/) · [PaperFlow IO](tools/paperflow-io/) |
 | `research/` | [Research](research/README.md) · [Method proposals](research/methods/) · [Studies](research/studies/) |
 
@@ -142,7 +142,7 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - 💡 [PostDiffIO](research/methods/postdiffio/): conditional-diffusion velocity-residual refinement and uncertainty proposal;
 - 💡 [ModeMoEIO](research/methods/moe-io/): motion-aware mixture-of-experts proposal;
 - 📊 [Pedestrian Coordinate Frames](research/studies/pedestrian-coordinate-frames/): global-frame versus body-frame representations;
-- 🧠 [PaperFlow IO](tools/paperflow-io/): IO-only ideation, literature validation, feasibility review, and experiment-design skills.
+- 🧠 [PaperFlow IO](tools/paperflow-io/): IO-only ideation, literature validation, feasibility review, and experiment-design skills;\n- 📚 [FAST-LIVO setup](docs/setup/fast-livo.md): historical reproduction notes for Ubuntu 20.04 and ROS Noetic.
 
 ## 🛣️ Roadmap
 
