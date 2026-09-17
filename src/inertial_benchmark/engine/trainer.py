@@ -109,8 +109,10 @@ class Trainer:
             self.train_set, int(a.batch), shuffle=True, workers=int(a.workers), seed=int(a.seed),
             drop_last=True, pin_memory=self.device.type == "cuda")
         self.val_set = build_dataset(a, "val", training=False, spec=self.spec)
-        self.val_views = [self.val_set.sequence_view(k)
-                          for k in range(len(self.val_set.sequence_ids))]
+        # cache=true 预先构建并保留视图（快）；cache=false 只保留路径，验证时逐条读取（省内存）
+        self.val_sources = ([self.val_set.sequence_view(k)
+                             for k in range(len(self.val_set.sequence_ids))]
+                            if self.val_set.views else [lz.path for lz in self.val_set.lazy])
 
         self.model = load_model(a, self.device)
         info = model_info(self.model, self.model.input_spec.window, flops=False)
@@ -186,7 +188,7 @@ class Trainer:
         return out
 
     def validate(self, epoch: int) -> dict:
-        result = self.validator(model=self.model, sources=self.val_views, device=self.device,
+        result = self.validator(model=self.model, sources=self.val_sources, device=self.device,
                                 epoch=epoch, dataset=self.spec, split="val")
         self.val_result = result
         return result.metrics
@@ -206,7 +208,7 @@ class Trainer:
         a = self.args
         epochs = int(a.epochs)
         LOGGER.info(f"train: {self.spec.name}, {len(self.train_set)} windows, "
-                    f"{len(self.val_views)} val sequences, epochs {self.start_epoch}->{epochs}, "
+                    f"{len(self.val_sources)} val sequences, epochs {self.start_epoch}->{epochs}, "
                     f"save_dir={self.save_dir}")
         run_callbacks(self.callbacks, "on_train_start", self)
         t_start = time.time()

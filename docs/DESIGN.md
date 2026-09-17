@@ -231,6 +231,8 @@ class BaseModel(nn.Module):
     def loss(self, out: dict, batch: dict, epoch: int) -> tuple[Tensor, dict]   # 默认 MSE；可覆盖
 ```
 
+- `loss` 的 `batch` 在训练与验证中键相同：`target`（视图坐标系目标 `(B,D)`）与 `imu`（模型输入 `(B,C,T)`，
+  与 `forward` 收到的张量逐元素相同）。用到输入的损失因此在两条路径上行为一致。
 - 通过 `@register_model("name")` 注册，`cfg/models/<name>.yaml` 给出结构参数与训练配方。
 - 每个公开算法必须在模型文档字符串与 `docs/algorithms/<name>.md` 中注明：论文、官方仓库、许可、提交号、
   与官方实现的差异（例如 2D 输出、单窗口输入）及理由。

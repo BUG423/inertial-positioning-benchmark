@@ -120,7 +120,10 @@ class Predictor:
                 idx = torch.from_numpy(np.flatnonzero(v)).to(self.device)
                 target = torch.from_numpy(view.targets(s[v])).to(self.device)
                 sub = {k: t.index_select(0, idx) for k, t in out.items() if t.shape[0] == len(s)}
-                loss, _ = model.loss(sub, {"target": target}, epoch)
+                # 与 Trainer 相同的 batch 键（含模型输入），否则用到 batch["imu"] 的损失
+                # 只能在训练中工作，验证时会 KeyError
+                loss, _ = model.loss(sub, {"target": target, "imu": x.index_select(0, idx)},
+                                     epoch)
                 loss_sum += float(loss) * int(v.sum())
                 loss_n += int(v.sum())
         model.train(was_training)

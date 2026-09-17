@@ -284,3 +284,46 @@ def test_view_config_from_model_spec(zero_model):
     assert predictor.view_cfg == ViewConfig(frame="gravity_yaw_local", dims=3)
     res = predictor.predict_sequence(make_sequence(duration=5.0))
     assert res.pos_pred.shape[1] == 3
+
+
+def test_validation_loss_receives_model_input():
+    """验证时的 batch 必须与训练一致（含 ``imu``），否则用到输入的损失只能在训练中工作。"""
+
+    @register_model("test_input_loss_model")
+    class InputLoss(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.dims))
+
+        def forward(self, imu):
+            return {"vel": self.bias.expand(imu.shape[0], -1)}
+
+        def loss(self, out, batch, epoch=0):
+            # 显式依赖模型输入：Trainer 与 Predictor 都必须提供 batch["imu"]
+            scale = batch["imu"].abs().mean()
+            value = ((out["vel"] - batch["target"]) ** 2).mean() + 0.0 * scale
+            return value, {"mse": value.detach()}
+
+    try:
+        cfg = get_cfg({"model": {"name": "input_loss", "arch": "test_input_loss_model"},
+                       "device": "cpu"})
+        res = Predictor(cfg).predict_sequence(make_sequence(duration=8.0), collect_loss=True)
+        assert res.loss is not None and math.isfinite(res.loss) and res.loss > 0
+    finally:
+        MODELS.pop("test_input_loss_model")
+
+
+def test_trainer_lazy_val_does_not_cache_sequences(dataset, tmp_path):
+    """``cache=false`` 时 val 划分也必须惰性读取（只保留路径），否则该开关名不副实。"""
+    over = {**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+            "name": "lazy", "cache": False, "save_predictions": False}
+    trainer = Trainer(overrides=over)
+    metrics = trainer.train()
+    assert trainer.val_set.views == [] and trainer.val_set.lazy
+    assert trainer.val_sources and all(isinstance(s, Path) for s in trainer.val_sources)
+    assert math.isfinite(metrics["ate"])
+    cached = Trainer(overrides={**over, "name": "cached", "cache": True})
+    cached_metrics = cached.train()
+    assert all(isinstance(s, SequenceView) for s in cached.val_sources)
+    # 惰性与缓存路径必须给出完全相同的指标
+    assert cached_metrics["ate"] == pytest.approx(metrics["ate"], rel=1e-9)

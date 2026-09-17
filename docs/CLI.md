@@ -197,7 +197,7 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `device` | `（空）` | 空 = 自动（优先 CUDA）；cpu / 0 / cuda:0 |
 | `workers` | `4` |  |
 | `amp` | `true` | 自动混合精度，仅 CUDA 生效 |
-| `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5 |
+| `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5（train 与 val 划分都生效） |
 | `val_interval` | `1` | 每多少个 epoch 验证一次（最后一轮总会验证） |
 | `fitness` | `ate` | 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse … |
 | `save_period` | `0` | 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭 |
