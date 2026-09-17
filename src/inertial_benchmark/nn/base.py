@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 import torch
 from torch import nn
@@ -39,9 +39,12 @@ class BaseModel(nn.Module):
 
     ``forward(imu)`` 接收 ``(B, 6, T)``，返回 dict：必含 ``vel (B, dims)``，可含 ``logstd``、
     ``cov``、``aux`` 等。``loss(out, batch, epoch)`` 默认按 ``loss_name`` 计算，可在子类覆盖。
+    推理时 ``vel``/``logstd`` 之外首维为批大小的张量也会保存到预测文件（见 ``saved_outputs``）。
     """
 
     default_loss = "mse"
+    # 推理时额外保存的逐窗口输出键（``vel``/``logstd`` 之外）；None 表示保存全部逐窗口张量
+    saved_outputs: Optional[tuple] = None
 
     def __init__(self, input_spec: InputSpec) -> None:
         super().__init__()

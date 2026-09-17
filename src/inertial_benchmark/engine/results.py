@@ -60,6 +60,7 @@ class Trajectory:
 
 ARRAYS = ("t", "pos_pred", "pos_gt", "pos_oracle", "valid_pose", "t_window", "starts",
           "vel_pred", "vel_target", "window_valid", "logstd")
+OUTPUT_PREFIX = "out_"  # 其他逐窗口模型输出在 .npz 中的键前缀
 
 
 @dataclass
@@ -80,6 +81,8 @@ class SequenceResult:
     vel_target: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     window_valid: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
     logstd: Optional[np.ndarray] = None
+    # 模型的其他逐窗口输出（键 → (K, ...)），保持模型输出的视图坐标系，未做无效窗口插值
+    outputs: dict = field(default_factory=dict)
     frame: str = "gravity_world"
     rate: float = 200.0
     loss: Optional[float] = None
@@ -127,10 +130,11 @@ class SequenceResult:
         return row
 
     def save(self, path: PathLike) -> Path:
-        """保存为 ``.npz``（数组 + ``meta`` JSON 字符串）。"""
+        """保存为 ``.npz``（数组 + ``meta`` JSON 字符串；其他模型输出的键加 ``out_`` 前缀）。"""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         arrays = {k: getattr(self, k) for k in ARRAYS if getattr(self, k) is not None}
+        arrays.update({OUTPUT_PREFIX + k: np.asarray(v) for k, v in self.outputs.items()})
         meta = {"sequence_id": self.sequence_id, "dataset": self.dataset,
                 "group_id": self.group_id, "frame": self.frame, "rate": self.rate,
                 "loss": self.loss, "skipped": self.skipped, "metrics": self.metrics}
@@ -142,8 +146,10 @@ class SequenceResult:
         with np.load(path) as f:
             meta = json.loads(str(f["meta"]))
             arrays = {k: f[k] for k in ARRAYS if k in f}
+            outputs = {k[len(OUTPUT_PREFIX):]: f[k] for k in f.files
+                       if k.startswith(OUTPUT_PREFIX)}
         metrics = {k: (math.nan if v is None else v) for k, v in meta.pop("metrics").items()}
-        return cls(**meta, **arrays, metrics=metrics)
+        return cls(**meta, **arrays, outputs=outputs, metrics=metrics)
 
     def plot(self, path: Optional[PathLike] = None):
         from ..utils.plotting import plot_trajectory

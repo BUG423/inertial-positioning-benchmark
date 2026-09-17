@@ -97,13 +97,20 @@ class Predictor:
 
     @torch.inference_mode()
     def infer(self, view: SequenceView, collect_loss: bool = False, epoch: int = 0) -> dict:
-        """返回 ``starts``、``window_valid``、视图坐标系下的 ``vel``/``logstd`` 与损失累计。"""
+        """返回 ``starts``、``window_valid``、视图坐标系下的 ``vel``/``logstd``、其他逐窗口输出
+        ``outputs`` 与损失累计。
+
+        ``outputs`` 收集模型返回的其余张量中首维等于批大小的项（逐窗口输出，例如速度大小、
+        协方差）；模型可用 ``saved_outputs`` 属性（键的元组）限定范围，缺省为全部。
+        """
         model = self.model
         was_training = model.training
         model.eval()
         starts = view.starts(int(self.args.eval_stride), require_valid=False)
         valid = view.window_valid(starts)
+        keep = getattr(model, "saved_outputs", None)
         outs: dict = {}
+        extras: dict = {}
         loss_sum, loss_n = 0.0, 0
         batch = int(self.args.val_batch)
         for i in range(0, len(starts), batch):
@@ -112,14 +119,17 @@ class Predictor:
             with torch.autocast(self.device.type, enabled=self.amp):
                 out = model(x)
             out = {k: v.float() for k, v in out.items() if torch.is_tensor(v)}
-            for k in ("vel", "logstd"):
-                if k in out:
-                    outs.setdefault(k, []).append(out[k].cpu().numpy())
+            for k, v in out.items():
+                if k in ("vel", "logstd"):
+                    outs.setdefault(k, []).append(v.cpu().numpy())
+                elif v.ndim >= 1 and v.shape[0] == len(s) and (keep is None or k in keep):
+                    extras.setdefault(k, []).append(v.cpu().numpy())
             v = valid[i:i + batch]
             if collect_loss and v.any():
                 idx = torch.from_numpy(np.flatnonzero(v)).to(self.device)
                 target = torch.from_numpy(view.targets(s[v])).to(self.device)
-                sub = {k: t.index_select(0, idx) for k, t in out.items() if t.shape[0] == len(s)}
+                sub = {k: t.index_select(0, idx) for k, t in out.items()
+                       if t.ndim >= 1 and t.shape[0] == len(s)}
                 loss, _ = model.loss(sub, {"target": target}, epoch)
                 loss_sum += float(loss) * int(v.sum())
                 loss_n += int(v.sum())
@@ -129,6 +139,7 @@ class Predictor:
         for k in ("vel", "logstd"):
             result[k] = np.concatenate(outs[k]) if k in outs else (
                 np.zeros((0, dims)) if k == "vel" else None)
+        result["outputs"] = {k: np.concatenate(v) for k, v in extras.items()}
         return result
 
     def predict_view(self, view: SequenceView, collect_loss: bool = False,
@@ -159,6 +170,7 @@ class Predictor:
         res.pos_oracle = reconstruct(seq.timestamp, t_window, tgt, i0, seq.position[i0])
         res.t_window, res.starts, res.window_valid = t_window, starts, wvalid
         res.vel_pred, res.vel_target, res.logstd = vel, tgt, out["logstd"]
+        res.outputs = out["outputs"]
         if collect_loss and out["loss_n"]:
             res.loss = out["loss_sum"] / out["loss_n"]
         return res

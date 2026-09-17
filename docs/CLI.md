@@ -147,7 +147,7 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 ├── results.csv                # 训练：每轮 train/loss、val/*、lr、fitness、耗时
 ├── metrics.json               # 聚合指标（mean/median/std/count）、协议参数、效率指标
 ├── sequences.csv              # 逐序列指标
-├── predictions/<seq>.npz      # 逐帧预测/参考/oracle 轨迹，窗口级 vel_pred/vel_target/(logstd)
+├── predictions/<seq>.npz      # 逐帧预测/参考/oracle 轨迹，窗口级 vel_pred/vel_target/(logstd)，其他模型输出 out_<键>
 └── plots/*.png                # 轨迹叠加、误差 CDF、误差随时间、箱线图、长度比、训练曲线
 ```
 

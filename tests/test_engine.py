@@ -120,6 +120,42 @@ def test_predictor_handles_invalid_and_short(zero_model):
     assert m["num_windows"] == int(res.window_valid.sum())
 
 
+def test_predictor_saves_extra_window_outputs(tmp_path):
+    @register_model("test_extra_outputs_model")
+    class Extra(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.scale = torch.nn.Parameter(torch.ones(1))
+
+        def forward(self, imu):
+            b = imu.shape[0]
+            mean = imu[:, 3:5].mean(dim=-1) * self.scale
+            return {"vel": mean, "speed": mean.norm(dim=-1),
+                    "cov": torch.eye(2).expand(b, 2, 2) * self.scale,
+                    "scalar": self.scale.sum(), "aux": {"ignored": mean}}
+
+    try:
+        cfg = get_cfg({"model": {"name": "extra", "arch": "test_extra_outputs_model"},
+                       "device": "cpu", "val_batch": 7})
+        predictor = Predictor(cfg)
+        res = predictor.predict_sequence(make_sequence(duration=6.0, seed=2), collect_loss=True)
+        k = len(res.starts)
+        assert set(res.outputs) == {"speed", "cov"}  # 非逐窗口张量与非张量不保存
+        assert res.outputs["speed"].shape == (k,) and res.outputs["cov"].shape == (k, 2, 2)
+        np.testing.assert_allclose(res.outputs["speed"],
+                                   np.linalg.norm(res.vel_pred, axis=1), rtol=1e-5)
+        res.compute_metrics()
+        back = SequenceResult.load(res.save(tmp_path / "x.npz"))
+        assert set(back.outputs) == {"speed", "cov"}
+        np.testing.assert_array_equal(back.outputs["cov"], res.outputs["cov"])
+        # saved_outputs 限定保存范围
+        predictor.model.saved_outputs = ("cov",)
+        res = predictor.predict_sequence(make_sequence(duration=6.0, seed=2))
+        assert set(res.outputs) == {"cov"}
+    finally:
+        MODELS.pop("test_extra_outputs_model")
+
+
 def test_sequence_and_run_result_io(tmp_path, zero_model):
     predictor = Predictor(get_cfg({"model": zero_model, "device": "cpu"}))
     results = [predictor.predict_sequence(make_sequence(duration=8.0, seed=k,
