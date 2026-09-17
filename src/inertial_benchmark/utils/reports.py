@@ -11,6 +11,7 @@ from typing import Iterable, Optional, Sequence, Union
 
 import numpy as np
 
+from ..cfg import EVAL_PROTOCOL_KEYS, ConfigError
 from ..metrics import MAIN_METRICS, display_name
 from . import LOGGER, json_load, json_save
 
@@ -36,6 +37,39 @@ def find_runs(root: PathLike) -> list:
             if meta.get("mode", "val") == "val":
                 runs.append(path.parent)
     return runs
+
+
+class ProtocolMismatch(ConfigError):
+    """同一份报表中的 run 使用了不同的评测协议，指标不可比（CLI 以退出码 2 报错）。"""
+
+
+def check_protocols(runs: Iterable[PathLike]) -> dict:
+    """核对各 run 的评测协议是否一致，不一致时抛出 :class:`ProtocolMismatch`。
+
+    只比较**评测协议**键（``EVAL_PROTOCOL_KEYS``：步长、指标维度、RTE/D-RTE 参数、速度阈值）：
+    这些键决定指标怎么算，必须全表一致；输入规格键（窗口、坐标系、目标…）本来就随模型不同，
+    只记录不比较。缺少 ``protocol`` 的旧结果视为未知，直接报错（宁可让人重跑也不混表）。
+    """
+    seen: dict = {}
+    for run in runs:
+        meta = json_load(Path(run) / "metrics.json")
+        protocol = meta.get("protocol")
+        if not protocol:
+            raise ProtocolMismatch(f"{run}/metrics.json has no 'protocol' block; re-run the "
+                                   "evaluation with the current version before reporting")
+        missing = [k for k in EVAL_PROTOCOL_KEYS if protocol.get(k) is None]
+        if missing:
+            raise ProtocolMismatch(f"{run}: evaluation protocol is incomplete, missing {missing}")
+        for key in EVAL_PROTOCOL_KEYS:
+            value = protocol[key]
+            value = tuple(value) if isinstance(value, list) else value
+            first_run, first = seen.setdefault(key, (run, value))
+            if first != value:
+                raise ProtocolMismatch(
+                    f"evaluation protocol differs between runs: {key}={first!r} in {first_run} "
+                    f"but {key}={value!r} in {run}. Re-evaluate both with the same protocol "
+                    "(eval keys come from default.yaml / the benchmark config / the CLI).")
+    return {key: value for key, (_, value) in seen.items()}
 
 
 def load_runs(root: PathLike):
@@ -237,6 +271,7 @@ def build_report(runs: PathLike, out: PathLike, metrics: Sequence[str] = MAIN_ME
     """汇总 ``runs`` 下全部评测结果，写出 CSV / Markdown / LaTeX 表格与图。"""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    protocol = check_protocols(find_runs(runs))
     df = load_runs(runs)
     if df.empty:
         raise FileNotFoundError(f"no evaluation results (metrics.json + sequences.csv) "
@@ -254,7 +289,7 @@ def build_report(runs: PathLike, out: PathLike, metrics: Sequence[str] = MAIN_ME
     files = make_plots(df, summary, out) if plots else []
     info = {"runs": str(runs), "num_runs": int(df["run"].nunique()),
             "num_rows": int(len(df)), "datasets": sorted(df["dataset"].unique()),
-            "models": sorted(df["model"].unique()),
+            "models": sorted(df["model"].unique()), "protocol": protocol,
             "files": sorted(str(p.relative_to(out)) for p in out.iterdir()),
             "plots": [str(p) for p in files]}
     json_save(out / "report.json", info)

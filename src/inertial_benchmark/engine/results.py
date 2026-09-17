@@ -217,11 +217,10 @@ class RunResult:
         return self.metrics[key]
 
     def to_dict(self) -> dict:
+        from ..cfg import protocol_from_cfg
+
         agg = self.aggregate()
         cfg = self.cfg
-        protocol_keys = ("window", "eval_stride", "frame", "orientation", "remove_gravity",
-                         "target", "dims", "rate", "metric_dims", "rte_delta", "t_rte", "d_rte",
-                         "min_speed")
         return {
             "mode": "val",
             "created_utc": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat(),
@@ -232,7 +231,7 @@ class RunResult:
             "seed": cfg.get("seed"),
             "dataset_fingerprint": (self.env.get("dataset") or {}).get("fingerprint"),
             "git": (self.env.get("git") or {}).get("commit"),
-            "protocol": {k: cfg.get(k) for k in protocol_keys if k in cfg},
+            "protocol": protocol_from_cfg(cfg),
             "num_sequences": len(self.evaluated),
             "num_skipped": len(self.sequences) - len(self.evaluated),
             "skipped": {s.sequence_id: s.skipped for s in self.sequences if s.skipped},

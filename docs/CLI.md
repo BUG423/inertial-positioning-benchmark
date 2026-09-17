@@ -15,8 +15,17 @@ ipb <command> key=value [key=value ...]
   以 `[` 或 `{` 开头 → YAML 列表/字典（`augment=[random_yaw,time_shift]`、`model_args={dropout: 0.1}`）；其余为字符串。
   含空格的列表需加引号：`"t_rte=[1, 10]"`。
 - 训练/评测相关的键必须出现在 `default.yaml` 中，否则报错并给出相近键名（例如 `epoch` → `epochs`）；类型不符也会报错。
+  只有 `data`、`source`、`pretrained`、`loss`、`device`、`name` 这几个“明确可空”的键接受 `none`；
+  其余键写 `none` 直接报错（`epochs=none` 不会静默退回默认值）。`fitness` 在解析时按“越小越好的验证指标”校验。
+- 序列 id 列表（`only=`）一律按字符串解析：`only=[010]` 是 `"010"` 而非八进制 8，`only=007` 是 `"007"`；
+  空列表、括号不匹配、空元素等以退出码 `2` 报错。
 - 合并顺序：`default.yaml` < 模型 YAML 的 `input` < 模型 YAML 的 `recipes[recipe]` < 命令行。
-  使用 checkpoint 时，模型输入规格（`window/frame/orientation/remove_gravity/target/dims/rate`）来自 checkpoint，不可改写。
+  使用 checkpoint 时，模型输入规格（`window/frame/orientation/remove_gravity/target/dims/rate`、
+  `overlap/history*/extra_inputs`）来自 checkpoint，不可改写。
+- **评测协议不属于模型**：`eval_stride`、`metric_dims`、`rte_delta`、`t_rte`、`d_rte`、`min_speed`、`split`
+  只能来自 `default.yaml`、benchmark 配置或命令行；模型 YAML 的 `input`/`recipes` 里出现它们（或 `device`、
+  `project` 等运行键）会报错。生效协议写入 `runs/*/args.yaml` 与 `metrics.json` 的 `protocol` 块，
+  `ipb report` 会核对各 run 的评测协议是否一致，不一致即报错。
 
 环境变量：`IPB_DATASETS`（转换后数据根目录，缺省 `~/datasets/ipb`）、`IPB_VERBOSE=0`（静默）、
 `IPB_PLUGINS`（逗号分隔的插件模块名或 `.py` 路径，导入后其中 `@register_model` / `@register_augmentation`
@@ -129,6 +138,10 @@ ipb report runs=runs/val metrics=[ate,rte,pde,plr] plots=false
 `wilcoxon.csv`（同一数据集划分上的模型两两配对检验）、`report.json` 与箱线图、误差 CDF、长度比散点、参数量–精度帕累托图。
 统计定义见 [METRICS.md](METRICS.md) 第 5 节。
 
+汇总前先核对所有 run 的 `metrics.json` → `protocol` 块：评测协议键（`eval_stride`、`metric_dims`、
+`rte_delta`、`t_rte`、`d_rte`、`min_speed`）必须完全一致，否则以退出码 `2` 报错并指出差异键与目录；
+旧结果没有 `protocol` 块时同样报错（重跑评测即可）。一致的协议写入 `report.json` 的 `protocol` 字段。
+
 ### `ipb info` / `ipb cfg` / `ipb version`
 
 ```bash
@@ -142,7 +155,7 @@ ipb cfg model=ronin_resnet18 recipe=official   # 打印合并后的完整配置
 
 ```text
 runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp，已存在时 exp2、exp3…（exist_ok=true 则复用）
-├── args.yaml                  # 完整解析后的配置
+├── args.yaml                  # 完整解析后的配置，外加 protocol 块（生效的输入规格与评测协议）
 ├── env.json                   # git 提交与是否有未提交修改、依赖版本、GPU、数据集指纹与 dataset.json 哈希
 ├── log.txt
 ├── weights/{best,last}.pt     # 训练：模型配置、输入规格、完整 cfg、epoch、优化器/调度器状态（best 去掉优化器）、git 提交

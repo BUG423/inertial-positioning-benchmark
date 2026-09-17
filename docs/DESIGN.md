@@ -259,7 +259,21 @@ class BaseModel(nn.Module):
 配对 Wilcoxon 检验；输出 CSV / Markdown / LaTeX 表格；图包括轨迹叠加、误差 CDF、误差随时间曲线、
 箱线图、长度比散点、参数量–精度帕累托图。
 
-**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE。
+**协议与模型分离（配置层强制）**：
+
+- 模型 YAML 的 `input` 只允许**输入/输出规格**键（`window`、`frame`、`orientation`、`remove_gravity`、
+  `target`、`dims`、`rate`，以及第 3 节的扩展键 `overlap`、`history*`、`extra_inputs`）；
+  `recipes` 只允许**训练相关**键。
+- **评测协议键**（`eval_stride`、`metric_dims`、`rte_delta`、`t_rte`、`d_rte`、`min_speed`、`split`）
+  只能来自 `cfg/default.yaml`、benchmark 配置或用户显式命令行/Python 参数，**不得**来自模型 YAML
+  或 checkpoint 里保存的 `model_cfg`；违反时 `get_cfg` 直接报错。运行/输出键（`device`、`project`、
+  `name`、`plots`…）同样不允许出现在模型配方里。
+- 生效的协议（输入规格 + 评测协议）写入 `runs/*/args.yaml` 与 `metrics.json` 的 `protocol` 块。
+  `ipb report` 汇总前核对所有 run 的**评测协议**键是否一致：不一致（或缺少 `protocol`）直接报错，
+  指出差异键与对应目录；输入规格键本来就随模型不同，只记录不比较。
+
+**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE，
+且 `fitness` 在配置解析时就按“越小越好的验证指标”校验（拼错立即报错，不会等到第一轮结束）。
 
 ## 7. 开发纪律
 

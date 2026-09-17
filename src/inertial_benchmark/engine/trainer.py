@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 from .. import __version__
-from ..cfg import ConfigError, get_cfg
+from ..cfg import ConfigError, get_cfg, protocol_from_cfg
 from ..data.build import build_dataloader, build_dataset
 from ..data.manifest import resolve_dataset
 from ..metrics import METRIC_INFO
@@ -135,7 +135,8 @@ class Trainer:
         self.validator = Validator(a, callbacks=self.callbacks)
         if self.resume_ckpt is not None:
             self._load_resume_state()
-        yaml_save(self.save_dir / "args.yaml", a.to_dict())
+        yaml_save(self.save_dir / "args.yaml",
+                  {**a.to_dict(), "protocol": protocol_from_cfg(a)})
         self.env = collect_env(self.device, self.spec)
         json_save(self.save_dir / "env.json", self.env)
         run_callbacks(self.callbacks, "on_pretrain_routine_end", self)

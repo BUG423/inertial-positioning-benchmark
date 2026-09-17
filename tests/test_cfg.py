@@ -1,7 +1,10 @@
 import pytest
 
 from inertial_benchmark.cfg import (
+    EVAL_KEYS,
+    INPUT_KEYS,
     NULLABLE_KEYS,
+    PROTOCOL_KEYS,
     ConfigError,
     get_cfg,
     load_default,
@@ -9,6 +12,8 @@ from inertial_benchmark.cfg import (
     parse_key_value,
     parse_str_list,
     parse_value,
+    protocol_from_cfg,
+    recipe_keys,
 )
 from inertial_benchmark.data.manifest import dataset_yaml_names, resolve_dataset
 from inertial_benchmark.metrics import fitness_keys
@@ -81,6 +86,39 @@ def test_parse_key_value():
     assert parse_value("-2.5") == -2.5
     with pytest.raises(ConfigError):
         parse_key_value(["epochs"])
+
+
+def test_model_yaml_cannot_change_the_evaluation_protocol():
+    """模型 YAML 的 input 只放输入规格，recipes 只放训练键；评测协议必须来自 benchmark/CLI。"""
+    base = {"name": "probe", "arch": "ronin_resnet", "input": {"window": 100},
+            "recipes": {"unified": {}}}
+    assert get_cfg({"model": base}).window == 100
+    for key, value in (("eval_stride", 1), ("metric_dims", 3), ("rte_delta", 5.0),
+                       ("t_rte", [2.0]), ("d_rte", [1.0]), ("min_speed", 0.0), ("split", "test"),
+                       ("epochs", 3), ("project", "runs2")):
+        model = {**base, "input": {"window": 100, key: value}}
+        with pytest.raises(ConfigError, match="must not set"):
+            get_cfg({"model": model})
+    for key, value in (("eval_stride", 1), ("metric_dims", 3), ("min_speed", 0.0),
+                       ("split", "test"), ("device", "cpu"), ("project", "runs2"),
+                       ("plots", False)):
+        model = {**base, "recipes": {"unified": {key: value}}}
+        with pytest.raises(ConfigError, match="must not set"):
+            get_cfg({"model": model})
+    # 训练键、输入规格键分别在各自的小节里合法
+    assert get_cfg({"model": {**base, "recipes": {"unified": {"epochs": 7, "stride": 5,
+                                                              "fitness": "rte"}}}}).epochs == 7
+    assert set(recipe_keys(load_default())) >= {"epochs", "lr", "stride", "augment", "fitness"}
+    assert not set(recipe_keys(load_default())) & set(EVAL_KEYS + INPUT_KEYS)
+    # 用户显式覆盖始终可以改评测协议
+    assert get_cfg({"model": base, "eval_stride": 20}).eval_stride == 20
+
+
+def test_protocol_block_records_the_effective_protocol():
+    protocol = protocol_from_cfg(get_cfg({"model": "ronin_resnet18", "eval_stride": 40}))
+    assert set(protocol) == set(PROTOCOL_KEYS)
+    assert protocol["window"] == 200 and protocol["eval_stride"] == 40
+    assert protocol["metric_dims"] == 2 and protocol["t_rte"] == [1.0, 10.0]
 
 
 def test_none_is_only_allowed_on_nullable_keys():

@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 
 import torch
 
-from ..cfg import ConfigError, get_cfg, is_checkpoint
+from ..cfg import ConfigError, get_cfg, is_checkpoint, protocol_from_cfg
 from ..data.format import Sequence, load_sequence
 from ..data.manifest import DatasetSpec, resolve_dataset
 from ..data.views import SequenceView
@@ -103,7 +103,8 @@ class Validator:
                 result.env = collect_env(device, spec)
                 if self.args.efficiency:
                     result.efficiency = self.efficiency(predictor.model, device)
-                yaml_save(self.save_dir / "args.yaml", self.args.to_dict())
+                yaml_save(self.save_dir / "args.yaml",
+                          {**self.args.to_dict(), "protocol": protocol_from_cfg(self.args)})
                 json_save(self.save_dir / "env.json", result.env)
                 result.save(self.save_dir, predictions=bool(self.args.save_predictions),
                             plots=bool(self.args.plots), max_plots=int(self.args.max_plots))

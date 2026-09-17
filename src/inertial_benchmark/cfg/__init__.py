@@ -14,8 +14,18 @@ from ..utils import CFG_DIR, DEFAULT_CFG_PATH, IterableSimpleNamespace, yaml_loa
 
 PathLike = Union[str, Path]
 
-# 定义模型输入的键：使用 checkpoint 时必须与训练时一致
+# 定义模型输入/输出规格的键：模型 YAML 的 `input` 只允许这些键；使用 checkpoint 时必须与训练时一致
 INPUT_KEYS = ("window", "frame", "orientation", "remove_gravity", "target", "dims", "rate")
+# 评测协议键：决定指标怎么算，**只能**来自 default.yaml / benchmark 配置 / 用户显式覆盖，
+# 不得来自模型 YAML 或 checkpoint 的 model_cfg（否则模型可以自己挑一套好看的评测协议）
+EVAL_PROTOCOL_KEYS = ("eval_stride", "metric_dims", "rte_delta", "t_rte", "d_rte", "min_speed")
+EVAL_KEYS = EVAL_PROTOCOL_KEYS + ("split",)
+# 写入 args.yaml 与 metrics.json 的 `protocol` 块：输入规格（随模型）+ 评测协议（随 benchmark）
+PROTOCOL_KEYS = INPUT_KEYS + EVAL_PROTOCOL_KEYS
+# 运行环境与输出键：由命令行/benchmark 配置决定，模型配方不得改写
+RUN_KEYS = ("mode", "model", "data", "source", "resume", "pretrained", "device", "project",
+            "name", "exist_ok", "verbose", "recipe", "save_predictions", "plots", "max_plots",
+            "efficiency")
 CHOICES = {
     "mode": ("train", "val", "predict", "benchmark"),
     "optimizer": ("sgd", "adam", "adamw"),
@@ -114,6 +124,31 @@ def check_keys(overrides: Mapping[str, Any], defaults: Mapping[str, Any]) -> Non
         raise ConfigError(f"unknown config key(s): {msg}. See `ipb cfg` for all keys.")
 
 
+def recipe_keys(defaults: Mapping[str, Any]) -> list:
+    """模型配方允许出现的键：训练相关键（排除输入规格、评测协议与运行/输出键）。"""
+    forbidden = set(INPUT_KEYS) | set(EVAL_KEYS) | set(RUN_KEYS)
+    return sorted(k for k in defaults if k not in forbidden)
+
+
+def _check_section(section: Mapping[str, Any], allowed: Any, defaults: Mapping[str, Any],
+                   where: str, reason: str) -> None:
+    """校验模型 YAML 的一个小节：键必须已知，且必须落在 ``allowed`` 内。"""
+    check_keys(section, defaults)
+    bad = sorted(set(section) - set(allowed))
+    if bad:
+        raise ConfigError(f"{where} must not set {bad}: {reason}. Allowed keys: {sorted(allowed)}")
+
+
+def protocol_from_cfg(cfg: Any) -> dict:
+    """生效的评测协议（输入规格 + 评测协议键），写入 ``args.yaml`` 与 ``metrics.json``。"""
+    get = cfg.get if hasattr(cfg, "get") else (lambda k, d=None: getattr(cfg, k, d))
+    out = {}
+    for key in PROTOCOL_KEYS:
+        value = get(key)
+        out[key] = list(value) if isinstance(value, (list, tuple)) else value
+    return out
+
+
 def _coerce(key: str, value: Any, default: Any) -> Any:
     if value is None:
         # 只有明确可空的键允许 None；否则 `epochs=none` 会静默退回默认值
@@ -195,15 +230,21 @@ def get_cfg(overrides: Optional[Mapping[str, Any]] = None,
     model = overrides.get("model", defaults.get("model"))
     if model is not None:
         mcfg = load_model_cfg(model)
-        check_keys(mcfg["input"], defaults)
+        name = mcfg["name"]
+        _check_section(mcfg["input"], INPUT_KEYS, defaults, f"model {name!r} 'input'",
+                       "only the input/output spec belongs to the model")
         merged.update(mcfg["input"])
         recipe = overrides.get("recipe", defaults["recipe"])
         recipes = mcfg["recipes"]
         if recipe not in recipes and recipe != "unified":
-            raise ConfigError(f"model {mcfg['name']} has no recipe {recipe!r} "
+            raise ConfigError(f"model {name} has no recipe {recipe!r} "
                               f"(available: {sorted(recipes) or ['unified']})")
         recipe_cfg = dict(recipes.get(recipe) or {})
-        check_keys(recipe_cfg, defaults)
+        _check_section(recipe_cfg, recipe_keys(defaults), defaults,
+                       f"model {name!r} recipe {recipe!r}",
+                       "the evaluation protocol and the run/output keys are not the model's to "
+                       "choose (they come from default.yaml, the benchmark config or the "
+                       "command line)")
         merged.update(recipe_cfg)
         if is_checkpoint(model):
             from ..utils.torch_utils import load_checkpoint
@@ -289,8 +330,12 @@ def cfg_to_dict(cfg: Any) -> dict:
 
 __all__ = [
     "CHOICES",
+    "EVAL_KEYS",
+    "EVAL_PROTOCOL_KEYS",
     "INPUT_KEYS",
     "NULLABLE_KEYS",
+    "PROTOCOL_KEYS",
+    "RUN_KEYS",
     "STR_LIST_KEYS",
     "ConfigError",
     "cfg_to_dict",
@@ -301,4 +346,6 @@ __all__ = [
     "parse_key_value",
     "parse_str_list",
     "parse_value",
+    "protocol_from_cfg",
+    "recipe_keys",
 ]
