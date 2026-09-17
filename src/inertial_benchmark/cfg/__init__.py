@@ -32,6 +32,10 @@ CHOICES = {
 FLEX_TYPES = {"resume": (bool, str), "device": (str, int, type(None)), "model": (str, dict)}
 # 缺省为空、但取值应为字符串的键（CLI 可能把 name=1 解析成整数）
 STR_KEYS = ("name", "data", "split", "source", "pretrained", "project", "model")
+# 明确可空的键（default.yaml 中默认为空）；其余键写 None 视为配置错误，不再静默走默认值
+NULLABLE_KEYS = ("data", "source", "pretrained", "loss", "device", "name")
+# CLI 中一律按“字符串列表”解析的键（序列 id 不能被当成八进制/整数）
+STR_LIST_KEYS = ("only",)
 
 
 class ConfigError(ValueError):
@@ -111,9 +115,15 @@ def check_keys(overrides: Mapping[str, Any], defaults: Mapping[str, Any]) -> Non
 
 
 def _coerce(key: str, value: Any, default: Any) -> Any:
+    if value is None:
+        # 只有明确可空的键允许 None；否则 `epochs=none` 会静默退回默认值
+        if key not in NULLABLE_KEYS:
+            raise ConfigError(f"{key}=None is not allowed; nullable keys are "
+                              f"{sorted(NULLABLE_KEYS)}")
+        return None
     if key in STR_KEYS and isinstance(value, (int, float, Path)) and not isinstance(value, bool):
         return str(value)
-    if value is None or (default is None and key not in FLEX_TYPES):
+    if default is None and key not in FLEX_TYPES:
         return value
     if key in FLEX_TYPES:
         if not isinstance(value, FLEX_TYPES[key]):
@@ -154,7 +164,22 @@ def check_cfg(cfg: dict, defaults: Mapping[str, Any]) -> dict:
             raise ConfigError(f"{key} must be >= 1, got {out[key]}")
     if out.get("frame") == "body" and out.get("dims") != 3:
         raise ConfigError("frame=body requires dims=3 (targets are expressed in the device frame)")
+    _check_fitness(out, defaults)
     return out
+
+
+def _check_fitness(out: dict, defaults: Mapping[str, Any]) -> None:
+    """在配置解析时校验 ``fitness``（否则拼错要等到第一轮验证结束才报错）。"""
+    from ..metrics import fitness_keys
+
+    fitness = out.get("fitness", defaults.get("fitness"))
+    if fitness is None:
+        return
+    allowed = fitness_keys(out.get("t_rte", defaults.get("t_rte") or ()),
+                           out.get("d_rte", defaults.get("d_rte") or ()))
+    if fitness not in allowed:
+        raise ConfigError(f"fitness={fitness!r} is not a lower-is-better validation metric"
+                          f"{_suggest(fitness, allowed)}; available: {allowed}")
 
 
 def get_cfg(overrides: Optional[Mapping[str, Any]] = None,
@@ -222,8 +247,30 @@ def _normalize(obj: Any) -> Any:
     return obj
 
 
+def parse_str_list(text: str, key: str = "value") -> list:
+    """把 ``a,b`` / ``[a, b]`` / ``a`` 解析为字符串列表（不做数字/八进制转换）。
+
+    序列 id 必须按字符串处理：``only=[010]`` 不是八进制 8，``only=007`` 不是整数 7。
+    非法输入（空列表、括号不匹配、空元素、嵌套结构）抛出 :class:`ConfigError`。
+    """
+    s = text.strip()
+    if s.startswith("[") or s.endswith("]"):
+        if not (s.startswith("[") and s.endswith("]")):
+            raise ConfigError(f"{key}={text!r}: unbalanced brackets")
+        s = s[1:-1]
+    if any(ch in s for ch in "[]{}"):
+        raise ConfigError(f"{key}={text!r}: expected a flat comma-separated list of strings")
+    items = [item.strip().strip("'\"").strip() for item in s.split(",")]
+    if not items or any(not item for item in items):
+        raise ConfigError(f"{key}={text!r}: expected a non-empty comma-separated list of ids")
+    return items
+
+
 def parse_key_value(args: list) -> dict:
-    """``["epochs=2", "augment=[random_yaw]"]`` → ``{"epochs": 2, "augment": ["random_yaw"]}``。"""
+    """``["epochs=2", "augment=[random_yaw]"]`` → ``{"epochs": 2, "augment": ["random_yaw"]}``。
+
+    ``STR_LIST_KEYS`` 中的键（序列 id 列表）按字符串列表解析，见 :func:`parse_str_list`。
+    """
     out: dict = {}
     for arg in args:
         if "=" not in arg:
@@ -232,7 +279,7 @@ def parse_key_value(args: list) -> dict:
         key = key.strip().lstrip("-").replace("-", "_")
         if not key:
             raise ConfigError(f"empty key in {arg!r}")
-        out[key] = parse_value(value)
+        out[key] = parse_str_list(value, key) if key in STR_LIST_KEYS else parse_value(value)
     return out
 
 
@@ -243,6 +290,8 @@ def cfg_to_dict(cfg: Any) -> dict:
 __all__ = [
     "CHOICES",
     "INPUT_KEYS",
+    "NULLABLE_KEYS",
+    "STR_LIST_KEYS",
     "ConfigError",
     "cfg_to_dict",
     "check_cfg",
@@ -250,5 +299,6 @@ __all__ = [
     "load_default",
     "load_model_cfg",
     "parse_key_value",
+    "parse_str_list",
     "parse_value",
 ]

@@ -29,19 +29,15 @@ class NIO:
             model = str(model)
         self.overrides = {"model": model, **overrides}
         self.callbacks = default_callbacks()
-        cfg = get_cfg(self._cfg_overrides(self.overrides))
+        cfg = get_cfg(self.overrides)
         self.model = load_model(cfg)
         self.ckpt_path: Optional[str] = model if is_checkpoint(model) else None
         self.trainer = None
         self.metrics: dict = {}
 
-    @staticmethod
-    def _cfg_overrides(overrides: dict) -> dict:
-        return {k: v for k, v in overrides.items() if v is not None or k == "data"}
-
     def _merge(self, mode: str, kwargs: dict) -> dict:
-        merged = {**self.overrides, **kwargs, "mode": mode}
-        return self._cfg_overrides(merged)
+        """合并构造参数与调用参数；``None`` 原样传给 ``get_cfg`` 校验（不再静默丢弃）。"""
+        return {**self.overrides, **kwargs, "mode": mode}
 
     def __repr__(self) -> str:
         name = self.model.model_cfg.get("name", type(self.model).__name__)

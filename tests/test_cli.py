@@ -42,6 +42,10 @@ def test_help_version_and_errors(capsys):
     assert entrypoint(["convert", "dataset=x"]) == 2
     assert entrypoint(["report", "runs=/nonexistent", "colour=red"]) == 2
     assert entrypoint(["val", "model=ronin_resnet18"]) == 2  # 缺少 data
+    assert entrypoint(["train", "epochs=none"]) == 2  # 不可空的键写 None
+    assert entrypoint(["train", "fitness=atee"]) == 2  # fitness 拼错在解析时就报错
+    for only in ("only=[]", "only=[a", "only=007,"):  # 非法序列 id 列表
+        assert entrypoint(["convert", "dataset=fake", "source=/nonexistent", only]) == 2
 
 
 def test_cfg_and_info(capsys):

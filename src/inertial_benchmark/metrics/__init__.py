@@ -50,11 +50,22 @@ METRIC_INFO = {
     "flops": ("FLOPs", "", True),
 }
 MAIN_METRICS = ("ate", "rte", "d_rte_10m", "pde", "plr", "vel_rmse", "dir_err_mean")
+# 不能用于模型选择：效率指标不在 val 上计算，oracle 指标与模型无关（选它等于不选）
+NON_FITNESS = ("params", "flops", "ate_oracle")
 
 
 def display_name(key: str) -> str:
     name, unit, _ = METRIC_INFO.get(key, (key, "", True))
     return f"{name} ({unit})" if unit else name
+
+
+def fitness_keys(t_rte: Iterable[float] = (1.0, 10.0),
+                 d_rte: Iterable[float] = (10.0,)) -> list:
+    """可用作 ``fitness`` 的验证指标名（越小越好），含按配置生成的 T-RTE / D-RTE 键。"""
+    keys = {k for k, info in METRIC_INFO.items() if info[2] is True and k not in NON_FITNESS}
+    keys |= {f"t_rte_{float(tau):g}s" for tau in t_rte}
+    keys |= {f"d_rte_{float(dist):g}m" for dist in d_rte}
+    return sorted(keys)
 
 
 def sequence_metrics(
@@ -83,6 +94,7 @@ def sequence_metrics(
 __all__ = [
     "MAIN_METRICS",
     "METRIC_INFO",
+    "NON_FITNESS",
     "align_trajectory",
     "angle_between",
     "ate",
@@ -91,6 +103,7 @@ __all__ = [
     "d_rte",
     "display_name",
     "drift",
+    "fitness_keys",
     "length_ratios",
     "path_length",
     "rte",

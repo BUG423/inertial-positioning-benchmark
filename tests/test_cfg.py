@@ -1,14 +1,17 @@
 import pytest
 
 from inertial_benchmark.cfg import (
+    NULLABLE_KEYS,
     ConfigError,
     get_cfg,
     load_default,
     load_model_cfg,
     parse_key_value,
+    parse_str_list,
     parse_value,
 )
 from inertial_benchmark.data.manifest import dataset_yaml_names, resolve_dataset
+from inertial_benchmark.metrics import fitness_keys
 from inertial_benchmark.utils import CFG_DIR, yaml_load
 
 REQUIRED_DEFAULT_KEYS = (
@@ -78,6 +81,40 @@ def test_parse_key_value():
     assert parse_value("-2.5") == -2.5
     with pytest.raises(ConfigError):
         parse_key_value(["epochs"])
+
+
+def test_none_is_only_allowed_on_nullable_keys():
+    defaults = load_default()
+    empty = {k for k, v in defaults.items() if v is None}
+    assert empty == set(NULLABLE_KEYS)  # 可空键必须与 default.yaml 中默认为空的键一致
+    for key in NULLABLE_KEYS:
+        assert getattr(get_cfg({key: None}), key) is None
+    for key in ("epochs", "batch", "lr", "window", "fitness", "augment", "deterministic"):
+        with pytest.raises(ConfigError, match="not allowed"):
+            get_cfg({key: None})
+
+
+def test_fitness_is_validated_when_the_config_is_parsed():
+    assert get_cfg({"fitness": "t_rte_1s"}).fitness == "t_rte_1s"
+    assert get_cfg({"fitness": "d_rte_5m", "d_rte": [5.0]}).fitness == "d_rte_5m"
+    assert "ate" in fitness_keys() and "params" not in fitness_keys()
+    assert "ate_oracle" not in fitness_keys()  # 与模型无关，不能用于选模
+    with pytest.raises(ConfigError, match="did you mean ate"):
+        get_cfg({"fitness": "ate_"})
+    with pytest.raises(ConfigError, match="lower-is-better"):
+        get_cfg({"fitness": "plr"})  # 越接近 1 越好，不是越小越好
+    with pytest.raises(ConfigError, match="lower-is-better"):
+        get_cfg({"fitness": "d_rte_5m"})  # d_rte 配置里没有 5 m
+
+
+def test_sequence_ids_are_parsed_as_strings():
+    assert parse_key_value(["only=[010]"]) == {"only": ["010"]}  # 不是八进制 8
+    assert parse_key_value(["only=007"]) == {"only": ["007"]}  # 不是整数 7
+    assert parse_key_value(["only=a, b ,'c'"]) == {"only": ["a", "b", "c"]}
+    assert parse_str_list("[x]") == ["x"]
+    for text in ("only=[]", "only=[a", "only=a]", "only=[a,,b]", "only={a: 1}"):
+        with pytest.raises(ConfigError):
+            parse_key_value([text])
 
 
 def test_dataset_yamls_are_complete(monkeypatch, tmp_path):

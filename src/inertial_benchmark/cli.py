@@ -49,11 +49,14 @@ def _check_keys(kv: dict, allowed: set, command: str) -> None:
 
 
 def _as_list(value) -> Optional[list]:
+    """把 CLI 值统一成字符串列表（标量也接受，避免 ``TypeError``）。"""
     if value is None:
         return None
     if isinstance(value, str):
         return [v for v in value.split(",") if v]
-    return [str(v) for v in value]
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return [str(value)]
 
 
 def cmd_convert(kv: dict) -> int:
