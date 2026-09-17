@@ -13,16 +13,19 @@ from inertial_benchmark.cfg import ConfigError, get_cfg  # noqa: E402
 from inertial_benchmark.data.convert import convert_dataset  # noqa: E402
 from inertial_benchmark.data.views import SequenceView, ViewConfig  # noqa: E402
 from inertial_benchmark.engine import Predictor, RunResult, SequenceResult, Trainer  # noqa: E402
+from inertial_benchmark.engine import trainer as trainer_module  # noqa: E402
 from inertial_benchmark.engine.predictor import (  # noqa: E402
     fill_invalid_windows,
     integrate,
     reconstruct,
 )
 from inertial_benchmark.nn import MODELS, BaseModel, register_model  # noqa: E402
-from inertial_benchmark.utils import yaml_load  # noqa: E402
+from inertial_benchmark.utils import LOGGER, yaml_load  # noqa: E402
 from inertial_benchmark.utils.torch_utils import (  # noqa: E402
     EarlyStopping,
+    build_optimizer,
     build_scheduler,
+    epoch_seed,
     load_checkpoint,
 )
 
@@ -328,6 +331,92 @@ def test_early_stopping_and_schedulers():
     np.testing.assert_allclose(lrs, [0.25, 0.5, 0.75, 1.0])
     plateau = build_scheduler(torch.optim.SGD(params, lr=1.0), get_cfg({"scheduler": "plateau"}))
     assert isinstance(plateau, torch.optim.lr_scheduler.ReduceLROnPlateau)
+
+
+def _interrupt_after(trainer, epoch: int) -> None:
+    def stop(obj):
+        if obj.epoch == epoch:
+            raise KeyboardInterrupt
+
+    trainer.add_callback("on_fit_epoch_end", stop)
+
+
+def test_resume_reproduces_uninterrupted_weights(dataset, tmp_path):
+    """连续训练 3 轮与“中断后续训到 3 轮”必须得到逐位相同的权重。"""
+    base = {**TINY, "data": str(dataset), "epochs": 3, "project": str(tmp_path),
+            "save_predictions": False, "plots": False}
+    Trainer(overrides={**base, "name": "full"}).train()
+    part = Trainer(overrides={**base, "name": "part"})
+    _interrupt_after(part, 0)
+    with pytest.raises(KeyboardInterrupt):
+        part.train()
+    Trainer(overrides={"resume": True, "project": str(tmp_path), "name": "part"}).train()
+    full = load_checkpoint(tmp_path / "train" / "full" / "weights" / "last.pt")
+    resumed = load_checkpoint(tmp_path / "train" / "part" / "weights" / "last.pt")
+    assert full["epoch"] == resumed["epoch"] == 2
+    for k, v in full["model"].items():
+        assert torch.equal(v, resumed["model"][k]), k
+
+
+def test_epoch_seeding_shuffles_differently_each_epoch(dataset, tmp_path):
+    """每轮的 shuffle 顺序由 ``(seed, epoch)`` 决定：同一轮可复现，不同轮不相同。"""
+    orders: dict = {}
+
+    def record(obj):
+        orders.setdefault((obj.args.name, obj.epoch), []).append(
+            int(obj.batch["start"][0]) * 10 + int(obj.batch["seq"][0]))
+
+    for name in ("s1", "s2"):
+        trainer = Trainer(overrides={**TINY, "data": str(dataset), "epochs": 2,
+                                     "project": str(tmp_path), "name": name,
+                                     "save_predictions": False, "plots": False})
+        trainer.add_callback("on_train_batch_start", record)
+        trainer.train()
+    assert orders[("s1", 0)] == orders[("s2", 0)]  # 同一轮可复现
+    assert orders[("s1", 1)] == orders[("s2", 1)]
+    assert orders[("s1", 0)] != orders[("s1", 1)]  # 不同轮顺序不同
+    assert epoch_seed(0, 0) != epoch_seed(0, 1) and epoch_seed(0, 3) == epoch_seed(0, 3)
+
+
+def test_setup_failure_releases_the_log_handler(tmp_path):
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "spec.json").write_text(json.dumps({"sequences": [
+        {"id": "tr0", "seed": 0, "group": "g0", "split": "train", "duration": 0.4,
+         "imu_rate": 200.0},
+        {"id": "te0", "seed": 1, "group": "g1", "split": "test", "duration": 0.4,
+         "imu_rate": 200.0}]}))
+    convert_dataset("fake", tmp_path / "raw", tmp_path / "tiny", converter=FAKE,
+                    val_fraction=0.5, min_duration=0.1)
+    before = list(LOGGER.handlers)
+    trainer = Trainer(overrides={**TINY, "data": str(tmp_path / "tiny"), "epochs": 1,
+                                 "project": str(tmp_path), "name": "bad"})
+    with pytest.raises(RuntimeError, match="no valid windows"):
+        trainer.train()
+    assert LOGGER.handlers == before
+
+
+def test_best_checkpoint_is_written_before_last(dataset, tmp_path, monkeypatch):
+    """``last.pt`` 记录的早停状态必须与磁盘上的 ``best.pt`` 对应（best 先落盘）。"""
+    order = []
+    real = trainer_module.save_checkpoint
+
+    def spy(path, ckpt):
+        order.append(Path(path).name)
+        return real(path, ckpt)
+
+    monkeypatch.setattr(trainer_module, "save_checkpoint", spy)
+    Trainer(overrides={**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+                       "name": "order", "save_predictions": False, "plots": False}).train()
+    assert order[:2] == ["best.pt", "last.pt"]
+    last = load_checkpoint(tmp_path / "train" / "order" / "weights" / "last.pt")
+    best = load_checkpoint(tmp_path / "train" / "order" / "weights" / "best.pt")
+    assert last["stopper"]["best_epoch"] == best["epoch"]
+
+
+def test_sgd_without_momentum_disables_nesterov():
+    model = torch.nn.Linear(3, 2)
+    assert not build_optimizer(model, "sgd", 0.1, momentum=0.0).param_groups[0]["nesterov"]
+    assert build_optimizer(model, "sgd", 0.1, momentum=0.9).param_groups[0]["nesterov"]
 
 
 def test_view_config_from_model_spec(zero_model):

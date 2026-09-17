@@ -7,10 +7,12 @@ from __future__ import annotations
 import csv
 import datetime as _dt
 import math
+import random
 import time
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import torch
 
 from .. import __version__
@@ -27,6 +29,7 @@ from ..utils.torch_utils import (
     build_optimizer,
     build_scheduler,
     de_parallel,
+    epoch_seed,
     load_checkpoint,
     model_info,
     save_checkpoint,
@@ -91,6 +94,14 @@ class Trainer:
     def add_callback(self, event: str, fn) -> None:
         add_callback(self.callbacks, event, fn)
 
+    def _close_log(self) -> None:
+        """移除并关闭本次运行的文件日志句柄（可重复调用）。"""
+        handler = getattr(self, "_log_handler", None)
+        if handler is not None:
+            self._log_handler = None
+            LOGGER.removeHandler(handler)
+            handler.close()
+
     def setup(self) -> None:
         a = self.args
         run_callbacks(self.callbacks, "on_pretrain_routine_start", self)
@@ -149,10 +160,28 @@ class Trainer:
             self._write_rows(rows)
 
     # ------------------------------------------------------------------ 训练
+    def seed_epoch(self, epoch: int) -> None:
+        """按 ``(seed, epoch)`` 重置采样与全局随机数状态。
+
+        DataLoader 的 ``generator`` 在每轮 shuffle 时被推进，torch 全局 RNG 也被 dropout 等消耗，
+        因此“第 e 轮的随机性”原本依赖于之前跑过多少轮：续训那一轮会重复第 0 轮的 shuffle 顺序。
+        每轮开始时按轮次重新播种后，第 e 轮的随机性只由 ``(seed, e)`` 决定，
+        “连续训练 N 轮”与“中断后续训到 N 轮”得到逐位相同的权重。
+        """
+        seed = epoch_seed(int(self.args.seed), epoch)
+        generator = getattr(self.train_loader, "generator", None)
+        if generator is not None:
+            generator.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed % 2**32)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
     def train_one_epoch(self, epoch: int) -> dict:
         a = self.args
         model = self.model
         model.train()
+        self.seed_epoch(epoch)
         self.train_set.set_epoch(epoch)
         total, count, items_sum = 0.0, 0, {}
         grad_clip = float(a.grad_clip)
@@ -202,7 +231,11 @@ class Trainer:
         return float(value)
 
     def train(self) -> dict:
-        self.setup()
+        try:
+            self.setup()
+        except BaseException:
+            self._close_log()  # setup 失败时也要摘掉文件日志句柄，否则句柄泄漏到后续运行
+            raise
         a = self.args
         epochs = int(a.epochs)
         LOGGER.info(f"train: {self.spec.name}, {len(self.train_set)} windows, "
@@ -248,11 +281,9 @@ class Trainer:
                         f"(epoch {self.stopper.best_epoch}), weights → {self.best}")
             run_callbacks(self.callbacks, "on_train_end", self)
         finally:
-            handler = getattr(self, "_log_handler", None)
-            if handler is not None:
-                LOGGER.removeHandler(handler)
-                handler.close()
-            if self.device.type == "cuda":
+            self._close_log()
+            device = getattr(self, "device", None)
+            if device is not None and device.type == "cuda":
                 torch.cuda.empty_cache()
         return self.metrics
 
@@ -290,10 +321,15 @@ class Trainer:
         }
 
     def save_model(self, epoch: int, improved: bool) -> None:
+        """先写 ``best.pt`` 再写 ``last.pt``。
+
+        顺序很重要：``last.pt`` 里保存了早停器状态（``best_epoch``/``best``），只有 best 先落盘，
+        中断后从 ``last.pt`` 续训时记录的最优轮次才一定对应磁盘上的 ``best.pt``。
+        """
         ckpt = self.checkpoint(epoch)
-        save_checkpoint(self.last, ckpt)
         if improved:
             save_checkpoint(self.best, ckpt)
+        save_checkpoint(self.last, ckpt)
         period = int(self.args.save_period)
         if period > 0 and (epoch + 1) % period == 0:
             save_checkpoint(self.wdir / f"epoch{epoch + 1}.pt", ckpt)

@@ -50,6 +50,12 @@ def select_device(device: Any = None, verbose: bool = True) -> torch.device:
     return dev
 
 
+def epoch_seed(seed: int, epoch: int) -> int:
+    """``(seed, epoch)`` → 稳定的 63 位种子（与轮次顺序无关，便于续训复现）。"""
+    state = np.random.SeedSequence([int(seed), int(epoch)]).generate_state(1, dtype=np.uint64)
+    return int(state[0] >> 1)
+
+
 def seed_everything(seed: int = 0, deterministic: bool = True) -> None:
     """设置 python / numpy / torch 随机种子；``deterministic`` 时启用确定性算法（仅告警）。"""
     random.seed(seed)
@@ -83,7 +89,8 @@ def build_optimizer(model: nn.Module, name: str, lr: float, momentum: float = 0.
               {"params": no_decay, "weight_decay": 0.0}]
     name = name.lower()
     if name == "sgd":
-        return torch.optim.SGD(groups, lr=lr, momentum=momentum, nesterov=True)
+        # Nesterov 要求动量 > 0（且 dampening = 0），momentum=0 时退化为普通 SGD
+        return torch.optim.SGD(groups, lr=lr, momentum=momentum, nesterov=momentum > 0)
     if name == "adam":
         return torch.optim.Adam(groups, lr=lr, betas=(momentum, 0.999))
     if name == "adamw":
