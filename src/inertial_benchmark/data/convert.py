@@ -481,6 +481,12 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     policy = dict(policy or {"default": "official", "official_splits_leak": grouped is not None})
     splits, method, missing = _resolve_all(official, grouped, extra, accepted, groups, weights,
                                            val_fraction, seed)
+    for record in rejected:  # 上一次转换接收过、这次被拒的序列不能留下陈旧文件
+        stale = output / "sequences" / f"{record['sequence_id']}.h5"
+        if stale.exists():
+            stale.unlink()
+            LOGGER.warning(f"convert {name}: removed stale {stale.name} (now rejected: "
+                           f"{record.get('reason', 'unknown')})")
     split_dir = output / "splits"
     if split_dir.is_dir():
         for old in split_dir.glob("*.txt"):

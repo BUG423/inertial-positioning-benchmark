@@ -55,3 +55,33 @@ def test_frozen_gt_falls_back_to_vio_like_the_official_loader():
     assert raw.rejected is None
     assert raw.attrs["reference_type"] == "vio"
     assert any("official gt criterion" in n for n in raw.notes)
+
+
+def test_duplicate_table_is_complete():
+    """扫描全部 SenseINS.csv：内容相同的序列必须都在 ``KNOWN_DUPLICATES`` 中（按文件大小分组）。"""
+
+    from collections import defaultdict
+
+    root = rnin._root(SOURCE)
+    by_size = defaultdict(list)
+    for sequence_id, _, rel in rnin._listing(root):
+        by_size[(root / rel).stat().st_size].append((sequence_id, rel))
+    found = set()
+    for items in by_size.values():
+        if len(items) < 2:
+            continue
+        by_md5 = defaultdict(list)
+        for sequence_id, rel in items:
+            by_md5[rnin.file_md5(root / rel)].append(sequence_id)
+        for digest, same in by_md5.items():
+            if len(same) > 1:
+                found.add((tuple(sorted(same)), digest))
+    expected = {(("train_178", "train_179"), "ddafa5fbc7aef4a3e8f21e47487ee31c")}
+    assert found == expected
+    assert set(rnin.KNOWN_DUPLICATES) == {"train_179"}
+
+
+def test_duplicate_copy_is_rejected():
+    raw = load("train_179")
+    assert raw.rejected and "duplicate of train_178" in raw.rejected
+    assert load("train_178").rejected is None

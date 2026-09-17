@@ -504,3 +504,18 @@ def test_device_orientation_gap_is_masked_separately(tmp_path):
     report = json.loads((out / "conversion_report.json").read_text())
     dev0 = next(r for r in report["sequences"] if r["sequence_id"] == "dev0")
     assert any("device orientation" in w for w in dev0["warnings"])
+
+
+def test_rejected_sequences_do_not_leave_stale_files(tmp_path):
+    """上一次被接收、这次被拒收的序列，其 h5 文件必须删除（例如发现是重复副本）。"""
+    entries = default_entries()[:3]
+    source = write_spec(tmp_path / "raw", entries)
+    out = tmp_path / "out"
+    convert_dataset("fake", source, out, converter=FAKE)
+    assert (out / "sequences" / "tr2.h5").exists()
+    entries[2] = {"id": "tr2", "kind": "reject", "split": "train"}
+    write_spec(tmp_path / "raw", entries)
+    manifest = convert_dataset("fake", source, out, converter=FAKE)
+    assert "tr2" not in manifest["sequences"]
+    assert not (out / "sequences" / "tr2.h5").exists()
+    assert check_dataset(out)["ok"]

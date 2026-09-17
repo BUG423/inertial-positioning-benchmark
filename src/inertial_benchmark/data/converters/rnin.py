@@ -23,7 +23,9 @@ vector，wxyz）、``rv_*``、磁力计与气压（缺失填 0）。
   本转换器**不**补偿零偏，只把 VIO 零偏写入 ``attrs['vio_bias']`` 与 ``notes``；
 * 采样率并非文档所说的 200 Hz：实测 250 Hz（160 条）、约 200 Hz（127 条）、约 400 Hz（14 条），且时间戳不均匀；
 * gt 世界系与 VIO（重力对齐）世界系之间存在最多约 3° 的倾斜，本转换器用 VIO 的重力方向把 gt 世界系调平
-  （只做倾斜校正，保留 gt 偏航），角度写入 ``notes``。
+  （只做倾斜校正，保留 gt 偏航），角度写入 ``notes``；
+* 发布数据里 ``data_train/178`` 与 ``data_train/179`` 的 ``SenseINS.csv`` 逐字节相同，后者被拒收
+  （见 ``KNOWN_DUPLICATES``）。
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ from . import _rig_utils as rig
 from .base import RawSequence
 
 NAME = "rnin"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 LICENSE = (
     "RNIN-VIO SenseINS data (https://github.com/zju3dv/rnin-vio); repository licensed Apache-2.0, "
     "no separate data license stated; IP belongs to SenseTime Group Ltd."
@@ -61,6 +63,11 @@ GV_Q = ["gv_w", "gv_x", "gv_y", "gv_z"]
 REQUIRED = ["times"] + GYRO + ACCE + VIO_BG + VIO_BA + VIO_P + VIO_Q + VIO_V + GT_P + GT_Q + GV_Q
 
 SESSION_GAP_S = 3600.0  # 同一设备时钟上相邻序列间隔不超过 1 小时视为同一采集会话
+
+# 发布数据中逐字节相同的序列：键被拒收，值为保留的副本及其 SenseINS.csv 的 md5。
+# data_train/178 与 data_train/179 完全相同（两者都在官方 train 中，保留编号较小的）。
+# tests/data/test_raw_rnin.py 扫描全部 CSV 确认此表完整。
+KNOWN_DUPLICATES = {"train_179": ("train_178", "ddafa5fbc7aef4a3e8f21e47487ee31c")}
 
 
 def _root(source) -> Path:
@@ -145,6 +152,28 @@ def session_table(root_str: str) -> dict:
             prev = (rate, prev[1], max(prev[2], t1))
         table[sequence_id] = f"session{session:02d}_{rate}hz"
     return table
+
+
+def file_md5(path: Path, chunk: int = 1 << 20) -> str:
+    import hashlib
+
+    digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def duplicate_of(sequence_id: str, root: Path) -> Optional[str]:
+    """``sequence_id`` 在重复表中、且本地文件确实与保留副本相同时，返回保留副本的名字。"""
+
+    if sequence_id not in KNOWN_DUPLICATES:
+        return None
+    keep, _ = KNOWN_DUPLICATES[sequence_id]  # 表中 md5 供真实数据测试核对
+    paths = {sid: rel for sid, _, rel in _listing(root)}
+    if keep not in paths or sequence_id not in paths:
+        return None
+    return keep if file_md5(root / paths[sequence_id]) == file_md5(root / paths[keep]) else None
 
 
 def _identity_rows(q: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -350,6 +379,10 @@ def iter_raw_sequences(source, only: Optional[Collection[str]] = None) -> Iterat
             yield rig.rejected_sequence(sequence_id, f"parse error: {exc!r}", {"source_license": LICENSE,
                                                                               "source_files": rel})
             continue
+        duplicate = duplicate_of(sequence_id, root)
+        if duplicate and raw.rejected is None:
+            raw.rejected = (f"byte-identical duplicate of {duplicate} (SenseINS.csv md5 match); "
+                            "the lower-numbered copy is kept")
         if raw.rejected is None:
             check_sequence(raw)
         yield raw

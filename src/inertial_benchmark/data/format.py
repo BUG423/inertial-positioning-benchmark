@@ -521,20 +521,45 @@ def _static_mask(seq: Sequence, mask: np.ndarray, rate: float) -> np.ndarray:
     return mask & (gyro_norm < 0.1) & (np.abs(acc_norm - GRAVITY) < 0.3) & (var < 0.05**2)
 
 
+def _static_segments(static: np.ndarray, rate: float) -> dict:
+    """静止样本的分布：数量、覆盖的时间区间与片段数（用于判断该段是否具有代表性）。"""
+    idx = np.flatnonzero(static)
+    if not len(idx):
+        return {"samples": 0}
+    return {
+        "samples": int(len(idx)),
+        "first_s": float(idx[0] / rate),
+        "last_s": float(idx[-1] / rate),
+        "segments": int(np.sum(np.diff(idx) > 1) + 1),
+    }
+
+
 def _check_gravity(seq: Sequence, mask: np.ndarray, rate: float, rep: ValidationReport,
                    tol_deg: float, norm_tol: float) -> None:
-    """把有效比力旋到参考世界系：均值应接近 ``[0, 0, +9.81]``（静止段优先）。"""
+    """把有效比力旋到参考世界系：均值应接近 ``[0, 0, +9.81]``。
+
+    同时计算两种统计量：静止段均值（不受运动加速度影响）与全部有效样本的均值
+    （不受局部姿态误差影响，例如 SLAM 初始化阶段的倾斜）。**任一统计量通过即通过**：
+    约定性错误（四元数顺序/方向、单位、符号）会让两者同时失败；两者不一致时记警告。
+    """
     q = seq.orientation[mask].astype(np.float64)
     acc = seq.accelerometer[mask].astype(np.float64)
     world = quat_rotate(q, acc)
     mean_all = world.mean(axis=0)
     static = _static_mask(seq, mask, rate)
-    use_static = static.sum() >= rate
-    if use_static:
-        mean = quat_rotate(seq.orientation[static].astype(np.float64),
-                           seq.accelerometer[static].astype(np.float64)).mean(axis=0)
-    else:
-        mean = mean_all
+    spread = _static_segments(static, rate)
+    mean_static = None
+    if static.sum() >= rate:
+        mean_static = quat_rotate(seq.orientation[static].astype(np.float64),
+                                  seq.accelerometer[static].astype(np.float64)).mean(axis=0)
+
+    def passes(vec: np.ndarray) -> bool:
+        return _tilt(vec) <= tol_deg and abs(float(np.linalg.norm(vec)) - GRAVITY) <= norm_tol
+
+    candidates = [("static", mean_static), ("all_valid", mean_all)]
+    ok = [name for name, vec in candidates if vec is not None and passes(vec)]
+    used = ok[0] if ok else ("static" if mean_static is not None else "all_valid")
+    mean = mean_static if used == "static" else mean_all
     tilt, norm_err = _tilt(mean), float(np.linalg.norm(mean) - GRAVITY)
 
     # 30 s 分块，诊断姿态漂移
@@ -547,13 +572,25 @@ def _check_gravity(seq: Sequence, mask: np.ndarray, rate: float, rep: Validation
     rep.info["gravity"] = {
         "mean_world_acc": mean.tolist(),
         "mean_world_acc_all": mean_all.tolist(),
+        "mean_world_acc_static": None if mean_static is None else mean_static.tolist(),
         "tilt_deg": tilt,
         "norm_error": norm_err,
         "static_samples": int(static.sum()),
-        "used": "static" if use_static else "all_valid",
+        "static_span": spread,
+        "used": used,
+        "passed": ok,
         "max_block_tilt_deg": max(block_tilts) if block_tilts else math.nan,
     }
-    if tilt <= tol_deg and abs(norm_err) <= norm_tol:
+    if ok:
+        if len(ok) == 1 and mean_static is not None:
+            other = mean_all if used == "static" else mean_static
+            rep.warnings.append(
+                f"gravity: {used} mean passes (tilt {tilt:.2f} deg) but the "
+                f"{'all_valid' if used == 'static' else 'static'} mean does not "
+                f"({np.round(other, 3).tolist()}, tilt {_tilt(other):.2f} deg; static samples "
+                f"{spread.get('samples', 0)} in {spread.get('first_s', float('nan')):.0f}-"
+                f"{spread.get('last_s', float('nan')):.0f} s): the reference orientation may be "
+                "locally inconsistent with gravity (e.g. SLAM initialisation)")
         if tilt > tol_deg / 2 or abs(norm_err) > norm_tol / 2:
             rep.warnings.append(
                 f"gravity: marginal (tilt {tilt:.2f} deg, |g| error {norm_err:+.3f})")
@@ -576,8 +613,8 @@ def _check_gravity(seq: Sequence, mask: np.ndarray, rate: float, rep: Validation
     q_from_xyzw = np.concatenate([q[:, 3:], q[:, :3]], axis=1)  # 假设存储顺序实为 xyzw
     if _tilt(quat_rotate(q_from_xyzw, acc).mean(axis=0)) <= tol_deg:
         hints.append("reordered quaternion passes: stored order may be xyzw")
-    msg = (f"gravity: mean world specific force {np.round(mean, 3).tolist()} "
-           f"(tilt {tilt:.2f} deg > {tol_deg} or |g| error {norm_err:+.3f} > {norm_tol})")
+    msg = (f"gravity: mean world specific force {np.round(mean, 3).tolist()} ({used}; "
+           f"tilt {tilt:.2f} deg > {tol_deg} or |g| error {norm_err:+.3f} > {norm_tol})")
     if hints:
         msg += "; hints: " + "; ".join(hints)
     rep.errors.append(msg)

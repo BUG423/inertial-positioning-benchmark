@@ -211,3 +211,29 @@ def test_device_orientation_mask_requires_device_orientation(tmp_path):
     assert back.device_orientation is not None and back.valid_device_orientation is None
     with h5py.File(path) as f:
         assert "valid/device_orientation" not in f
+
+
+def test_gravity_check_tolerates_an_unrepresentative_static_segment():
+    """静止段落在参考姿态尚未收敛的开头（IDOL building2/3 的 SLAM 初始化）时，只记警告。"""
+    from inertial_benchmark.utils.geometry import quat_multiply, quat_rotate
+
+    seq = make_sequence(duration=60.0)
+    static = slice(0, 400)  # 开头 2 s 静止
+    q0 = seq.orientation[0].astype(np.float64)
+    seq.orientation[static] = q0
+    seq.gyroscope[static] = 0.0
+    seq.accelerometer[static] = quat_rotate(quat_conjugate(q0), np.array([0.0, 0.0, 9.81]))
+    # 只在静止段把参考姿态整体绕 x 轴倾斜 7°（世界系尚未调平）
+    tilt = np.array([np.cos(np.radians(3.5)), np.sin(np.radians(3.5)), 0.0, 0.0])
+    seq.orientation[static] = quat_multiply(np.repeat(tilt[None], 400, 0),
+                                            seq.orientation[static].astype(np.float64))
+    rep = validate(seq)
+    assert rep.ok, rep.errors
+    g = rep.info["gravity"]
+    assert g["used"] == "all_valid" and g["passed"] == ["all_valid"]
+    assert g["static_span"]["samples"] >= 200 and g["static_span"]["last_s"] < 3.0
+    assert any("locally inconsistent with gravity" in w for w in rep.warnings)
+    # 约定错误会让两个统计量同时失败
+    bad = make_sequence(duration=60.0)
+    bad.orientation = quat_conjugate(bad.orientation)
+    assert not validate(bad).ok
