@@ -1,0 +1,57 @@
+# LLIO-Net：ResMLP 风格的轻量惯性里程计网络（Wang et al., "LLIO: Lightweight Learned Inertial
+# Odometer", IEEE IoT-J 2023）。依据 docs/algorithms/llio.md 规格卡独立实现（洁净室）。
+# 官方仓库只有模型文件，没有数据/训练/EKF/权重；训练配方继承 TLIO，**未经论文核实**。
+# 许可：GPL-3.0（官方代码）；本实现按规格卡重写，未复制代码。
+name: llio
+arch: llio
+paper: https://doi.org/10.1109/JIOT.2022.3214087
+code: https://github.com/i2Nav-WHU/LightweightLearnedInertialOdometer
+license: GPL-3.0 (official code); this implementation is written from the spec card
+commit: e225ab8f3080c35c92481673b6af1d68692941f6
+fidelity: official-code (network); training recipe inherited from TLIO (unverified)
+args:                      # README / model_twolayer.py __main__ 配置
+  decimation: 2            # IPB 适配：200 Hz×200 → 100 Hz×100 的无参数两点平均抽取
+  input_len: 100
+  patch_len: 25
+  feature_dim: 512
+  layer_num: 6
+  expansion: 2
+  dropout: 0.2             # 特征提取器隐层
+  reg_layer_num: 3
+  reg_dropout: 0.5         # PoolingMLPReg 的默认值（README 的 dropout 不作用于此处）
+  pooling: mean
+input:                     # 与 tlio 卡一致的任务视图（LLIO 复用 TLIO 管线）
+  window: 200
+  frame: gravity_yaw_local
+  orientation: reference
+  remove_gravity: false
+  target: displacement
+  dims: 3
+  augment:                 # 继承 TLIO 官方增强顺序（未核实）
+    - {bias_shift: {gyro: 0.05, acc: 0.2}}
+    - {gravity_perturb: {max_deg: 5.0}}
+    - random_yaw
+    - {time_shift: {min_shift: 0, max_shift: 9}}
+loss: nll_detach_then_nll  # 继承 TLIO 官方实际行为（前 9 个 epoch 的 NLL 中 logstd 被 detach）
+loss_kwargs:
+  switch_epoch: 9
+  min_logstd: -6.907755278982137   # log(1e-3)
+recipes:
+  official:                # 全部继承 TLIO 官方配方（docs/algorithms/tlio.md §5），未核实
+    epochs: 10000
+    batch: 1024
+    val_batch: 1024
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: none
+    grad_clip: 0.1
+    stride: 10
+    eval_stride: 10
+    amp: false
+    fitness: loss
+    patience: 0
+  unified:                 # IPB 统一预算
+    grad_clip: 0.1
+    scheduler: cosine
