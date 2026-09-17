@@ -17,15 +17,24 @@ from inertial_benchmark.data.converters import imunet
 RAW_ROOT = Path(os.environ.get("IPB_RAW_ROOT", "/workspace/webCodex/datasets/imu_odometry/raw"))
 SOURCE = RAW_ROOT / "IMUNet" / "IMUNet_dataset"
 
-pytestmark = pytest.mark.skipif(not SOURCE.is_dir(), reason=f"IMUNet raw data not found at {SOURCE}")
+pytestmark = pytest.mark.skipif(
+    not SOURCE.is_dir(), reason=f"IMUNet raw data not found at {SOURCE}"
+)
 
-ACCEPTED = ["Indoor_Subject_2_S10_1", "Outdoor_Subject_5_S21_3", "Indoor_Subject_1_Tango_1", "Outdoor_Subjetc_1_S10_16"]
+ACCEPTED = [
+    "Indoor_Subject_2_S10_1",
+    "Outdoor_Subject_5_S21_3",
+    "Indoor_Subject_1_Tango_1",
+    "Outdoor_Subjetc_1_S10_16",
+]
 REJECTED = ["Outdoor_Subject_1_Xiaomi_1", "Outdoor_Subjetc_1_S10_13", "Indoor_Subject_1_S10_1"]
 
 
 @pytest.fixture(scope="module")
 def sample():
-    return {raw.sequence_id: raw for raw in imunet.iter_raw_sequences(SOURCE, only=ACCEPTED + REJECTED)}
+    return {
+        raw.sequence_id: raw for raw in imunet.iter_raw_sequences(SOURCE, only=ACCEPTED + REJECTED)
+    }
 
 
 @pytest.mark.parametrize("name", ACCEPTED)
@@ -55,7 +64,9 @@ def test_conjugate_convention_fails_on_real_arcore_data(sample):
     assert stats["failures"]
     assert stats["acc_world_mean"][0] < -5
     # 本转换器的变换套在共轭上同样失败
-    assert pu.physics_check(replace(raw, orientation=imunet.reference_orientation("S21", pu.quat_conj(ori))))["failures"]
+    assert pu.physics_check(
+        replace(raw, orientation=imunet.reference_orientation("S21", pu.quat_conj(ori)))
+    )["failures"]
     # 原样使用 ori（未转 z 向上、未补相机外参）也失败
     assert pu.physics_check(replace(raw, orientation=ori))["failures"]
 
@@ -76,7 +87,9 @@ def _fingerprint(path: Path) -> str:
 
 
 def test_duplicate_table_is_complete():
-    """扫描全部 data.csv：内容相同的序列对必须都在 KNOWN_DUPLICATES 中（先按大小+首 1 MB 分组，再比全文 md5）。"""
+    """扫描全部 data.csv：内容相同的序列对必须都在 KNOWN_DUPLICATES 中（先按大小+首 1 MB 分组，
+    再比全文 md5）。
+    """
 
     groups = defaultdict(list)
     for name in imunet.list_sequences(SOURCE):
@@ -91,12 +104,17 @@ def test_duplicate_table_is_complete():
         for digest, same in by_md5.items():
             if len(same) > 1:
                 pairs.add((tuple(sorted(same)), digest))
-    expected = {(tuple(sorted((dup, keep))), digest) for dup, (keep, digest) in imunet.KNOWN_DUPLICATES.items()}
+    expected = {
+        (tuple(sorted((dup, keep))), digest)
+        for dup, (keep, digest) in imunet.KNOWN_DUPLICATES.items()
+    }
     assert pairs == expected
 
 
 def test_arcore_extrinsic_is_consistent_across_devices(sample):
     for name in ("Indoor_Subject_2_S10_1", "Outdoor_Subject_5_S21_3"):
         raw = sample[name]
-        q, _, _ = pu.estimate_body_extrinsic(raw.imu_time, raw.gyroscope, raw.pose_time, raw.orientation)
+        q, _, _ = pu.estimate_body_extrinsic(
+            raw.imu_time, raw.gyroscope, raw.pose_time, raw.orientation
+        )
         assert np.degrees(pu.quat_angle(q)) < 2.0

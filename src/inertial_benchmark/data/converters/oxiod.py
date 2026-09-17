@@ -2,24 +2,34 @@
 
 依据数据集 ``ReadMe.txt`` 与各场景 ``Train.txt`` / ``Test.txt`` 独立实现，约定均由物理自检确认：
 
-* 只使用每个场景下的 ``raw/`` 目录；``syn/`` 的时间戳被导出成科学计数法（如 ``1.50E+11``），已损坏，不使用；
-* ``imu<k>.csv``（iPhone，CoreMotion，约 100 Hz）16 列：时间（unix 秒，0.01 s 分辨率）、attitude roll/pitch/yaw（rad）、
-  rotation rate xyz（rad/s，CoreMotion 已去零偏）、gravity xyz（G）、user acceleration xyz（G）、磁场 xyz（μT）；
-* iOS 加速度符号与 Android 相反：静止屏幕朝上时 gravity ≈ (0, 0, −1)。本转换器的比力为
-  ``−(gravity + user_acc) · 9.80665``（物理自检：取 + 号时世界系重力均值为 −9.8，取 − 号为 +9.8）；
+* 只使用每个场景下的 ``raw/`` 目录；
+  ``syn/`` 的时间戳被导出成科学计数法（如 ``1.50E+11``），已损坏，不使用；
+* ``imu<k>.csv``（iPhone，CoreMotion，约 100 Hz）16 列：
+  时间（unix 秒，0.01 s 分辨率）、attitude roll/pitch/yaw（rad）、
+  rotation rate xyz（rad/s，CoreMotion 已去零偏）、gravity xyz（G）、
+  user acceleration xyz（G）、磁场 xyz（μT）；
+* iOS 加速度符号与 Android 相反：静止屏幕朝上时 gravity ≈ (0, 0, −1)。
+  本转换器的比力为 ``−(gravity + user_acc) · 9.80665``
+  （物理自检：取 + 号时世界系重力均值为 −9.8，取 − 号为 +9.8）；
 * 设备姿态 ``q = R_z(yaw) ⊗ R_x(pitch) ⊗ R_y(roll)``（CoreMotion 参考系 z 竖直向上、偏航任意），
   与 iOS gravity 向量方向误差 0°、与陀螺手眼残差 < 2°；
-* ``vi<k>.csv``（部分目录名为 ``hand<k>.csv``）为 Vicon：时间（unix 纳秒）、帧号、位置 xyz（m）、四元数 xyzw；
-  Vicon 世界系 z 向上（物理自检确认）；Vicon 刚体系与手机机体系之间有**未知常值旋转**（标记点每次重新粘贴，
-  各序列约绕 z 轴 170–180° 且有几度倾斜），本转换器逐序列做陀螺/Vicon 角速度手眼对齐估计 ``q_sb`` 并应用；
-* 手机时钟与 Vicon 时钟不同步：先用角速度模长互相关（±5 s）粗估，再在外参下用三轴互相关（±0.3 s）细化，
-  ``pose_time = t_vicon − offset`` 统一到手机时钟；
-* Vicon 野值（标记识别导致的 180° 单帧翻转、短时抖动、位置跳变）按隐含角速度 > 600°/s 或速度 > 10 m/s 检出，
-  前后 0.1 s 标为 ``pose_valid = False``；
+* ``vi<k>.csv``（部分目录名为 ``hand<k>.csv``）为 Vicon：
+  时间（unix 纳秒）、帧号、位置 xyz（m）、四元数 xyzw；
+  Vicon 世界系 z 向上（物理自检确认）；
+  Vicon 刚体系与手机机体系之间有**未知常值旋转**
+  （标记点每次重新粘贴，各序列约绕 z 轴 170–180° 且有几度倾斜），
+  本转换器逐序列做陀螺/Vicon 角速度手眼对齐估计 ``q_sb`` 并应用；
+* 手机时钟与 Vicon 时钟不同步，用线性时钟模型（偏移 + 可选速率差）统一到手机时钟：
+  先用角速度模长互相关（±5 s）粗估，再在外参下用三轴互相关（±0.3 s）细化，
+  最后按 60 s 分段细化并线性拟合速率差（见 :func:`synchronise`）；
+* Vicon 野值（标记识别导致的 180° 单帧翻转、短时抖动、位置跳变）
+  按隐含角速度 > 600°/s 或速度 > 10 m/s 检出，前后 0.1 s 标为 ``pose_valid = False``；
 * IMU 行偶有相邻两行顺序颠倒（时间戳 ``.37, .39, .38, .40``），按时间稳定排序后去掉重复时间戳；
-* ``multi devices/nexus 5`` 为 Android 长表格式（毫秒时间、传感器类型码 1=加速度计/4=陀螺/2=磁力计、xyz），
+* ``multi devices/nexus 5`` 为 Android 长表格式
+  （毫秒时间、传感器类型码 1=加速度计/4=陀螺/2=磁力计、xyz），
   加速度计已是比力；陀螺按时间线性插值到加速度计时间戳；无设备姿态；
-* ``large scale``（Tango 真值、IMU 与真值分目录）与 ``test/`` 目录（无 raw/syn 区分）不在本版本转换范围内。
+* ``large scale``（Tango 真值、IMU 与真值分目录）与 ``test/`` 目录（无 raw/syn 区分）
+  不在本版本转换范围内。
 """
 
 from __future__ import annotations
@@ -50,8 +60,8 @@ GLITCH_MAX_RATE_DEG = 600.0
 GLITCH_MAX_SPEED = 10.0
 GLITCH_PAD = 0.1
 
-# 场景目录 → (序列名前缀, placement, 设备, 受试者)。设备/受试者依据 OxIOD 论文与目录命名（multi users 为 user2–5，
-# 推断主场景为 user1），见 docs/datasets/oxiod.md。
+# 场景目录 → (序列名前缀, placement, 设备, 受试者)。设备/受试者依据 OxIOD 论文与目录命名
+# （multi users 为 user2–5，推断主场景为 user1），见 docs/datasets/oxiod.md。
 _SCENES = {
     "handheld": ("handheld", "handheld", "iphone7plus", "user1"),
     "pocket": ("pocket", "pocket", "iphone7plus", "user1"),
@@ -65,9 +75,10 @@ _SCENES = {
 _OFFICIAL_SCENES = ("handheld", "pocket", "handbag", "trolley", "slow walking", "running")
 
 # 场景目录名不含放置方式的会话：逐条放置表 [(起, 止, placement)] 与来源。
-# "readme"：syn/Readme.txt 原文（user3："1-2: handheld, 3-5: pocket, 6-7: handbag"；user5："1-3 handheld,
-# 4-6 pocket, 7-11 handbag"），且与机体系重力方向证据一致；
-# "gravity_direction"：无文档，仅在“屏幕朝上”证据明确（加速度 z 分量 > 0.5 g 的时间占比 ≈ 100%）时标 handheld，
+# "readme"：syn/Readme.txt 原文（user3："1-2: handheld, 3-5: pocket, 6-7: handbag"；
+# user5："1-3 handheld, 4-6 pocket, 7-11 handbag"），且与机体系重力方向证据一致；
+# "gravity_direction"：无文档，仅在“屏幕朝上”证据明确
+# （加速度 z 分量 > 0.5 g 的时间占比 ≈ 100%）时标 handheld，
 # 其余直立持握（口袋/包无法可靠区分）标 unknown。证据统计见 docs/datasets/oxiod.md。
 _PLACEMENT_TABLE = {
     ("multi users", "user2"): ([(1, 3, "handheld")], "gravity_direction"),
@@ -90,8 +101,14 @@ def placement_of(scene: str, session: str, index: int) -> Tuple[str, str]:
                 return placement, source
         return "unknown", source
     placement = _SCENES[scene][1]
-    source = "scene_folder" if scene in ("handheld", "pocket", "handbag", "trolley") else "gravity_direction"
+    source = (
+        "scene_folder"
+        if scene in ("handheld", "pocket", "handbag", "trolley")
+        else "gravity_direction"
+    )
     return placement, source
+
+
 _DEVICE_SLUG = {"iPhone 5": "iphone5", "iPhone 6": "iphone6", "nexus 5": "nexus5"}
 
 
@@ -121,7 +138,9 @@ def _entries(source: Path) -> Dict[str, dict]:
             raw_dir = session_dir / "raw"
             session = session_dir.name
             session_slug = _DEVICE_SLUG.get(session, _slug(session))
-            for imu_path in sorted(raw_dir.glob("imu*.csv"), key=lambda p: int(re.sub(r"\D", "", p.stem) or 0)):
+            for imu_path in sorted(
+                raw_dir.glob("imu*.csv"), key=lambda p: int(re.sub(r"\D", "", p.stem) or 0)
+            ):
                 k = re.sub(r"\D", "", imu_path.stem)
                 if not k:
                     continue
@@ -147,7 +166,7 @@ def _entries(source: Path) -> Dict[str, dict]:
 
 
 def list_sequences(source: Path) -> List[str]:
-    """契约可选成员：全部 raw 序列（排序），包括无官方划分的 multi users / multi devices（57 条）。"""
+    """契约可选成员：全部 raw 序列（排序），含无官方划分的 multi users/devices（57 条）。"""
 
     return sorted(_entries(source))
 
@@ -175,7 +194,11 @@ def official_splits(source: Path) -> Dict[str, List[str]]:
                 session = _slug(parts[0])
                 if len(parts) == 1:
                     ids = sorted(
-                        (sid for sid, e in entries.items() if e["scene"] == scene and _slug(e["session"]) == session),
+                        (
+                            sid
+                            for sid, e in entries.items()
+                            if e["scene"] == scene and _slug(e["session"]) == session
+                        ),
                         key=lambda sid: entries[sid]["index"],
                     )
                 else:
@@ -185,7 +208,9 @@ def official_splits(source: Path) -> Dict[str, List[str]]:
     return splits
 
 
-def iter_raw_sequences(source: Path, only: Optional[Collection[str]] = None) -> Iterator[RawSequence]:
+def iter_raw_sequences(
+    source: Path, only: Optional[Collection[str]] = None
+) -> Iterator[RawSequence]:
     root = _root(source)
     entries = _entries(source)
     names = sorted(entries) if only is None else list(only)
@@ -197,7 +222,9 @@ def iter_raw_sequences(source: Path, only: Optional[Collection[str]] = None) -> 
         try:
             raw = load_sequence(name, entry, root=root)
         except (OSError, KeyError, ValueError) as exc:
-            yield pu.rejected_sequence(name, f"parse error: {type(exc).__name__}: {exc}", _attrs(entry, root))
+            yield pu.rejected_sequence(
+                name, f"parse error: {type(exc).__name__}: {exc}", _attrs(entry, root)
+            )
             continue
         yield pu.finalize_sequence(raw)
 
@@ -252,7 +279,10 @@ def read_ios_imu(path: Path) -> Tuple[np.ndarray, dict]:
 
 
 def read_android_imu(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-    """读取 Nexus 5 长表（毫秒, 类型, x, y, z），返回 (t 秒, gyro, acc, 统计)。陀螺插值到加速度计时间。"""
+    """读取 Nexus 5 长表（毫秒, 类型, x, y, z），返回 (t 秒, gyro, acc, 统计)。
+
+    陀螺按时间线性插值到加速度计时间戳。
+    """
 
     data = np.loadtxt(path, delimiter=",", dtype=np.float64, ndmin=2)
     acc = data[data[:, 1] == 1]
@@ -287,8 +317,14 @@ def read_vicon(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     data, t = data[keep], t[keep]
     q = pu.xyzw_to_wxyz(data[:, 5:9])
     norm = np.linalg.norm(q, axis=1)
-    valid = np.isfinite(data[:, 2:9]).all(1) & (np.abs(norm - 1.0) < 0.1) & ~np.all(data[:, 2:5] == 0, axis=1)
-    q = np.where(valid[:, None], q / np.where(norm > 0, norm, 1.0)[:, None], np.array([1.0, 0, 0, 0]))
+    valid = (
+        np.isfinite(data[:, 2:9]).all(1)
+        & (np.abs(norm - 1.0) < 0.1)
+        & ~np.all(data[:, 2:5] == 0, axis=1)
+    )
+    q = np.where(
+        valid[:, None], q / np.where(norm > 0, norm, 1.0)[:, None], np.array([1.0, 0, 0, 0])
+    )
     stats["invalid_rows"] = int((~valid).sum())
     return t, data[:, 2:5], pu.quat_make_continuous(q), dict(stats, valid=valid)
 
@@ -318,14 +354,16 @@ class ClockModel:
 
 
 def _fit_skew(t_imu, gyro, t_ref, q_ref, q_sb, offset) -> Tuple[float, float, int, float]:
-    """分段（SKEW_SEGMENT 秒）细化偏移并做线性拟合，返回 (斜率, 参考时刻, 可用段数, 拟合残差 RMS)。"""
+    """分段细化偏移并线性拟合，返回 (斜率, 参考时刻, 可用段数, 拟合残差 RMS)。"""
 
     centers, offsets = [], []
     for start in np.arange(t_imu[0], t_imu[-1] - SKEW_SEGMENT / 2, SKEW_SEGMENT):
         sel = (t_imu >= start) & (t_imu < start + SKEW_SEGMENT)
         if sel.sum() < 0.5 * SKEW_SEGMENT * 90:
             continue
-        off, corr = pu.refine_time_offset(t_imu[sel], gyro[sel], t_ref, q_ref, q_sb, center=offset, max_lag=FINE_MAX_LAG)
+        off, corr = pu.refine_time_offset(
+            t_imu[sel], gyro[sel], t_ref, q_ref, q_sb, center=offset, max_lag=FINE_MAX_LAG
+        )
         if np.isfinite(off) and corr > SKEW_MIN_CORRELATION:
             centers.append(float(np.mean(t_imu[sel])))
             offsets.append(off)
@@ -342,18 +380,26 @@ def synchronise(t_imu: np.ndarray, gyro: np.ndarray, t_ref: np.ndarray, q_ref: n
     """估计 IMU→Vicon 时钟模型（偏移 + 可选速率差）与刚体外参 ``q_sb``。
 
     1. 角速度模长互相关（±5 s）粗估偏移；2. 在粗外参下三轴互相关（±0.3 s）细化；
-    3. 每 60 s 一段重复细化并线性拟合，累计漂移超过 SKEW_MIN_DRIFT 时启用速率差；4. 在最终时钟下重估外参。
+    3. 每 60 s 一段重复细化并线性拟合，累计漂移超过 SKEW_MIN_DRIFT 时启用速率差；
+    4. 在最终时钟下重估外参。
     约定：``ω_imu(t) ≈ ω_vicon(clock.to_vicon(t))``。
     """
 
     t_mid, omega = pu.body_rates_from_orientation(t_ref, q_ref)
     offset0, corr0 = pu.estimate_time_offset(
-        t_imu, np.linalg.norm(gyro, axis=1), t_mid, np.linalg.norm(omega, axis=1), max_lag=COARSE_MAX_LAG, rate=50.0
+        t_imu,
+        np.linalg.norm(gyro, axis=1),
+        t_mid,
+        np.linalg.norm(omega, axis=1),
+        max_lag=COARSE_MAX_LAG,
+        rate=50.0,
     )
     if not np.isfinite(offset0):
         return {"clock": None, "coarse_offset": offset0, "coarse_corr": corr0}
     q_sb, _, _ = pu.estimate_body_extrinsic(t_imu + offset0, gyro, t_ref, q_ref)
-    offset, corr = pu.refine_time_offset(t_imu, gyro, t_ref, q_ref, q_sb, center=offset0, max_lag=FINE_MAX_LAG)
+    offset, corr = pu.refine_time_offset(
+        t_imu, gyro, t_ref, q_ref, q_sb, center=offset0, max_lag=FINE_MAX_LAG
+    )
     if not np.isfinite(offset):
         offset, corr = offset0, float("nan")
     q_sb, _, _ = pu.estimate_body_extrinsic(t_imu + offset, gyro, t_ref, q_ref)
@@ -364,7 +410,13 @@ def synchronise(t_imu: np.ndarray, gyro: np.ndarray, t_ref: np.ndarray, q_ref: n
         # 以序列中点为参考重算截距，使 offset 表示中点处的偏移
         clock = ClockModel(offset, slope, t_center)
         off_mid, _ = pu.refine_time_offset(
-            t_center + (t_imu - t_center) * (1.0 + slope), gyro, t_ref, q_ref, q_sb, center=offset, max_lag=FINE_MAX_LAG
+            t_center + (t_imu - t_center) * (1.0 + slope),
+            gyro,
+            t_ref,
+            q_ref,
+            q_sb,
+            center=offset,
+            max_lag=FINE_MAX_LAG,
         )
         if np.isfinite(off_mid):
             clock = ClockModel(off_mid, slope, t_center)
@@ -389,23 +441,34 @@ def load_sequence(name: str, entry: dict, root: Optional[Path] = None) -> RawSeq
     attrs = _attrs(entry, root)
     notes: List[str] = []
     if entry["vicon"] is None:
-        return pu.rejected_sequence(name, "no Vicon file (vi<k>.csv / hand<k>.csv) for this IMU file", attrs)
+        return pu.rejected_sequence(
+            name, "no Vicon file (vi<k>.csv / hand<k>.csv) for this IMU file", attrs
+        )
     if _first_field_is_scientific(entry["vicon"]) or _first_field_is_scientific(entry["imu"]):
         return pu.rejected_sequence(
-            name, "timestamps corrupted (exported in scientific notation, sub-second information lost)", attrs
+            name,
+            "timestamps corrupted (exported in scientific notation, sub-second information lost)",
+            attrs,
         )
 
     device_orientation = None
     if entry["android"]:
         t_imu, gyro, acc, stats = read_android_imu(entry["imu"])
         notes.append(
-            f"Nexus 5 long-format log: accelerometer (type 1, m/s^2, specific force) timestamps used as IMU clock; "
+            "Nexus 5 long-format log: accelerometer (type 1, m/s^2, specific force) timestamps "
+            "used as IMU clock; "
             f"gyroscope (type 4, rad/s) linearly interpolated onto them ({stats})"
         )
     else:
         imu, stats = read_ios_imu(entry["imu"])
-        if len(imu) < 2 or np.mean(np.diff(imu[:, 0]) > 0) < 0.5 or np.median(np.diff(imu[:, 0])) > 0.1:
-            return pu.rejected_sequence(name, "IMU timestamps corrupted (rounded to whole seconds)", attrs)
+        if (
+            len(imu) < 2
+            or np.mean(np.diff(imu[:, 0]) > 0) < 0.5
+            or np.median(np.diff(imu[:, 0])) > 0.1
+        ):
+            return pu.rejected_sequence(
+                name, "IMU timestamps corrupted (rounded to whole seconds)", attrs
+            )
         t_imu = imu[:, 0]
         gyro = imu[:, 4:7]
         acc = -(imu[:, 7:10] + imu[:, 10:13]) * G_IOS
@@ -413,19 +476,24 @@ def load_sequence(name: str, entry: dict, root: Optional[Path] = None) -> RawSeq
         notes += [
             f"IMU rows re-sorted by timestamp ({stats['out_of_order']} out-of-order steps), "
             f"{stats['duplicates']} duplicate timestamps dropped",
-            f"accelerometer = -(gravity + user_acc) * {G_IOS} (iOS sign convention -> specific force)",
+            f"accelerometer = -(gravity + user_acc) * {G_IOS} (iOS sign convention -> specific "
+            "force)",
             "gyroscope = CoreMotion rotation rate (bias-compensated by iOS)",
-            "device_orientation = Rz(yaw) * Rx(pitch) * Ry(roll) from CoreMotion attitude (z-up reference, arbitrary yaw)",
+            "device_orientation = Rz(yaw) * Rx(pitch) * Ry(roll) from CoreMotion attitude (z-up "
+            "reference, arbitrary yaw)",
         ]
     if len(t_imu) < 2:
         return pu.rejected_sequence(name, "too few IMU samples", attrs)
 
     t_ref, position, q_ref, vstats = read_vicon(entry["vicon"])
-    glitch_ok = pu.pose_glitch_mask(t_ref, q_ref, position, GLITCH_MAX_RATE_DEG, GLITCH_MAX_SPEED, GLITCH_PAD)
+    glitch_ok = pu.pose_glitch_mask(
+        t_ref, q_ref, position, GLITCH_MAX_RATE_DEG, GLITCH_MAX_SPEED, GLITCH_PAD
+    )
     pose_valid = vstats.pop("valid") & glitch_ok
     notes.append(
         f"Vicon: {vstats['out_of_order']} out-of-order / {vstats['duplicates']} duplicate / "
-        f"{vstats['invalid_rows']} invalid rows; {int((~glitch_ok).sum())} samples masked around glitches "
+        f"{vstats['invalid_rows']} invalid rows; {int((~glitch_ok).sum())} samples masked around "
+        "glitches "
         f"(> {GLITCH_MAX_RATE_DEG:g} deg/s or > {GLITCH_MAX_SPEED:g} m/s, pad {GLITCH_PAD:g} s)"
     )
     if pose_valid.sum() < 100:
@@ -434,24 +502,33 @@ def load_sequence(name: str, entry: dict, root: Optional[Path] = None) -> RawSeq
     sync = synchronise(t_imu, gyro, t_ref[pose_valid], q_ref[pose_valid])
     clock = sync["clock"]
     if clock is None:
-        return pu.rejected_sequence(name, "IMU and Vicon time ranges do not overlap enough to synchronise", attrs)
+        return pu.rejected_sequence(
+            name, "IMU and Vicon time ranges do not overlap enough to synchronise", attrs
+        )
     q_sb = sync["q_sb"]
     notes += [
         f"clock model: vicon_time = imu_time + {clock.offset:.4f} s + {clock.skew * 1e6:.1f} ppm * "
         f"(imu_time - {clock.t_ref:.3f}) (coarse offset {sync['coarse_offset']:.3f} s, |w| corr "
-        f"{sync['coarse_corr']:.2f}; refined 3-axis corr {sync['corr']:.2f}; skew from {sync['skew_segments']} "
-        f"60 s segments, drift {sync['skew_drift'] * 1e3:.1f} ms, applied only if > {SKEW_MIN_DRIFT * 1e3:g} ms); "
+        f"{sync['coarse_corr']:.2f}; refined 3-axis corr {sync['corr']:.2f}; skew from "
+        f"{sync['skew_segments']} "
+        f"60 s segments, drift {sync['skew_drift'] * 1e3:.1f} ms, applied only if > "
+        f"{SKEW_MIN_DRIFT * 1e3:g} ms); "
         "pose_time = inverse clock model applied to vicon_time",
         f"Vicon body -> IMU body extrinsic q_sb (wxyz) = {np.round(q_sb, 5).tolist()} "
-        f"({np.degrees(pu.quat_angle(q_sb)):.2f} deg), estimated by gyro/Vicon angular-rate alignment; "
+        f"({np.degrees(pu.quat_angle(q_sb)):.2f} deg), estimated by gyro/Vicon angular-rate "
+        "alignment; "
         f"median residual {sync['residual']:.3f} rad/s over {sync['count']} 20 Hz bins",
-        "orientation = q_vicon * q_sb (IMU body -> Vicon world, z up); position = Vicon marker-body origin",
+        "orientation = q_vicon * q_sb (IMU body -> Vicon world, z up); position = Vicon "
+        "marker-body origin",
     ]
     rejected = None
     if not sync["coarse_corr"] >= MIN_SYNC_CORRELATION:
         rejected = f"cannot synchronise IMU and Vicon (|w| correlation {sync['coarse_corr']:.2f})"
     elif not sync["residual"] <= MAX_EXTRINSIC_RESIDUAL:
-        rejected = f"Vicon body not rigidly aligned with IMU (angular-rate residual {sync['residual']:.3f} rad/s)"
+        rejected = (
+            "Vicon body not rigidly aligned with IMU (angular-rate residual "
+            f"{sync['residual']:.3f} rad/s)"
+        )
 
     attrs["start_time_unix"] = float(t_imu[0])
     attrs["oxiod_clock_offset_s"] = clock.offset

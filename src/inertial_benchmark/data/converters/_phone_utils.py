@@ -243,7 +243,8 @@ RIDI_CSV_COLUMNS = {
 def read_ridi_processed_csv(path: Path) -> dict:
     """读取 RIDI 官方 ``gen_dataset.py`` 写出的 ``processed/data.csv``（IMUNet 沿用同一格式）。
 
-    返回键见 ``RIDI_CSV_COLUMNS``；``time`` 为 (N,) 纳秒浮点，其余为 (N, k)。数值保持文件原样，不做任何约定转换。
+    返回键见 ``RIDI_CSV_COLUMNS``；``time`` 为 (N,) 纳秒浮点，其余为 (N, k)。数值保持文件原样，
+    不做任何约定转换。
     """
 
     names, data = read_header_csv(path)
@@ -298,7 +299,7 @@ def window_products(steps: np.ndarray, i0: np.ndarray, i1: np.ndarray) -> np.nda
 
 
 def gyro_relative_rotations(t: np.ndarray, gyro: np.ndarray) -> np.ndarray:
-    """对机体系角速度做零阶保持积分，返回 ``q_0k``（样本 0 到样本 k 的累计相对旋转），形状 (N, 4)。"""
+    """零阶保持积分机体系角速度，返回 (N, 4) 的 ``q_0k``（样本 0 到 k 的累计相对旋转）。"""
 
     steps = gyro_steps(t, gyro)
     out = np.empty((len(steps) + 1, 4))
@@ -327,7 +328,9 @@ def prefix_products(steps: np.ndarray) -> np.ndarray:
     return out / np.linalg.norm(out, axis=-1, keepdims=True)
 
 
-def body_rates_from_orientation(t: np.ndarray, q_wb: np.ndarray, max_gap_factor: float = 3.0) -> tuple:
+def body_rates_from_orientation(
+    t: np.ndarray, q_wb: np.ndarray, max_gap_factor: float = 3.0
+) -> tuple:
     """由相邻姿态差分得到机体系角速度，返回 ``(t_mid, omega_body)``。
 
     跨越缺口（间隔大于 ``max_gap_factor`` 倍中位采样间隔）的样本对被丢弃。
@@ -471,7 +474,8 @@ def estimate_gyro_bias_segments(
 ) -> np.ndarray:
     """分段常值（每 ``segment`` 秒）的陀螺零偏，返回与 ``t_imu`` 对齐的 (N, 3)。
 
-    手机陀螺零偏会随温度缓慢漂移；分段常值模型只吸收慢变零偏，无法吸收与旋转量成正比的坐标系/约定错误。
+    手机陀螺零偏会随温度缓慢漂移；分段常值模型只吸收慢变零偏，
+    无法吸收与旋转量成正比的坐标系/约定错误。
     样本不足的分段退回全段中位数。
     """
 
@@ -510,7 +514,8 @@ def refine_time_offset(
 ) -> tuple:
     """在给定外参下，用三轴角速度互相关之和在 ``center ± max_lag`` 内细化时钟偏移。
 
-    约定同 :func:`estimate_time_offset`：``ω_imu(t) ≈ ω_pose(t + offset)``。返回 ``(offset, 平均相关系数)``。
+    约定同 :func:`estimate_time_offset`：``ω_imu(t) ≈ ω_pose(t + offset)``。返回
+    ``(offset, 平均相关系数)``。
     """
 
     from scipy.signal import correlate
@@ -598,7 +603,9 @@ def _box_resample(t: np.ndarray, x: np.ndarray, grid: np.ndarray, width: float) 
 # ---------------------------------------------------------------------------
 
 
-def _triangle_filter(t: np.ndarray, x: np.ndarray, grid: np.ndarray, half_width: float, fine: float = 100.0):
+def _triangle_filter(
+    t: np.ndarray, x: np.ndarray, grid: np.ndarray, half_width: float, fine: float = 100.0
+):
     """在 ``grid`` 上求 ``x(t)`` 与半宽 ``half_width`` 三角核的卷积（两次箱形平均实现）。"""
 
     tf = np.arange(grid[0] - half_width, grid[-1] + half_width + 0.5 / fine, 1.0 / fine)
@@ -609,7 +616,9 @@ def _triangle_filter(t: np.ndarray, x: np.ndarray, grid: np.ndarray, half_width:
         for _ in range(2):
             c = np.concatenate([[0.0], np.cumsum(xf)])
             xf = (c[width:] - c[:-width]) / width
-            xf = np.concatenate([np.full(width // 2, xf[0]), xf, np.full(width - 1 - width // 2, xf[-1])])
+            xf = np.concatenate(
+                [np.full(width // 2, xf[0]), xf, np.full(width - 1 - width // 2, xf[-1])]
+            )
         out.append(np.interp(grid, tf, xf))
     return np.stack(out, axis=1)
 
@@ -617,11 +626,16 @@ def _triangle_filter(t: np.ndarray, x: np.ndarray, grid: np.ndarray, half_width:
 def heading_consistency(ti, acc_world, tp, pos, scales=CHECK_HEADING_SCALES) -> dict:
     """参考姿态的航向与参考位置坐标系是否一致。
 
-    把 IMU 比力经参考姿态旋到世界系并扣除重力，与位置二阶差分得到的加速度（在同一三角核下）做水平面二维对齐，
-    返回旋转角（度，IMU 水平加速度需旋转该角才能对上位置加速度）与相关系数；多个尺度中取相关系数最高者。
+    把 IMU 比力经参考姿态旋到世界系并扣除重力，与位置二阶差分得到的加速度
+    （在同一三角核下）做水平面二维对齐，返回旋转角（度，IMU 水平加速度需旋转该角
+    才能对上位置加速度）与相关系数；多个尺度中取相关系数最高者。
     """
 
-    best = {"heading_offset_deg": float("nan"), "heading_corr": float("nan"), "heading_scale_s": float("nan")}
+    best = {
+        "heading_offset_deg": float("nan"),
+        "heading_corr": float("nan"),
+        "heading_scale_s": float("nan"),
+    }
     lin = acc_world - np.array([0.0, 0.0, GRAVITY])
     for dt in scales:
         lo, hi = max(ti[0], tp[0]) + 2 * dt, min(ti[-1], tp[-1]) - 2 * dt
@@ -634,7 +648,13 @@ def heading_consistency(ti, acc_world, tp, pos, scales=CHECK_HEADING_SCALES) -> 
         a_pos[1:-1] = (p[2:] - 2 * p[1:-1] + p[:-2]) / dt**2
         j = np.clip(np.searchsorted(tp, grid), 1, len(tp) - 1)
         near = np.minimum(np.abs(grid - tp[j - 1]), np.abs(tp[j] - grid)) <= max(0.05, dt / 4)
-        good = near & np.roll(near, 1) & np.roll(near, -1) & np.isfinite(a_pos).all(1) & np.isfinite(a_imu).all(1)
+        good = (
+            near
+            & np.roll(near, 1)
+            & np.roll(near, -1)
+            & np.isfinite(a_pos).all(1)
+            & np.isfinite(a_imu).all(1)
+        )
         if good.sum() < 20:
             continue
         a, b = a_imu[good, :2], a_pos[good, :2]
@@ -662,7 +682,8 @@ def physics_check(
     检查项：
 
     0. ``overlap``：IMU 与位姿时间区间的重叠比例；
-    1. ``gravity``：用 ``orientation``（插值到 IMU 时间）把机体系比力旋到世界系，全段均值 ≈ ``[0,0,+g]``；
+    1. ``gravity``：用 ``orientation``（插值到 IMU 时间）把机体系比力旋到世界系，全段均值 ≈
+       ``[0,0,+g]``；
     2. ``speed``：参考位置在 1 s 网格上差分，“运动秒”水平速度中位数位于行人范围，静止比例不过高；
     3. ``gyro``：每个 ``gyro_window`` 窗口内陀螺积分的相对旋转与参考姿态相对旋转之差，取角度中位数
        （三种零偏模型取最优），零偏估计不过大；
@@ -673,7 +694,9 @@ def physics_check(
     t_imu = np.asarray(raw.imu_time, dtype=np.float64)
     t_pose = np.asarray(raw.pose_time, dtype=np.float64)
     imu_ok = np.ones(len(t_imu), bool) if raw.imu_valid is None else np.asarray(raw.imu_valid, bool)
-    pose_ok = np.ones(len(t_pose), bool) if raw.pose_valid is None else np.asarray(raw.pose_valid, bool)
+    pose_ok = (
+        np.ones(len(t_pose), bool) if raw.pose_valid is None else np.asarray(raw.pose_valid, bool)
+    )
     imu_ok &= np.isfinite(raw.gyroscope).all(1) & np.isfinite(raw.accelerometer).all(1)
     pose_ok &= np.isfinite(raw.position).all(1) & np.isfinite(raw.orientation).all(1)
     ti, gyro, acc = t_imu[imu_ok], raw.gyroscope[imu_ok], raw.accelerometer[imu_ok]
@@ -754,14 +777,17 @@ def physics_check(
     if len(i0):
         d_ref = quat_mul(quat_conj(q_imu[i0]), q_imu[i1])
         # 三种零偏模型：不去零偏 / 常值 / 60 s 分段常值；零偏估计会被微小失准“污染”（转向有偏好时
-        # median(ω_gyro − ω_ref) ≠ 0），故取中位误差最小者判定。任何零偏模型都无法抵消与旋转量成正比的轴约定错误。
+        # median(ω_gyro − ω_ref) ≠ 0），故取中位误差最小者判定。
+        # 任何零偏模型都无法抵消与旋转量成正比的轴约定错误。
         models = {
             "none": gyro,
             "constant": gyro - bias,
             "segmented_60s": gyro - estimate_gyro_bias_segments(ti, gyro, tp, ori),
         }
         errors = {
-            key: np.degrees(quat_angle(quat_mul(quat_conj(window_products(gyro_steps(ti, g), i0, i1)), d_ref)))
+            key: np.degrees(
+                quat_angle(quat_mul(quat_conj(window_products(gyro_steps(ti, g), i0, i1)), d_ref))
+            )
             for key, g in models.items()
         }
         best = min(errors, key=lambda key: np.median(errors[key]))
@@ -777,7 +803,8 @@ def physics_check(
         out["ref_window_rot_deg_median"] = float(np.median(rot))
         if out["gyro_window_err_deg_median"] > CHECK_GYRO_TOL_DEG:
             out["failures"].append(
-                f"gyro/ref window error {out['gyro_window_err_deg_median']:.1f} deg (best bias model: {best})"
+                f"gyro/ref window error {out['gyro_window_err_deg_median']:.1f} deg (best bias "
+                f"model: {best})"
             )
     else:
         out["failures"].append("no gap-free window for gyro check")
@@ -790,7 +817,8 @@ def physics_check(
         and abs(heading["heading_offset_deg"]) > CHECK_HEADING_TOL_DEG
     ):
         out["failures"].append(
-            f"heading offset {heading['heading_offset_deg']:.1f} deg between orientation and position frames "
+            f"heading offset {heading['heading_offset_deg']:.1f} deg between orientation and "
+            "position frames "
             f"(corr {heading['heading_corr']:.2f})"
         )
     q_sb, rms, _ = estimate_body_extrinsic(ti, gyro, tp, ori)
@@ -798,7 +826,9 @@ def physics_check(
     out["gyro_ref_extrinsic_resid"] = rms
     if estimate_offset:
         t_mid, omega_ref = body_rates_from_orientation(tp, ori)
-        off, peak = estimate_time_offset(ti, np.linalg.norm(gyro, axis=1), t_mid, np.linalg.norm(omega_ref, axis=1))
+        off, peak = estimate_time_offset(
+            ti, np.linalg.norm(gyro, axis=1), t_mid, np.linalg.norm(omega_ref, axis=1)
+        )
         out["time_offset_s"] = off
         out["time_offset_corr"] = peak
     return out
@@ -821,13 +851,19 @@ def simulate_motion(
     ``t`` (N,)、``q_wb`` (N,4)、``euler`` (N,3)=(roll, pitch, yaw)、``gyro`` (N,3) 机体系角速度、
     ``specific_force`` (N,3) 机体系比力、``position`` (N,3)、``acc_world`` (N,3)。
 
-    姿态为 ``R_z(yaw) ⊗ R_x(pitch) ⊗ R_y(roll)``（与 CoreMotion 约定一致），各角度含若干随机频率分量，
-    避免互相关出现周期性歧义；导数用中心差分（步长 1e-4 s）计算，误差远小于测试容差。
-    给定 ``times`` 时在这些时刻（相对秒）求值，忽略 ``duration`` / ``rate``；同一 ``seed`` 描述同一条连续运动。
+    姿态为 ``R_z(yaw) ⊗ R_x(pitch) ⊗ R_y(roll)``（与 CoreMotion 约定一致），
+    各角度含若干随机频率分量，避免互相关出现周期性歧义；
+    导数用中心差分（步长 1e-4 s）计算，误差远小于测试容差。
+    给定 ``times`` 时在这些时刻（相对秒）求值，忽略 ``duration`` / ``rate``；同一 ``seed``
+    描述同一条连续运动。
     """
 
     rng = np.random.default_rng(seed)
-    t = np.arange(0.0, duration, 1.0 / rate) if times is None else np.asarray(times, dtype=np.float64)
+    t = (
+        np.arange(0.0, duration, 1.0 / rate)
+        if times is None
+        else np.asarray(times, dtype=np.float64)
+    )
     radius = 6.0
     omega_path = speed / radius
     freqs = rng.uniform(0.05, 0.8, size=(3, 4))
@@ -842,10 +878,13 @@ def simulate_motion(
         yaw = omega_path * tt[..., 0] + np.pi / 2 + wobble[..., 2]
         return np.stack([roll, pitch, yaw], axis=-1)
 
+    def axis_rotation(k, angle):
+        return quat_from_rotvec(np.eye(3)[k] * angle[..., None])
+
     def quat(tt):
         e = euler(tt)
-        axis = lambda k, a: quat_from_rotvec(np.eye(3)[k] * a[..., None])
-        return quat_mul(quat_mul(axis(2, e[..., 2]), axis(0, e[..., 1])), axis(1, e[..., 0]))
+        yaw_q, pitch_q, roll_q = (axis_rotation(k, e[..., j]) for k, j in ((2, 2), (0, 1), (1, 0)))
+        return quat_mul(quat_mul(yaw_q, pitch_q), roll_q)
 
     def pos(tt):
         tt = np.asarray(tt, float)
@@ -916,8 +955,12 @@ def finalize_sequence(raw, speed_range: tuple = CHECK_SPEED_RANGE, check: bool =
 
     finite_imu = np.isfinite(raw.gyroscope).all(1) & np.isfinite(raw.accelerometer).all(1)
     finite_pose = np.isfinite(raw.position).all(1) & np.isfinite(raw.orientation).all(1)
-    raw.imu_valid = finite_imu if raw.imu_valid is None else np.asarray(raw.imu_valid, bool) & finite_imu
-    raw.pose_valid = finite_pose if raw.pose_valid is None else np.asarray(raw.pose_valid, bool) & finite_pose
+    raw.imu_valid = (
+        finite_imu if raw.imu_valid is None else np.asarray(raw.imu_valid, bool) & finite_imu
+    )
+    raw.pose_valid = (
+        finite_pose if raw.pose_valid is None else np.asarray(raw.pose_valid, bool) & finite_pose
+    )
     bad_imu, bad_pose = int((~finite_imu).sum()), int((~finite_pose).sum())
     if bad_imu or bad_pose:
         raw.notes.append(f"non-finite samples marked invalid: imu={bad_imu}, pose={bad_pose}")

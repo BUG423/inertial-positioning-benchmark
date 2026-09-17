@@ -43,7 +43,9 @@ def arcore_pose(motion):
     """真值 → ARCore camera.getPose()（y 向上世界系、相机系）与官方预处理后的 z 向上位置。"""
 
     q_yup_from_zup = pu.quat_conj(pu.Q_ZUP_FROM_YUP)
-    ori = pu.quat_mul(pu.quat_mul(q_yup_from_zup, motion["q_wb"]), pu.quat_conj(imunet.Q_CAMERA_FROM_BODY))
+    ori = pu.quat_mul(
+        pu.quat_mul(q_yup_from_zup, motion["q_wb"]), pu.quat_conj(imunet.Q_CAMERA_FROM_BODY)
+    )
     return ori, motion["position"]  # 官方脚本已把位置转成 z 向上
 
 
@@ -74,7 +76,12 @@ def test_arcore_and_tango_conventions(tmp_path, motion):
     root = tmp_path / "IMUNet_dataset"
     ori, pos = arcore_pose(motion)
     write_csv(root / "Indoor_Subject_2_S21_1" / "processed" / "data.csv", motion, ori, pos)
-    write_csv(root / "Indoor_Subject_2_Tango_1" / "processed" / "data.csv", motion, motion["q_wb"], motion["position"])
+    write_csv(
+        root / "Indoor_Subject_2_Tango_1" / "processed" / "data.csv",
+        motion,
+        motion["q_wb"],
+        motion["position"],
+    )
     (root / "list_train.txt").write_text("Indoor_Subject_2_S21_1\n")
     (root / "list_test.txt").write_text("Indoor_Subject_2_Tango_1\nIndoor_Subject_9_S10_1\n")
     raws = {r.sequence_id: r for r in imunet.iter_raw_sequences(tmp_path)}
@@ -88,7 +95,10 @@ def test_arcore_and_tango_conventions(tmp_path, motion):
     assert raws["Indoor_Subject_2_S21_1"].attrs["device_id"] == "samsung_galaxy_s21"
     assert raws["Indoor_Subject_2_S21_1"].attrs["position_source"] == "arcore_vio_same_device"
     assert raws["Indoor_Subject_2_Tango_1"].attrs["subject_id"] == "subject2"
-    assert imunet.official_splits(root) == {"train": ["Indoor_Subject_2_S21_1"], "test": ["Indoor_Subject_2_Tango_1"]}
+    assert imunet.official_splits(root) == {
+        "train": ["Indoor_Subject_2_S21_1"],
+        "test": ["Indoor_Subject_2_Tango_1"],
+    }
 
 
 def test_conjugate_arcore_convention_fails_physics_check(tmp_path, motion):
@@ -106,7 +116,13 @@ def test_conjugate_arcore_convention_fails_physics_check(tmp_path, motion):
 
 def test_accelerometer_scale_error_is_rejected(tmp_path, motion):
     ori, pos = arcore_pose(motion)
-    write_csv(tmp_path / "Outdoor_Subject_1_Xiaomi_1" / "processed" / "data.csv", motion, ori, pos, accel_scale=0.91)
+    write_csv(
+        tmp_path / "Outdoor_Subject_1_Xiaomi_1" / "processed" / "data.csv",
+        motion,
+        ori,
+        pos,
+        accel_scale=0.91,
+    )
     raw = next(imunet.iter_raw_sequences(tmp_path))
     assert raw.rejected and "accelerometer scale" in raw.rejected
     assert any("scale = 0.91" in note for note in raw.notes)

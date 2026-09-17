@@ -14,7 +14,10 @@ OFFSET = 0.12  # vicon_time = imu_time + OFFSET + SKEW * (imu_time - T_REF)
 SKEW = -400e-6
 DURATION = 250.0
 T_REF = T0 + DURATION / 2
-Q_SB = pu.quat_mul(pu.quat_from_axis_angle([0, 0, 1], np.radians(174.0)), pu.quat_from_axis_angle([1, 0.5, 0], 0.04))
+Q_SB = pu.quat_mul(
+    pu.quat_from_axis_angle([0, 0, 1], np.radians(174.0)),
+    pu.quat_from_axis_angle([1, 0.5, 0], 0.04),
+)
 SEED = 4
 
 
@@ -40,7 +43,11 @@ def vicon_rows(seed, t_imu_rel_start, rate=100.0, glitches=(3000, 3001, 9000)):
         q_vicon[g] = pu.quat_mul(q_vicon[g], pu.quat_from_axis_angle([0, 0, 1], np.pi))
     pos = truth["position"] + np.array([-1.3, 2.4, 0.8])
     xyzw = np.column_stack([q_vicon[:, 1:], q_vicon[:, :1]])
-    return np.column_stack([np.round(tau * 1e9), np.arange(len(tau)) + 11896, pos, xyzw]), t_imu, truth
+    return (
+        np.column_stack([np.round(tau * 1e9), np.arange(len(tau)) + 11896, pos, xyzw]),
+        t_imu,
+        truth,
+    )
 
 
 def write_csv(path, rows, fmt):
@@ -59,7 +66,11 @@ def build_session(root, scene="handheld", session="data1", k=1, swap_rows=True):
     raw_dir = root / oxiod.ROOT_NAME / scene / session / "raw"
     write_csv(raw_dir / f"imu{k}.csv", imu, [lambda v: f"{v:.2f}"] + [lambda v: f"{v:.9f}"] * 15)
     vi, _, _ = vicon_rows(SEED, T0)
-    write_csv(raw_dir / f"vi{k}.csv", vi, [lambda v: f"{int(v)}", lambda v: f"{int(v)}"] + [lambda v: f"{v:.9f}"] * 7)
+    write_csv(
+        raw_dir / f"vi{k}.csv",
+        vi,
+        [lambda v: f"{int(v)}", lambda v: f"{int(v)}"] + [lambda v: f"{v:.9f}"] * 7,
+    )
     return motion
 
 
@@ -117,8 +128,14 @@ def test_vicon_extrinsic_clock_and_glitches(converted):
 def test_positive_sign_would_fail(converted):
     _, _, raw = converted
     raw_bad = oxiod.RawSequence(
-        raw.sequence_id, raw.imu_time, raw.gyroscope, -raw.accelerometer, raw.pose_time, raw.position,
-        raw.orientation, pose_valid=raw.pose_valid,
+        raw.sequence_id,
+        raw.imu_time,
+        raw.gyroscope,
+        -raw.accelerometer,
+        raw.pose_time,
+        raw.position,
+        raw.orientation,
+        pose_valid=raw.pose_valid,
     )
     assert any("gravity" in f for f in pu.physics_check(raw_bad)["failures"])
 
@@ -135,7 +152,11 @@ def test_attitude_convention():
 
 def test_official_splits_and_placement_table(tmp_path):
     base = tmp_path / oxiod.ROOT_NAME
-    for scene, session, ks in [("handheld", "data1", (1, 2)), ("handheld", "data5", (1,)), ("pocket", "data2", (1, 6))]:
+    for scene, session, ks in [
+        ("handheld", "data1", (1, 2)),
+        ("handheld", "data5", (1,)),
+        ("pocket", "data2", (1, 6)),
+    ]:
         for k in ks:
             d = base / scene / session / "raw"
             d.mkdir(parents=True, exist_ok=True)
@@ -204,10 +225,16 @@ def test_hand_eye_and_time_offset_recovery():
     # ω_imu(t) ≈ ω_pose(t + 0.37)
     t_pose = t + 0.37
     off, corr = pu.estimate_time_offset(
-        t, np.linalg.norm(truth["gyro"], axis=1), t_pose, np.linalg.norm(truth["gyro"], axis=1), max_lag=2.0
+        t,
+        np.linalg.norm(truth["gyro"], axis=1),
+        t_pose,
+        np.linalg.norm(truth["gyro"], axis=1),
+        max_lag=2.0,
     )
     assert off == pytest.approx(0.37, abs=0.005) and corr > 0.95
-    fine, corr = pu.refine_time_offset(t, truth["gyro"], t_pose, q_ws, q_sb, center=0.3, max_lag=0.2)
+    fine, corr = pu.refine_time_offset(
+        t, truth["gyro"], t_pose, q_ws, q_sb, center=0.3, max_lag=0.2
+    )
     assert fine == pytest.approx(0.37, abs=0.002) and corr > 0.9
 
 

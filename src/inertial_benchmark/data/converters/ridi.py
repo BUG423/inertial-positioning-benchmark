@@ -1,15 +1,20 @@
 """RIDI（Yan, Shan, Furukawa, ECCV 2018）原始数据解析（data_publish_v2）。
 
-数据约定依据官方仓库 https://github.com/higerra/ridi_imu （``python/gen_dataset.py``）与采集 App
-https://github.com/higerra/TangoIMURecorder （``MainActivity.java`` / ``PoseIMURecorder.java``）独立实现：
+数据约定依据官方仓库 https://github.com/higerra/ridi_imu （``python/gen_dataset.py``）
+与采集 App https://github.com/higerra/TangoIMURecorder
+（``MainActivity.java`` / ``PoseIMURecorder.java``）独立实现：
 
 * 每条序列一个目录，官方预处理结果在 ``processed/data.csv``（pandas 写出，首列为空名索引）；
-* ``time`` 是 Tango 位姿时间戳（纳秒）；官方把 IMU（Android ``TYPE_GYROSCOPE`` / ``TYPE_ACCELEROMETER`` 等）
-  线性插值到位姿时间戳上，并去掉首尾各 800 个位姿（约 4 s），约 200 Hz；
-* ``pos_*``、``ori_*``：同一台 Tango 手机 ``START_OF_SERVICE → DEVICE`` 的 VIO 位姿；Tango 起始系重力对齐、z 向上，
-  ``DEVICE`` 系与 Android 传感器坐标系一致；原始 ``pose.txt`` 四元数为 xyzw，官方已换成 wxyz；
-* ``rv_*``：``TYPE_GAME_ROTATION_VECTOR``（原始 ``orientation.txt`` 为 xyzw，官方已换成 wxyz、SLERP 到位姿时间）；
-* IMU 与位姿来自**同一台设备**：物理自检中陀螺与 ``ori`` 的最佳常值旋转 < 1°，因此 ``ori`` 直接作为参考姿态；
+* ``time`` 是 Tango 位姿时间戳（纳秒）；官方把 IMU
+  （Android ``TYPE_GYROSCOPE`` / ``TYPE_ACCELEROMETER`` 等）线性插值到位姿时间戳上，
+  并去掉首尾各 800 个位姿（约 4 s），约 200 Hz；
+* ``pos_*``、``ori_*``：同一台 Tango 手机 ``START_OF_SERVICE → DEVICE`` 的 VIO 位姿；
+  Tango 起始系重力对齐、z 向上，``DEVICE`` 系与 Android 传感器坐标系一致；
+  原始 ``pose.txt`` 四元数为 xyzw，官方已换成 wxyz；
+* ``rv_*``：``TYPE_GAME_ROTATION_VECTOR``
+  （原始 ``orientation.txt`` 为 xyzw，官方已换成 wxyz、SLERP 到位姿时间）；
+* IMU 与位姿来自**同一台设备**：物理自检中陀螺与 ``ori`` 的最佳常值旋转 < 1°，
+  因此 ``ori`` 直接作为参考姿态；
 * 数据集没有提供 IMU 标定参数；Android 陀螺已由系统做零偏补偿，加速度计为原始比力。
 """
 
@@ -61,17 +66,26 @@ def _read_list(path: Path) -> List[tuple]:
 
 
 def list_sequences(source: Path) -> List[str]:
-    """契约可选成员：本地全部含 ``processed/data.csv`` 的序列（排序），包括 22 条不在官方 publish 列表中的序列。"""
+    """契约可选成员：本地全部含 ``processed/data.csv`` 的序列（排序）。
+
+    包括 22 条不在官方 publish 列表中的序列。
+    """
 
     return sorted(_discover(source))
 
 
 def official_splits(source: Path) -> Dict[str, List[str]]:
-    """官方 ``list_train_publish_v2`` / ``list_test_publish_v2``，过滤为本地存在的序列（无官方 val）。"""
+    """官方 ``list_train_publish_v2`` / ``list_test_publish_v2``，过滤为本地存在的序列。
+
+    无官方 val。
+    """
 
     root = _root(source)
     available = set(_discover(source))
-    return {key: [name for name, _ in _read_list(root / fn) if name in available] for key, fn in _SPLIT_FILES.items()}
+    return {
+        key: [name for name, _ in _read_list(root / fn) if name in available]
+        for key, fn in _SPLIT_FILES.items()
+    }
 
 
 def placement_of(name: str, listed: Dict[str, str]) -> str:
@@ -86,7 +100,9 @@ def placement_of(name: str, listed: Dict[str, str]) -> str:
     return ""
 
 
-def iter_raw_sequences(source: Path, only: Optional[Collection[str]] = None) -> Iterator[RawSequence]:
+def iter_raw_sequences(
+    source: Path, only: Optional[Collection[str]] = None
+) -> Iterator[RawSequence]:
     root = _root(source)
     found = _discover(source)
     listed: Dict[str, str] = {}
@@ -115,12 +131,15 @@ def load_sequence(folder: Path, placement: str = "", root: Optional[Path] = None
     time = data["time"] / 1e9
     keep = pu.monotonic_mask(time)
     notes = [
-        "source = processed/data.csv (official gen_dataset.py: IMU linearly interpolated onto Tango pose timestamps)",
+        "source = processed/data.csv (official gen_dataset.py: IMU linearly interpolated onto "
+        "Tango pose timestamps)",
         "time: nanoseconds -> seconds (Android/Tango boot clock, not unix time)",
-        "position/orientation = Tango VIO pose of the same device (START_OF_SERVICE, gravity aligned, z up); "
+        "position/orientation = Tango VIO pose of the same device (START_OF_SERVICE, gravity "
+        "aligned, z up); "
         "ori columns already wxyz",
         "device_orientation = rv columns (Android game rotation vector, wxyz)",
-        "no IMU calibration published; gyroscope is Android-calibrated TYPE_GYROSCOPE, accelerometer is raw specific force",
+        "no IMU calibration published; gyroscope is Android-calibrated TYPE_GYROSCOPE, "
+        "accelerometer is raw specific force",
     ]
     dropped = int((~keep).sum())
     if dropped:

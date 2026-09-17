@@ -41,7 +41,9 @@ def test_accepted_sequences_pass_physics(sample, name):
 
 def test_orientation_source_and_known_rejection(sample):
     assert sample["a000_1"].attrs["orientation_source"] == "game_rv_aligned_to_tango_start"
-    assert sample["a002_1"].attrs["orientation_source"] == "ekf_aligned_to_tango_start"  # grv 误差 56.6°
+    assert (
+        sample["a002_1"].attrs["orientation_source"] == "ekf_aligned_to_tango_start"
+    )  # grv 误差 56.6°
     assert sample["a006_2"].attrs["placement"] == "mixed"
     # a011_3：game_rv 与 ekf 末端误差都 > 20°，官方规则选陀螺积分，倾角漂移导致重力检查失败
     assert sample["a011_3"].attrs["orientation_source"] == "gyro_integration_aligned_to_tango_start"

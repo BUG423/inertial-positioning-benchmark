@@ -83,7 +83,9 @@ def test_parse_units_calibration_and_orientation(tmp_path, motion):
     # 参考姿态 = 起点对齐后的 game_rv，应恢复手机真值姿态（不是 tango_ori）
     assert _angle_deg(raw.orientation, motion["q_wb"][s]).max() < 1e-6
     # 设备姿态 = 原始 game_rv，与参考世界系差常值偏航
-    assert _angle_deg(raw.device_orientation, pu.quat_mul(Q_GRV_WORLD, motion["q_wb"][s])).max() < 1e-6
+    assert (
+        _angle_deg(raw.device_orientation, pu.quat_mul(Q_GRV_WORLD, motion["q_wb"][s])).max() < 1e-6
+    )
     assert raw.attrs["orientation_source"] == "game_rv_aligned_to_tango_start"
     assert raw.attrs["subject_id"] == "a900" and raw.attrs["group_id"] == "a900"
     assert raw.attrs["device_id"] == "asus4"

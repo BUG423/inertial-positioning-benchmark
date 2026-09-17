@@ -32,7 +32,9 @@ REJECTED = ["handbag_data2_seq3", "multi_users_user5_seq5"]
 
 @pytest.fixture(scope="module")
 def sample():
-    return {raw.sequence_id: raw for raw in oxiod.iter_raw_sequences(SOURCE, only=ACCEPTED + REJECTED)}
+    return {
+        raw.sequence_id: raw for raw in oxiod.iter_raw_sequences(SOURCE, only=ACCEPTED + REJECTED)
+    }
 
 
 @pytest.mark.parametrize("name", ACCEPTED)
@@ -52,7 +54,9 @@ def test_accepted_sequences_pass_physics(sample, name):
 
 
 def test_clock_models(sample):
-    assert sample["running_data1_seq3"].attrs["oxiod_clock_offset_s"] == pytest.approx(1.66, abs=0.05)
+    assert sample["running_data1_seq3"].attrs["oxiod_clock_offset_s"] == pytest.approx(
+        1.66, abs=0.05
+    )
     assert sample["multi_users_user3_seq1"].attrs["oxiod_clock_skew_ppm"] < -300
     assert sample["handheld_data1_seq1"].attrs["oxiod_clock_skew_ppm"] == 0.0
 
@@ -65,8 +69,14 @@ def test_corrupted_files_are_rejected(sample):
 def test_ios_sign_convention(sample):
     raw = sample["handheld_data1_seq1"]
     flipped = oxiod.RawSequence(
-        raw.sequence_id, raw.imu_time, raw.gyroscope, -raw.accelerometer, raw.pose_time, raw.position,
-        raw.orientation, pose_valid=raw.pose_valid,
+        raw.sequence_id,
+        raw.imu_time,
+        raw.gyroscope,
+        -raw.accelerometer,
+        raw.pose_time,
+        raw.position,
+        raw.orientation,
+        pose_valid=raw.pose_valid,
     )
     stats = pu.physics_check(flipped)
     assert stats["acc_world_mean"][2] < -9.0
@@ -96,7 +106,9 @@ def test_official_splits():
 def test_placement_table_matches_readme():
     root = SOURCE / oxiod.ROOT_NAME
     for user in ("user3", "user5"):
-        text = (root / "multi users" / user / "syn" / "Readme.txt").read_text(encoding="utf-8", errors="replace")
+        text = (root / "multi users" / user / "syn" / "Readme.txt").read_text(
+            encoding="utf-8", errors="replace"
+        )
         for lo, hi, name in re.findall(r"(\d+)\s*-\s*(\d+)\s*:\s*([a-z]+)", text):
             expected = {"handheld": "handheld", "pocket": "pocket", "handbag": "bag"}[name]
             for k in range(int(lo), int(hi) + 1):

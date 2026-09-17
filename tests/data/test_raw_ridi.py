@@ -18,7 +18,13 @@ SOURCE = RAW_ROOT / "_staging" / "RIDI" / "data_publish_v2"
 
 pytestmark = pytest.mark.skipif(not SOURCE.is_dir(), reason=f"RIDI raw data not found at {SOURCE}")
 
-NAMES = {"dan_bag1": "bag", "dan_body1": "body", "dan_handheld1": "handheld", "dan_leg1": "pocket", "ruixuan_leg2": "pocket"}
+NAMES = {
+    "dan_bag1": "bag",
+    "dan_body1": "body",
+    "dan_handheld1": "handheld",
+    "dan_leg1": "pocket",
+    "ruixuan_leg2": "pocket",
+}
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +57,9 @@ def test_heading_check_catches_world_frame_mismatch(sample):
 
 def test_device_orientation_differs_by_constant_yaw(sample):
     raw = sample["dan_handheld1"]
-    rel = pu.quat_mul(raw.orientation, pu.quat_conj(raw.device_orientation))  # world_ref ← world_grv
+    rel = pu.quat_mul(
+        raw.orientation, pu.quat_conj(raw.device_orientation)
+    )  # world_ref ← world_grv
     tilt = np.degrees(pu.tilt_of_quat(rel))
     assert np.median(tilt) < 3.0
 
