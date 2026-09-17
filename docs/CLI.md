@@ -19,6 +19,8 @@ ipb <command> key=value [key=value ...]
   使用 checkpoint 时，模型输入规格（`window/frame/orientation/remove_gravity/target/dims/rate`）来自 checkpoint，不可改写。
 
 环境变量：`IPB_DATASETS`（转换后数据根目录，缺省 `~/datasets/ipb`）、`IPB_VERBOSE=0`（静默）、
+`IPB_PLUGINS`（逗号分隔的插件模块名或 `.py` 路径，导入后其中 `@register_model` / `@register_augmentation`
+注册的模型与增强即可按名字使用；插件中的模型需配合模型 YAML 或已注册的名字，checkpoint 评测时同样需要设置）、
 `CUDA_VISIBLE_DEVICES`（可见 GPU；`device=0` 指可见列表中的第一张）、`OMP_NUM_THREADS`（CPU 线程，缺省最多 8）。
 
 退出码：`0` 成功；`1` 检查未通过或无序列被接收；`2` 参数/配置/文件错误。

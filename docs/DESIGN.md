@@ -206,6 +206,8 @@ class BaseModel(nn.Module):
 ```
 
 - 通过 `@register_model("name")` 注册，`cfg/models/<name>.yaml` 给出结构参数与训练配方。
+  仓库外的模型/增强可放在插件模块中（`@register_model` / `@register_augmentation`），由环境变量
+  `IPB_PLUGINS` 列出后自动导入；配置用模型 YAML 路径（`model=path/to/model.yaml`）引用。
 - 每个公开算法必须在模型文档字符串与 `docs/algorithms/<name>.md` 中注明：论文、官方仓库、许可、提交号、
   与官方实现的差异（例如 2D 输出、单窗口输入）及理由。
 - 忠实性底线：网络结构、参数量、专用损失、训练阶段切换与官方一致；参数量必须有单元测试锁定。

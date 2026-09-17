@@ -7,6 +7,9 @@
 
 执行顺序固定：传感器级（``bias``/``noise``，作用于原始量）先于坐标级（``random_yaw``），
 ``time_shift`` 由数据集在取窗口前处理。每个增强接收 ``numpy.random.Generator``，保证可复现。
+
+外部模块可用 ``@register_augmentation(name)`` 注册 :class:`Augmentation` 子类；配置中出现未知名字时
+会先加载 ``IPB_PLUGINS`` 列出的插件（见 ``utils/plugins.py``）再查找。
 """
 
 from __future__ import annotations
@@ -109,6 +112,21 @@ class TimeShift:
 REGISTRY = {"random_yaw": RandomYaw, "bias": Bias, "noise": Noise, "time_shift": TimeShift}
 
 
+def register_augmentation(*names: str):
+    """类装饰器：以一个或多个名字注册增强（:class:`Augmentation` 子类，按 ``stage`` 排序执行）。"""
+
+    def decorator(cls):
+        if not (isinstance(cls, type) and issubclass(cls, Augmentation)):
+            raise TypeError(f"{cls!r} must subclass Augmentation")
+        for name in names:
+            if name in REGISTRY and REGISTRY[name] is not cls:
+                raise KeyError(f"augmentation {name!r} already registered by {REGISTRY[name]}")
+            REGISTRY[name] = cls
+        return cls
+
+    return decorator
+
+
 def _parse(item: Any) -> tuple:
     if isinstance(item, str):
         return item, {}
@@ -127,6 +145,10 @@ def build_augmentations(spec: Optional[Iterable[Any]], frame: str = "gravity_wor
     time_shift, augs = None, []
     for item in spec or []:
         name, kwargs = _parse(item)
+        if name not in REGISTRY:
+            from ..utils.plugins import load_plugins
+
+            load_plugins()
         if name not in REGISTRY:
             raise ValueError(f"unknown augmentation {name!r}; available: {sorted(REGISTRY)}")
         obj = REGISTRY[name](**kwargs)
