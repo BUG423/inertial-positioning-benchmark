@@ -416,13 +416,18 @@ class Trainer:
         self._write_rows(rows)
 
     def train_eval_gap(self, windows: int = 1024, repeats: int = 4) -> dict:
-        """val 窗口上 ``eval()`` 与 ``train()`` 两种模式的窗口损失比，用于发现 train/eval 失配。
+        """val 窗口上 ``eval()`` 与 ``train()`` 两种模式的窗口损失差，用于发现 train/eval 失配。
 
         dropout 与 BatchNorm 让同一权重在两种模式下行为不同。理想情况下两个损失相当；
-        比值远大于 1 说明**报出的指标不是这组权重真实的能力**，而是 train/eval 失配的产物。
+        eval 明显更差说明**报出的指标不是这组权重真实的能力**，而是 train/eval 失配的产物。
         真实案例：``ronin_resnet18`` 的 ``Dropout(0.5) → Linear → ReLU`` 头在统一配方下训练
         若干轮后，eval 模式的速度幅值只有训练模式的三分之一（损失 0.155 对 0.020），
         轨迹指标因此严重虚高。
+
+        返回 ``loss_eval`` / ``loss_train`` / ``delta``（= eval − train），以及仅在
+        ``loss_train > 0`` 时有意义的 ``ratio``（否则为 ``None``）：RIO 的负余弦自监督项与
+        高斯 NLL 都能让窗口损失取负值，比值会变成负数或 inf，是假信号。告警判据统一为
+        ``delta > |loss_train|``，在 ``loss_train > 0`` 时与 ``ratio > 2`` 等价。
 
         逐帧/多步目标与额外输入一并走 :meth:`SequenceView.windows`，因此 batch 的键与
         Trainer 完全一致（``target``/``imu``/``mask``/``extra``）。序列级模型
@@ -474,13 +479,20 @@ class Trainer:
                     out = {k: v.float() for k, v in out.items() if torch.is_tensor(v)}
                     values.append(float(work.loss(out, batch, self.epoch)[0]))
                 losses[mode] = sum(values) / len(values)
-        gap = {"loss_eval": losses["eval"], "loss_train": losses["train"],
-               "ratio": losses["eval"] / losses["train"] if losses["train"] > 0 else math.inf,
+        # 判据对**有符号**损失也必须成立：RIO 的负余弦自监督项、高斯 NLL 都能让窗口损失取负，
+        # 那时 `eval/train` 比值没有意义（负数或 inf 都不是“差 N 倍”），只有差值有意义。
+        # 判据取 `loss_eval − loss_train > |loss_train|`：`loss_train > 0` 时它与旧判据
+        # `ratio > 2` 逐点等价，`loss_train <= 0` 时退化为“eval 比 train 差出一个损失量级”。
+        delta = losses["eval"] - losses["train"]
+        gap = {"loss_eval": losses["eval"], "loss_train": losses["train"], "delta": delta,
+               "ratio": losses["eval"] / losses["train"] if losses["train"] > 0 else None,
                "num_windows": int(len(x)),
                "sequences": [v.sequence_id for v in views]}
-        if gap["ratio"] > 2.0:
+        if delta > max(abs(losses["train"]), 1e-12):
+            scale = (f"{gap['ratio']:.1f}x higher" if gap["ratio"] is not None
+                     else f"{delta:.4f} higher")
             LOGGER.warning(
-                f"train/eval mismatch: val window loss is {gap['ratio']:.1f}x higher in eval() "
+                f"train/eval mismatch: val window loss is {scale} in eval() "
                 f"than in train() mode ({gap['loss_eval']:.4f} vs {gap['loss_train']:.4f}). "
                 "Reported metrics understate these weights; check the model's dropout/BatchNorm "
                 "and the speed_ratio / plr metrics.")

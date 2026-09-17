@@ -1007,3 +1007,60 @@ def test_benchmark_can_continue_after_a_failed_run(dataset, tmp_path):
     assert len(saved) == 2 and saved[1]["error"] == statuses[1]["error"]
     with pytest.raises(FileNotFoundError):   # 缺省仍然直接抛出，不静默跳过
         run_benchmark({**plan, "name": "d", "continue_on_error": False})
+
+
+def test_train_eval_gap_handles_signed_losses(dataset, tmp_path, caplog):
+    """有符号损失（可为负）下不得给出假告警：判据看差值，``ratio`` 只在损失为正时写出。
+
+    真实案例：``rio`` 的联合损失含负余弦自监督项、``tlio``/``llio`` 用高斯 NLL，窗口损失都
+    可以是负数。旧判据 ``loss_eval / loss_train if loss_train > 0 else inf`` 会把
+    ``loss_train < 0`` 的 run 一律判成 ``ratio=inf`` 并告警一次（precheck 里 rio × imunet
+    就是这样：0.2051 对 −0.7107 被报成 "infx higher"）。
+    """
+    @register_model("test_signed_loss_model")
+    class Signed(BaseModel):
+        """损失 = 平均预测值（可正可负）；``shift`` 决定 eval 模式的偏移。"""
+
+        shift = 0.0
+
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.full((input_spec.dims,), -0.5))
+
+        def forward(self, imu):
+            vel = self.bias.expand(imu.shape[0], -1)
+            return {"vel": vel if self.training else vel + type(self).shift}
+
+        def loss(self, out, batch, epoch):
+            value = out["vel"].mean()
+            return value, {"signed": float(value.detach())}
+
+    over = {**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+            "save_predictions": False, "model_args": {},
+            "model": {"name": "signed", "arch": "test_signed_loss_model"}}
+    try:
+        trainer = Trainer(overrides={**over, "name": "signed_ok"})
+        trainer.train()
+        gap = json.loads((tmp_path / "train" / "signed_ok" / "metrics.json").read_text())
+        gap = gap["train_eval_gap"]
+        # 损失为负：比值没有意义，写 null；差值为 0，不告警
+        assert gap["loss_train"] < 0 and gap["ratio"] is None
+        assert gap["delta"] == pytest.approx(0.0, abs=1e-6)
+
+        Signed.shift = 1.0   # eval 模式差出 1.0 > |loss_train| = 0.5 → 必须告警
+        caplog.clear()
+        with caplog.at_level("WARNING", logger=LOGGER.name):
+            bad = trainer.train_eval_gap(windows=64, repeats=1)
+        assert bad["ratio"] is None and bad["delta"] == pytest.approx(1.0, abs=1e-6)
+        # 消息不能说“x 倍”，只能说差了多少（比值不存在）
+        assert any("1.0000 higher in eval()" in r.getMessage() for r in caplog.records)
+
+        Signed.shift = 0.2   # 差出 0.2 < 0.5 → 不告警
+        caplog.clear()
+        with caplog.at_level("WARNING", logger=LOGGER.name):
+            ok = trainer.train_eval_gap(windows=64, repeats=1)
+        assert ok["delta"] == pytest.approx(0.2, abs=1e-6)
+        assert not any("train/eval mismatch" in r.getMessage() for r in caplog.records)
+    finally:
+        Signed.shift = 0.0
+        MODELS.pop("test_signed_loss_model")

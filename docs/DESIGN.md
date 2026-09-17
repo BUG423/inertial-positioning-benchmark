@@ -411,8 +411,11 @@ class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推�
 `amp: false` 的算法（官方不用 AMP）不受此缺省变化影响。
 
 **train/eval 失配诊断**：训练结束时在若干条 val 序列上用 `train()` 与 `eval()` 两种模式各算一次
-窗口损失，比值写入 `metrics.json` 的 `train_eval_gap`，`ratio > 2` 告警——比值远大于 1 说明报出的
-指标不是这组权重真实的能力（dropout/BN 失配）。诊断在模型副本上做，不改权重、BN 统计与随机数状态；
+窗口损失，两个损失与其差值写入 `metrics.json` 的 `train_eval_gap`，
+`delta = loss_eval − loss_train > |loss_train|` 时告警——eval 明显更差说明报出的指标不是这组
+权重真实的能力（dropout/BN 失配）。判据用差值而不是比值：`loss_train > 0` 时两者等价，但
+RIO 的负余弦自监督项与高斯 NLL 会让窗口损失取负，比值会变成负数或 `inf`（假告警），因此
+`ratio` 只在 `loss_train > 0` 时写出。诊断在模型副本上做，不改权重、BN 统计与随机数状态；
 batch 的键与训练完全一致（走 `SequenceView.windows`，含逐帧/多步目标的 `mask` 与 `extra`）；
 序列级模型没有 `train()/eval()` 语义差异，跳过并记下原因。
 

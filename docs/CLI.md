@@ -355,9 +355,15 @@ ipb train data=ridi fitness=ate fitness_stat=median   # 逐序列 ATE 的中位�
 
 ### 4.2 `train_eval_gap`：train/eval 失配诊断
 
-dropout 与 BatchNorm 让同一组权重在 `train()` 与 `eval()` 下行为不同。训练结束时框架在 val 的一条
-序列上用两种模式各算一次窗口损失，把 `{loss_eval, loss_train, ratio}` 写进 `metrics.json` 的
-`train_eval_gap`；`ratio > 2` 时给出告警。诊断在模型副本上进行，不改动权重、BN 统计与随机数状态。
+dropout 与 BatchNorm 让同一组权重在 `train()` 与 `eval()` 下行为不同。训练结束时框架在若干条 val
+序列上用两种模式各算一次窗口损失，把 `{loss_eval, loss_train, delta, ratio, num_windows,
+sequences}` 写进 `metrics.json` 的 `train_eval_gap`。诊断在模型副本上进行，不改动权重、BN 统计
+与随机数状态。
+
+告警判据是 **`delta = loss_eval − loss_train > |loss_train|`**：`loss_train > 0` 时它与
+“`ratio > 2`”逐点等价，而**有符号损失**（RIO 的负余弦自监督项、高斯 NLL/`nll_detach_then_nll`
+都能让窗口损失取负）下比值会变成负数或 `inf`，是假信号——因此 `ratio` 只在 `loss_train > 0`
+时写出，否则为 `null`，判据一律看 `delta`。
 
 `ratio` 明显大于 1 意味着**报出的指标不是这组权重真实的能力**。实测例子：`ronin_resnet18` 在
 `recipe=unified` 下训练 4 轮后，RoNIN val 窗口损失 eval 模式 0.155、train 模式 0.020（比值 7.7），

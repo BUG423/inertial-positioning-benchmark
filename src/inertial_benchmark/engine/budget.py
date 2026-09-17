@@ -63,8 +63,8 @@ def resolve_budget(cfg: Any, windows_per_epoch: int) -> Optional[dict]:
         return None
     max_epochs = int(get("budget_max_epochs") or 200)
     windows_per_epoch = int(windows_per_epoch)
-    uncapped = math.ceil(budget / max(windows_per_epoch, 1)) if windows_per_epoch > 0 else 0
-    epochs = budget_epochs(budget, windows_per_epoch, max_epochs)
+    epochs = budget_epochs(budget, windows_per_epoch, max_epochs)   # 先校验，再报未截断的轮数
+    uncapped = math.ceil(budget / windows_per_epoch)
     return {
         "train_windows_budget": budget,
         "windows_per_epoch": windows_per_epoch,
@@ -115,8 +115,8 @@ def count_train_windows(cfg: Any, spec: Any = None, split: str = "train") -> int
     from ..data.manifest import resolve_dataset
     from ..utils import IterableSimpleNamespace
 
-    spec = spec or resolve_dataset(cfg.data)
     get = cfg.get if hasattr(cfg, "get") else (lambda k, d=None: getattr(cfg, k, d))
+    spec = spec or resolve_dataset(get("data"))
     key = (str(spec.root), split, tuple(str(get(k)) for k in _COUNT_KEYS))
     if key not in _WINDOW_CACHE:
         lean = IterableSimpleNamespace(**{**dict(cfg.to_dict()), "cache": False, "augment": []})
