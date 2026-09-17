@@ -152,14 +152,24 @@ def measure_latency(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
 
 
 def efficiency_metrics(model: nn.Module, window: int, channels: int = 6,
-                       devices: Sequence[str] = ("cpu",), runs: int = 30) -> dict:
-    """汇总效率指标：``params``、``flops``、``latency_ms_<device>``。"""
+                       devices: Sequence[str] = ("cpu",), runs: int = 30,
+                       input_shape: Optional[Sequence[int]] = None) -> dict:
+    """汇总效率指标：``params``、``flops``、``latency_ms_<device>``。
+
+    ``input_shape`` 为单个样本的输入形状（不含批维，缺省 ``(channels, window)``）；声明历史子窗口的
+    模型请传 ``InputSpec.input_shape``。序列级模型没有逐窗口前向，只记录参数量。
+    """
+    shape = tuple(int(v) for v in (input_shape if input_shape is not None
+                                   else (channels, int(window))))
     out = {"params": count_params(model)}
-    out.update(count_flops(model, (1, channels, window)))
-    for dev in devices:
-        d = torch.device(dev)
-        if d.type == "cuda" and not torch.cuda.is_available():
-            continue
-        lat = measure_latency(model, (1, channels, window), d, runs=runs)
-        out[f"latency_ms_{d.type}"] = lat["latency_ms"]
+    try:
+        out.update(count_flops(model, (1, *shape)))
+        for dev in devices:
+            d = torch.device(dev)
+            if d.type == "cuda" and not torch.cuda.is_available():
+                continue
+            lat = measure_latency(model, (1, *shape), d, runs=runs)
+            out[f"latency_ms_{d.type}"] = lat["latency_ms"]
+    except NotImplementedError:  # 序列级模型（PDR 等）不实现 forward
+        out.update({"flops": None, "flops_backend": "not applicable"})
     return out

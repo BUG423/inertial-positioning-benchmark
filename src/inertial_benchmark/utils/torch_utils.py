@@ -194,13 +194,22 @@ def time_sync(device: Optional[torch.device] = None) -> float:
 
 
 def model_info(model: nn.Module, window: Optional[int] = None, channels: int = 6,
-               flops: bool = True) -> dict:
-    """参数量（总数/可训练）与单窗口 FLOPs。"""
+               flops: bool = True, input_shape: Any = None) -> dict:
+    """参数量（总数/可训练）与单窗口 FLOPs。
+
+    ``input_shape`` 为单个样本的输入形状（不含批维），缺省 ``(channels, window)``；
+    声明历史子窗口的模型请传 ``InputSpec.input_shape``。序列级模型没有逐窗口前向，跳过 FLOPs。
+    """
     from ..metrics.efficiency import count_flops, count_params
 
     info = {"parameters": count_params(model),
             "trainable": count_params(model, trainable_only=True),
             "layers": sum(1 for _ in model.modules())}
-    if flops and window:
-        info.update(count_flops(model, (1, channels, window)))
+    if flops and (window or input_shape):
+        shape = tuple(int(v) for v in (input_shape if input_shape is not None
+                                       else (channels, int(window))))
+        try:
+            info.update(count_flops(model, (1, *shape)))
+        except NotImplementedError:
+            info.update({"flops": None, "flops_backend": "not applicable"})
     return info

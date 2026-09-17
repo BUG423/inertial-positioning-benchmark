@@ -351,8 +351,14 @@ def test_baseline_train_val_writes_the_calibration(name, tmp_path):
 
 
 def test_baselines_have_no_learnable_parameters():
+    from inertial_benchmark.metrics.efficiency import efficiency_metrics
+
     for name in ("pdr", "mean_speed_heading"):
         model = build_model(get_cfg({"model": name, "orientation": "reference"}))
         assert model.num_params == 0, name
         assert isinstance(model, torch.nn.Module)
+        # 序列级模型没有逐窗口前向：效率指标只记录参数量，不因此崩掉
+        eff = efficiency_metrics(model, model.input_spec.window,
+                                 input_shape=model.input_spec.input_shape)
+        assert eff["params"] == 0 and eff["flops"] is None
     assert PDR.__mro__[1].__name__ == "SequenceModel"
