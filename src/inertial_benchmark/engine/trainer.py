@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import torch
 
 from .. import __version__
@@ -333,17 +334,28 @@ class Trainer:
         """
         import copy
 
-        view = next((s for s in self.val_sources if hasattr(s, "imu_windows")), None)
-        if view is None:  # 惰性 val：临时构建第一条序列的视图
-            view = self.val_set.sequence_view(0) if self.val_set.sequence_ids else None
-        if view is None:
+        n_seq = len(self.val_set.sequence_ids)
+        if n_seq == 0:
             return {}
-        starts = view.starts(int(self.args.eval_stride))[:int(windows)]
-        if len(starts) == 0:
+        # 跨若干条 val 序列均匀取窗口，避免结论依赖单条序列
+        views, used = [], min(4, n_seq)
+        for k in range(used):
+            v = self.val_sources[k]
+            views.append(v if hasattr(v, "imu_windows") else self.val_set.sequence_view(k))
+        per_view = max(int(windows) // used, 1)
+        xs, ys = [], []
+        for v in views:
+            starts = v.starts(int(self.args.eval_stride))
+            if len(starts) == 0:
+                continue
+            starts = starts[np.linspace(0, len(starts) - 1, min(per_view, len(starts))).astype(int)]
+            xs.append(v.imu_windows(starts))
+            ys.append(v.targets(starts))
+        if not xs:
             return {}
         work = copy.deepcopy(de_parallel(self.model))
-        x = torch.from_numpy(view.imu_windows(starts)).to(self.device)
-        y = torch.from_numpy(view.targets(starts)).to(self.device)
+        x = torch.from_numpy(np.concatenate(xs)).to(self.device)
+        y = torch.from_numpy(np.concatenate(ys)).to(self.device)
         losses = {}
         with torch.no_grad():
             for mode in ("eval", "train"):
@@ -357,7 +369,8 @@ class Trainer:
                 losses[mode] = sum(values) / len(values)
         gap = {"loss_eval": losses["eval"], "loss_train": losses["train"],
                "ratio": losses["eval"] / losses["train"] if losses["train"] > 0 else math.inf,
-               "num_windows": int(len(starts)), "sequence_id": view.sequence_id}
+               "num_windows": int(len(x)),
+               "sequences": [v.sequence_id for v in views]}
         if gap["ratio"] > 2.0:
             LOGGER.warning(
                 f"train/eval mismatch: val window loss is {gap['ratio']:.1f}x higher in eval() "
