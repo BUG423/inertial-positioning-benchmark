@@ -19,7 +19,7 @@
 
 ## 2. 总表
 
-按 P0（行人、官方代码可用）→ P1（跨平台或需接口扩展）→ paper-only → 经典基线排序。
+按 P0（行人、官方代码可用）→ P1（跨平台或需接口扩展）→ paper-only 重实现 → 经典基线排序。
 
 | 名称 | 优先级 | fidelity | 许可 | 输入（官方） | 输出（官方） | 参数量（官方 / IPB） | 依赖外部姿态 | 官方数据集 | 状态 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -49,6 +49,8 @@
 | [`imot`](algorithms/imot.md) | paper-only | paper-only | 占位仓库（MIT，无源码） | 200 Hz×200；世界系（论文未明示）；`[acc,gyro]` | 2D 速度 | 论文 14.49 M / 推导 7,137,482 | 是（来源未明示） | RIDI, RoNIN, OxIOD, IDOL | 部分（假设待核实） |
 | [`rio`](algorithms/rio.md) | paper-only | paper-only | 无代码 | 200 Hz×200；`gravity_world`；`[gyro,acc]` | 2D 速度 | 论文未报告 / 推导 4,634,882 | 是 | RoNIN, OxIOD, RIDI, IPS | 可移植 |
 | [`ionext`](algorithms/ionext.md) | paper-only | paper-only | 无代码 | 200 Hz×200；`gravity_world`；`[acc,gyro]` | 2D 速度 | 论文 ≈1.1×10⁷ / 推导 10,641,506 | 是 | IMUNet, RoNIN, RIDI, OxIOD, RNIN, TLIO | 部分（假设待核实） |
+| [`gnio`](algorithms/gnio.md) | paper-only | paper-only | 无代码 | 200 Hz×200（1 s 窗、0.1 s 步长）；`gravity_yaw_local`；`[gyro,acc]` | 3D 位移＋logstd（门控头） | 论文 4.90 M / 推导 4,934,153 | 是 | OxIOD, RIDI, RoNIN, IDOL, TLIO | 可移植 |
+| [`velobins`](algorithms/velobins.md) | paper-only | paper-only | 无代码 | 100 Hz×100；`body`；`[acc,gyro]`＋逐旋翼转速/PWM | 逐轴 512 箱分布 → 机体系 3D 速度＋方差 | 论文 ≈76.6 k / 推导 69,968（无转速支路） | 否（网络）；积分需要 | AI-IO, NanoBench, TII-RATM, NeuroBEM | 部分（假设待核实） |
 | [`pdr`](algorithms/pdr.md) | baseline | 定义 | — | 200 Hz 连续序列；加计＋姿态 | 2D 平均速度 | 0（标定标量） | 是 | — | 可移植 |
 | [`mean_speed_heading`](algorithms/mean_speed_heading.md) | baseline | 定义 | — | 姿态（航向）；门控变体用加计 | 2D 平均速度 | 0（标定标量） | 是 | — | 可移植 |
 
@@ -68,6 +70,8 @@ DESIGN §3/§4 目前规定模型只接收 `(B, 6, T)`，并返回窗口级 `vel
 | 序列级 / 有状态预测器钩子（`forward_sequence` 或逐窗口传递状态） | 整序列流式推理、上一窗口预测作为下一窗口输入、测试时训练 | `ronin_lstm@stream`、`ronin_tcn@stream`、`nio_lie_events_ronin`、`ionet`（官方协议模式）、`rio`（A-TTT）、`pdr` |
 | 训练姿态回退 `orientation_fallback`（设备姿态末端对齐误差 > 20° 时改用参考姿态） | RoNIN 系官方训练姿态规则 | `ronin_*`、`eqnio_ronin`、`nio_lie_events_ronin` |
 | 窗口速度上限过滤（例如 3 m/s、4 m/s） | 官方训练样本筛选 | `ronin_lstm`、`ronin_tcn`、`rnin` |
+| 可复用输出头：`gated`（Softplus 幅值 × Tanh 门控）、`bins`（逐轴分箱分类 + 期望/argmax 解码） | 在任意骨干上做“回归 vs 门控 / 回归 vs 分箱”的对照消融 | `gnio`、`velobins` |
+| 分箱范围 `R` 的训练期统计与记录（逐轴 `max|v|×1.1`，只用训练划分），以及解码方式开关 | 分箱输出头的语义依赖数据集相关的箱网格 | `velobins` |
 | `dims=3` 与 `gravity_yaw_local` 的锚点 | TLIO 系官方以**窗口起点**偏航建局部系，IPB 以末端建系；非等变骨干在偏航增强下近似等价 | `tlio`、`llio`、`eqnio_tlio`（严格等变，可直接用 `gravity_world`）、`nio_lie_events_tlio`、`dive` |
 
 ## 4. 跨算法的官方实现问题（摘要）
@@ -81,6 +85,8 @@ DESIGN §3/§4 目前规定模型只接收 `(B, 6, T)`，并返回窗口级 `vel
    - RNIN：`start_cov_epochs=2000` 大于 `epochs=201`，协方差头从未训练，测试时 σ 恒为 1。
    - TartanIMU：机体系分支的损失恒为 20·L1，协方差头拿不到梯度。
    - EqNIO-RoNIN：发布的训练循环只跑 1 个 epoch。
+   - GNIO（论文）：正文自称“两阶段 MSE→NLL”，式 13 却是固定权重的静态加和（λ_MSE=1e2、λ_NLL=1e-4），没有任何按 epoch 的切换。
+   - VeloBins（论文）：**完全不优化 NLL**，不确定度只由误差条件高斯标签的 KL 监督学到——移植时不要“顺手补一个 NLL 损失”。
 3. **通道语义**
    - RoNIN 的 `lstm_bi` 指 bilinear 层，LSTM 本身是**单向**的。
    - EqNIO 在网络内部把骨干输入重排为 `[a', s·ω']`（O(2)）；陀螺必须按**赝矢量**参与反射，否则等变性不成立。夹具中给出了实测误差：正确变换时 ≤1e-12，把陀螺当普通矢量时约 0.1–0.9。
@@ -112,7 +118,7 @@ DESIGN §3/§4 目前规定模型只接收 `(B, 6, T)`，并返回窗口级 `vel
 | <https://github.com/bingrao/ctin> | `1441c726811ac87283903471562023fd429e3a08` | MIT（README 徽章写 Apache-2.0） | 占位仓库，只有 README/LICENSE，未克隆 |
 | <https://github.com/Minh-Son-Nguyen/iMoT> | `7f275702bd9b0dbdb60bb4d5dae802f8e9ab9dac` | MIT | 占位仓库（“coming soon”），未克隆 |
 
-IONet、RIO、IONext 没有公开代码（RIO 的 CVPR 论文链接到华为云 AI Gallery 页面，该页面需要 JS 渲染，内容未能核实；IONext 承诺审稿后发布）。
+IONet、RIO、IONext、GNIO、VeloBins 没有公开代码（RIO 的 CVPR 论文链接到华为云 AI Gallery 页面，该页面需要 JS 渲染，内容未能核实；IONext 承诺审稿后发布；VeloBins 摘要称“录用后发布”；GNIO 未提供任何链接）。
 
 **许可策略**：
 - GPL/AGPL 仓库：只依据规格卡独立实现，不得复制代码，否则衍生文件受 copyleft 约束。
@@ -129,6 +135,9 @@ IONet、RIO、IONext 没有公开代码（RIO 的 CVPR 论文链接到华为云 
 | TALOS-NIO | 没有论文、没有许可，既无可引用的规格来源，也不能合法再分发 |
 | AI-IO、IMO、DIDO | 需要旋翼转速或推力等执行器输入，行人数据集没有这类信号 |
 
+`velobins` 的官方配置同样需要旋翼转速/PWM，本来符合上面的排除理由；我们仍然登记它，是因为它的**分箱输出头**是我们研究线的直接竞品，
+可以在行人骨干上作为对照实现。登记的是明确标注的 **IMU-only 变体**（去掉执行器支路，属于改变结构），论文的百分比收益不适用于该变体。
+
 ## 7. 未完成与待核实
 
 - **论文全文不可得**：LLIO、DeepILS、DIVE 的论文全文在 IEEE 付费墙后，卡中的训练配方与报告数值标为“未核实”。其中 LLIO 状态为“部分”，拿到 PDF 后应补齐 §5、§7。
@@ -136,3 +145,5 @@ IONet、RIO、IONext 没有公开代码（RIO 的 CVPR 论文链接到华为云 
 - **未下载核对的权重**：RoNIN（FRDR 记录当前无文件）、IMUNet、RNIN、PedestrianDiffusion 的预训练权重，以及 NIO 其余 3 个 TLIO 权重。
 - **TinyOdom**：官方未公布 NAS 最终结构，卡片固定仓库 `model.cc` 中的 RoNIN 候选结构（未训练权重，已与 TFLite 输出对拍）。
 - **DIVE**：IPB 配置把窗口改为 200 @ 200 Hz、输出改为 2 维，属于改变结构，参数量与官方 3.5 s @ 400 Hz 配置不同（12,367,110 → 7,516,420）。
+- **GNIO**：注意力维度/头数与特征池化方式未给出，推导参数量 4,934,153（论文 4.90 M）依赖 §4.3 的假设；增强、权重衰减、划分未写明，按 TLIO 补齐并标注。
+- **VeloBins**：编码器沿用 AI-IO 且未复述细节，只有 6,848 参数的分箱解码器可精确复现；箱中心是否均匀、速度目标取窗口哪个时刻、越界速度如何处理均未规定。
