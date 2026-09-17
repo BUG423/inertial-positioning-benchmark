@@ -1,0 +1,203 @@
+{
+ "name": "tinyodom",
+ "source_repo": "https://github.com/nesl/tinyodom",
+ "commit": "7958781baeddf1b99a4f365fb54fb7bac5e96845",
+ "input_shape": [
+  1,
+  400,
+  6
+ ],
+ "output_shape": {
+  "velx": [
+   1,
+   1
+  ],
+  "vely": [
+   1,
+   1
+  ],
+  "velz": [
+   1,
+   1
+  ]
+ },
+ "total_params": 100481,
+ "trainable_params": 100481,
+ "param_shapes": [
+  [
+   12,
+   6,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   1,
+   6,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   12,
+   30,
+   30
+  ],
+  [
+   30
+  ],
+  [
+   15,
+   32
+  ],
+  [
+   32
+  ],
+  [
+   32,
+   1
+  ],
+  [
+   1
+  ],
+  [
+   32,
+   1
+  ],
+  [
+   1
+  ],
+  [
+   32,
+   1
+  ],
+  [
+   1
+  ]
+ ],
+ "notes": "Keras 3.12 (TF 2.21) instantiation of keras-tcn==3.3.0 TCN + the RoNIN notebook head (TinyOdom_RoNIN.ipynb cell 11). Shapes are Keras (B, T, C); the IPB port receives (B, 6, T) [gyro, acc] and must permute to (B, T, 6) with channel order [acc_xyz, gyro_xyz]. param_shapes follow Keras model.weights order (kernel then bias per layer); Keras Conv1D kernels are (k, in, out) while PyTorch Conv1d weights are (out, in, k); Dense kernels are (in, out) vs PyTorch Linear (out, in). Architecture hyper-parameters (nb_filters=30, kernel_size=12, dilations=[1,2,4,8,64], no skip connections, no normalisation) are taken from the RoNIN TFLite flatbuffer embedded in tinyodom_tcn/model.cc (an untrained HIL-NAS candidate); the paper does not tabulate the final NAS picks. The notebook's tf.reshape was replaced by an equivalent Reshape layer (no parameters). Parameter count does not depend on the window length T.",
+ "param_names": [
+  "tcn/residual_block_0/conv1D_0/kernel",
+  "tcn/residual_block_0/conv1D_0/bias",
+  "tcn/residual_block_0/conv1D_1/kernel",
+  "tcn/residual_block_0/conv1D_1/bias",
+  "tcn/residual_block_0/matching_conv1D/kernel",
+  "tcn/residual_block_0/matching_conv1D/bias",
+  "tcn/residual_block_1/conv1D_0/kernel",
+  "tcn/residual_block_1/conv1D_0/bias",
+  "tcn/residual_block_1/conv1D_1/kernel",
+  "tcn/residual_block_1/conv1D_1/bias",
+  "tcn/residual_block_2/conv1D_0/kernel",
+  "tcn/residual_block_2/conv1D_0/bias",
+  "tcn/residual_block_2/conv1D_1/kernel",
+  "tcn/residual_block_2/conv1D_1/bias",
+  "tcn/residual_block_3/conv1D_0/kernel",
+  "tcn/residual_block_3/conv1D_0/bias",
+  "tcn/residual_block_3/conv1D_1/kernel",
+  "tcn/residual_block_3/conv1D_1/bias",
+  "tcn/residual_block_4/conv1D_0/kernel",
+  "tcn/residual_block_4/conv1D_0/bias",
+  "tcn/residual_block_4/conv1D_1/kernel",
+  "tcn/residual_block_4/conv1D_1/bias",
+  "pre/kernel",
+  "pre/bias",
+  "velx/kernel",
+  "velx/bias",
+  "vely/kernel",
+  "vely/bias",
+  "velz/kernel",
+  "velz/bias"
+ ],
+ "buffer_shapes": [],
+ "framework": "keras",
+ "official_config": {
+  "description": "RoNIN notebook input: 400 samples @200 Hz x 10 channels [acce_xyz, gyro_xyz, magnet_xyz, pydometer step mask], outputs velx, vely (window displacement in Tango world frame). Same TCN hyper-parameters.",
+  "input_shape": [
+   1,
+   400,
+   10
+  ],
+  "output_shape": {
+   "velx": [
+    1,
+    1
+   ],
+   "vely": [
+    1,
+    1
+   ]
+  },
+  "total_params": 102008,
+  "tflite_verification_max_abs_err": 5.7220458984375e-06
+ },
+ "benchmark_config": {
+  "description": "IPB: frame=body, dims=3, window=400 @200 Hz, input 6 channels (magnetometer and step-mask channels dropped -> first conv and matching conv in_channels 10->6), third Dense(1) head velz added for the body-frame 3-D target.",
+  "variant_2d_total_params": 100448
+ }
+}

@@ -1,0 +1,1450 @@
+# IPB v1 algorithm index (machine-readable companion of docs/ALGORITHMS.md).
+# params.official: official released configuration; params.benchmark: IPB-adapted configuration
+# locked by tests/fixtures/algorithms/<name>.json (null for paper-only specs and baselines).
+schema_version: 1
+generated: '2026-09-17'
+description: Machine-readable index of IPB v1 algorithm specification cards (see docs/ALGORITHMS.md).
+algorithms:
+- name: ronin_resnet18
+  display_name: RoNIN-ResNet18
+  priority: P0
+  family: ronin
+  card: docs/algorithms/ronin_resnet18.md
+  fixture: tests/fixtures/algorithms/ronin_resnet18.json
+  fidelity: official-code
+  paper:
+    title: 'RoNIN: Robust Neural Inertial Navigation in the Wild: Benchmark, Evaluations, & New Methods'
+    venue: ICRA
+    year: 2020
+    url: https://arxiv.org/abs/1905.12853
+  repo:
+    url: https://github.com/Sachini/ronin
+    commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+    license: GPL-3.0
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 4634882
+    benchmark: 4634882
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  status: spec-ready
+  pitfalls:
+  - Random time shift is clamped to start >= window_size, so the first 1 s of every sequence is never a training window start
+    (data_glob_speed.py:172-174).
+  - FC in_dim = window//32 + 1 is wrong when window is a multiple of 32.
+  - Official ATE/RTE average over coordinate components (Euclidean value / sqrt(2)); trajectory velocities are stamped at
+    window starts.
+  - Released pretrained models were trained on the entire dataset including test sequences.
+  notes: Official configuration equals the benchmark configuration; no structural adaptation.
+- name: ronin_lstm
+  display_name: RoNIN-LSTM (bilinear, unidirectional)
+  priority: P0
+  family: ronin
+  card: docs/algorithms/ronin_lstm.md
+  fixture: tests/fixtures/algorithms/ronin_lstm.json
+  fidelity: official-code
+  paper:
+    title: 'RoNIN: Robust Neural Inertial Navigation in the Wild: Benchmark, Evaluations, & New Methods'
+    venue: ICRA
+    year: 2020
+    url: https://arxiv.org/abs/1905.12853
+  repo:
+    url: https://github.com/Sachini/ronin
+    commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+    license: GPL-3.0
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 400
+    stride: 100
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - batch_first_sequence
+  output:
+    quantity: per_frame_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 216620
+    benchmark: 216620
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  status: spec-ready
+  pitfalls:
+  - '''lstm_bi'' means bilinear, not bidirectional; the LSTM is unidirectional (paper: stacked unidirectional LSTM).'
+  - Hidden state batch size is fixed at construction (drop_last=True required).
+  - Feature/target smoothing never applies because of the 'feature_sigma,' key typo.
+  - Paper's linear-layer dropout (keep 0.8) is not implemented in code.
+  - Official test runs the whole sequence as one stream; IPB windows need a pooling rule (mean of per-frame outputs over k=0..T-2).
+  notes: Latent velocity loss (cumulative-sum MSE, no dt) needs a per-frame velocity auxiliary target from the task view.
+- name: ronin_tcn
+  display_name: RoNIN-TCN
+  priority: P0
+  family: ronin
+  card: docs/algorithms/ronin_tcn.md
+  fixture: tests/fixtures/algorithms/ronin_tcn.json
+  fidelity: official-code
+  paper:
+    title: 'RoNIN: Robust Neural Inertial Navigation in the Wild: Benchmark, Evaluations, & New Methods'
+    venue: ICRA
+    year: 2020
+    url: https://arxiv.org/abs/1905.12853
+  repo:
+    url: https://github.com/Sachini/ronin
+    commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+    license: GPL-3.0
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 400
+    stride: 100
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - batch_first_sequence
+  output:
+    quantity: per_frame_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 540488
+    benchmark: 540488
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  status: spec-ready
+  pitfalls:
+  - Paper lists channels [16,32,64,128,72,36] (177,176 params) but the released config uses [32,64,128,256,72,36] (540,488
+    params).
+  - N(0,0.01) init of weight-normed convs is a no-op; effective init is the PyTorch default.
+  - Loss is a 253-frame windowed displacement MSE (history = receptive field); frames 0-1 never enter the loss.
+  notes: Strictly causal, receptive field 253 frames; streaming and windowed outputs coincide once 252 frames of history are
+    available.
+- name: tlio
+  display_name: TLIO
+  priority: P0
+  family: tlio
+  card: docs/algorithms/tlio.md
+  fixture: tests/fixtures/algorithms/tlio.json
+  fidelity: official-code
+  paper:
+    title: 'TLIO: Tight Learned Inertial Odometry'
+    venue: IEEE RA-L
+    year: 2020
+    url: https://arxiv.org/abs/2007.01867
+  repo:
+    url: https://github.com/CathIAS/TLIO
+    commit: d7051c4ff14834b93931984b75b40f894e39654d
+    license: BSD-3-Clause
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 5424646
+    benchmark: 5424646
+  requires_orientation: true
+  official_datasets:
+  - TLIO
+  status: spec-ready
+  pitfalls:
+  - MSE->NLL switch is actually NLL with detached logstd for epochs 1-9 (losses.py:66-69), not MSE
+  - ReduceLROnPlateau is constructed but never stepped; LR stays 1e-4 (train.py:335)
+  - CLI window/augmentation args are not passed to TlioData; hard-coded defaults are used (train.py:278)
+  - Training data is world-frame + random yaw, EKF uses window-start yaw frame; network-only test divides displacement by
+    1.0 s instead of 0.995 s
+  - Paper results use the EKF, which IPB v1 does not implement (network + integration only)
+  notes: ResNet1D (BasicBlock [2,2,2,2], two FcBlock heads, in_dim=T//32+1=7); 3-D displacement + logstd; dims=3 kept, xy
+    evaluated; vel = disp/0.995 s; no pretrained weights; dataset CC BY-NC.
+- name: rnin
+  display_name: RNIN (RNIN-VIO inertial network)
+  priority: P0
+  family: rnin
+  card: docs/algorithms/rnin.md
+  fixture: tests/fixtures/algorithms/rnin.json
+  fidelity: official-code
+  paper:
+    title: 'RNIN-VIO: Robust Neural Inertial Navigation Aided Visual-Inertial Odometry in Challenging Scenes'
+    venue: ISMAR
+    year: 2021
+    url: http://www.cad.zju.edu.cn/home/gfzhang/papers/rnin_vio.pdf
+  repo:
+    url: https://github.com/zju3dv/rnin-vio
+    commit: b030ecc94f151159973a9086c8ba76e22bdbc56e
+    license: Apache-2.0
+    framework: pytorch
+  input:
+    rate_hz: 100
+    window: 100
+    stride: 5
+    frame: gravity_world
+    orientation: reference
+    remove_gravity: true
+    channels: '[gyro, acc]'
+    extra:
+    - sequence_of_10_windows
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 5358342
+    benchmark: 5358342
+  requires_orientation: true
+  official_datasets:
+  - IDOL
+  - RNIN
+  status: spec-ready
+  pitfalls:
+  - 'start_cov_epochs=2000 > epochs=201: NLL phase never runs, covariance head is never trained and test sigma is fixed to
+    1 (default.yaml:33-34, function.py:294)'
+  - Gravity-direction augmentation is applied after gravity removal, so it does not simulate gravity leakage (dataset.py:118,
+    319-329)
+  - Bias augmentation is added in the world frame; VIO bias of the last row is used for the whole sequence
+  - postprocess.py uses np.int (fails on NumPy>=1.24); test set is evaluated every epoch during training
+  - IPB needs a new InputSpec 'history' field (window=200 + history=1800) to keep the 10-step seq2seq structure and correct
+    timestamps
+  notes: 1D ResNet18 (no maxpool) per 1 s sub-window at 100 Hz + unidirectional LSTM(896->256) over 10 sub-windows + two FC
+    heads; loss = RL + 8*AL (MSE); IPB adapter decimates 200 Hz by 2; vel = last-step displacement / 1.0 s; pretrained weights
+    on Google Drive/Baidu.
+- name: imunet
+  display_name: IMUNet
+  priority: P0
+  family: imunet
+  card: docs/algorithms/imunet.md
+  fixture: tests/fixtures/algorithms/imunet.json
+  fidelity: official-code
+  paper:
+    title: 'IMUNet: Efficient Regression Architecture for Inertial IMU Navigation and Positioning'
+    venue: IEEE TIM
+    year: 2024
+    url: https://arxiv.org/abs/2208.00068
+  repo:
+    url: https://github.com/BehnamZeinali/IMUNet
+    commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+    license: none (no LICENSE file; all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 3661618
+    benchmark: 3661618
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - PX4
+  status: spec-ready-license-risk
+  pitfalls:
+  - CustomLayer 'noise' subtracts W*flatten(raw input) from flattened features (index-wise pairing, W~N(0,1)); hard-wires
+    C*T=1200, so window must be 200.
+  - Paper Table II architecture (MRBlocks up to 512 ch + Conv1D 128 + Dense) does not match released code (blocks up to 1024
+    ch + Conv1d 1024->400 k2 + noise layer + Linear 1200->2); stem uses ReLU not ELU.
+  - Parameter registration order starts with noise.W/noise.b; constructor args (num_T, num_S, hidden, dropout_rate) are unused;
+    no dropout.
+  - 'No LICENSE file: re-implement from the card only; do not copy code or redistribute weights.'
+  - 'RONIN_torch/main.py cannot run as released: imports missing module CNN_LSTM (line 23); ReduceLROnPlateau(verbose=True)
+    fails on torch 2.11.'
+  - 'RIDI and self-collected datasets use the test list as validation and the OxIOD validation dir is the test dir: model
+    selection leaks test data (main.py 629-689).'
+  - OxIOD loader passes (x,y,z,w) quaternions as (w,x,y,z) and builds vector quaternions as [v,0]; uses gravity-free user
+    acceleration in g; 200-sample windows at 100 Hz (utils.py 382-417).
+  - Predicted velocity is timestamped at the window start (half-window shift); ATE/RTE are per-axis RMSE (IPB value = sqrt(2)
+    x official).
+  - Keras implementation is incomplete (RONIN_keras/IMUNet.py empty, undefined MobileNetV1_1D/MobileNetV2_1D_Arch, input_shape
+    (6,200) vs generator (B,200,6)); paper latency Table III uses Keras models.
+  notes: 'Official == benchmark config (no structural change). 18.44M MACs per window (measured). arXiv v1 Table I: RoNIN
+    seen/unseen ATE 3.52/5.68 m (per-axis RMSE).'
+- name: imunet_mobilenet
+  display_name: IMUNet-MobileNet (1-D MobileNetV1)
+  priority: P0
+  family: imunet
+  card: docs/algorithms/imunet_mobilenet.md
+  fixture: tests/fixtures/algorithms/imunet_mobilenet.json
+  fidelity: official-code
+  paper:
+    title: 'IMUNet: Efficient Regression Architecture for Inertial IMU Navigation and Positioning'
+    venue: IEEE TIM
+    year: 2024
+    url: https://arxiv.org/abs/2208.00068
+  repo:
+    url: https://github.com/BehnamZeinali/IMUNet
+    commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+    license: none (no LICENSE file; all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 3178978
+    benchmark: 3178978
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - PX4
+  status: spec-ready-license-risk
+  pitfalls:
+  - No conv biases in PyTorch; Keras version uses biases (3,189,922 trainable).
+  - 'No LICENSE file: re-implement from the card only; do not copy code or redistribute weights.'
+  - 'RONIN_torch/main.py cannot run as released: imports missing module CNN_LSTM (line 23); ReduceLROnPlateau(verbose=True)
+    fails on torch 2.11.'
+  - 'RIDI and self-collected datasets use the test list as validation and the OxIOD validation dir is the test dir: model
+    selection leaks test data (main.py 629-689).'
+  - OxIOD loader passes (x,y,z,w) quaternions as (w,x,y,z) and builds vector quaternions as [v,0]; uses gravity-free user
+    acceleration in g; 200-sample windows at 100 Hz (utils.py 382-417).
+  - Predicted velocity is timestamped at the window start (half-window shift); ATE/RTE are per-axis RMSE (IPB value = sqrt(2)
+    x official).
+  - Keras implementation is incomplete (RONIN_keras/IMUNet.py empty, undefined MobileNetV1_1D/MobileNetV2_1D_Arch, input_shape
+    (6,200) vs generator (B,200,6)); paper latency Table III uses Keras models.
+  notes: Global-average-pool head, window independent. Official == benchmark config. 33.91M MACs per window (measured).
+- name: imunet_mobilenetv2
+  display_name: IMUNet-MobileNetV2 (1-D)
+  priority: P0
+  family: imunet
+  card: docs/algorithms/imunet_mobilenetv2.md
+  fixture: tests/fixtures/algorithms/imunet_mobilenetv2.json
+  fidelity: official-code
+  paper:
+    title: 'IMUNet: Efficient Regression Architecture for Inertial IMU Navigation and Positioning'
+    venue: IEEE TIM
+    year: 2024
+    url: https://arxiv.org/abs/2208.00068
+  repo:
+    url: https://github.com/BehnamZeinali/IMUNet
+    commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+    license: none (no LICENSE file; all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 2183330
+    benchmark: 2183330
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - PX4
+  status: spec-ready-license-risk
+  pitfalls:
+  - _initialize_weights only matches Conv2d/BatchNorm2d, so only the Linear layer gets N(0,0.01) init.
+  - --arch choices in main.py omit MobileNetV2 although get_model supports it.
+  - 'No LICENSE file: re-implement from the card only; do not copy code or redistribute weights.'
+  - 'RONIN_torch/main.py cannot run as released: imports missing module CNN_LSTM (line 23); ReduceLROnPlateau(verbose=True)
+    fails on torch 2.11.'
+  - 'RIDI and self-collected datasets use the test list as validation and the OxIOD validation dir is the test dir: model
+    selection leaks test data (main.py 629-689).'
+  - OxIOD loader passes (x,y,z,w) quaternions as (w,x,y,z) and builds vector quaternions as [v,0]; uses gravity-free user
+    acceleration in g; 200-sample windows at 100 Hz (utils.py 382-417).
+  - Predicted velocity is timestamped at the window start (half-window shift); ATE/RTE are per-axis RMSE (IPB value = sqrt(2)
+    x official).
+  - Keras implementation is incomplete (RONIN_keras/IMUNet.py empty, undefined MobileNetV1_1D/MobileNetV2_1D_Arch, input_shape
+    (6,200) vs generator (B,200,6)); paper latency Table III uses Keras models.
+  notes: No dropout; mean over time + Linear(1280,2). Official == benchmark config. 19.56M MACs per window (measured).
+- name: imunet_mnasnet
+  display_name: IMUNet-MnasNet (1-D)
+  priority: P0
+  family: imunet
+  card: docs/algorithms/imunet_mnasnet.md
+  fixture: tests/fixtures/algorithms/imunet_mnasnet.json
+  fidelity: official-code
+  paper:
+    title: 'IMUNet: Efficient Regression Architecture for Inertial IMU Navigation and Positioning'
+    venue: IEEE TIM
+    year: 2024
+    url: https://arxiv.org/abs/2208.00068
+  repo:
+    url: https://github.com/BehnamZeinali/IMUNet
+    commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+    license: none (no LICENSE file; all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 2979114
+    benchmark: 2979114
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - PX4
+  status: spec-ready-license-risk
+  pitfalls:
+  - _initialize_weights only affects Linear; n_class defaults to 1000 and must be 2.
+  - Keras MnasNet differs structurally (no 1280 head conv, different SepConv, 2,564,970 trainable params).
+  - 'No LICENSE file: re-implement from the card only; do not copy code or redistribute weights.'
+  - 'RONIN_torch/main.py cannot run as released: imports missing module CNN_LSTM (line 23); ReduceLROnPlateau(verbose=True)
+    fails on torch 2.11.'
+  - 'RIDI and self-collected datasets use the test list as validation and the OxIOD validation dir is the test dir: model
+    selection leaks test data (main.py 629-689).'
+  - OxIOD loader passes (x,y,z,w) quaternions as (w,x,y,z) and builds vector quaternions as [v,0]; uses gravity-free user
+    acceleration in g; 200-sample windows at 100 Hz (utils.py 382-417).
+  - Predicted velocity is timestamped at the window start (half-window shift); ATE/RTE are per-axis RMSE (IPB value = sqrt(2)
+    x official).
+  - Keras implementation is incomplete (RONIN_keras/IMUNet.py empty, undefined MobileNetV1_1D/MobileNetV2_1D_Arch, input_shape
+    (6,200) vs generator (B,200,6)); paper latency Table III uses Keras models.
+  notes: MnasNet-B1 stage config without SE; Dropout(0.5) before Linear. Official == benchmark config. 24.39M MACs per window
+    (measured).
+- name: imunet_efficientnetb0
+  display_name: IMUNet-EfficientNetB0 (1-D variant)
+  priority: P0
+  family: imunet
+  card: docs/algorithms/imunet_efficientnetb0.md
+  fixture: tests/fixtures/algorithms/imunet_efficientnetb0.json
+  fidelity: official-code
+  paper:
+    title: 'IMUNet: Efficient Regression Architecture for Inertial IMU Navigation and Positioning'
+    venue: IEEE TIM
+    year: 2024
+    url: https://arxiv.org/abs/2208.00068
+  repo:
+    url: https://github.com/BehnamZeinali/IMUNet
+    commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+    license: none (no LICENSE file; all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 3231906
+    benchmark: 3231906
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - PX4
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'Not a standard EfficientNet-B0: no SE, no drop-connect, t=1 block keeps a 1x1 expansion conv, dropout 0.5.'
+  - _initialize_weights only affects Linear; one Swish module instance is shared by all blocks.
+  - Keras version uses stride 2 in repeated blocks (same parameter count, different downsampling).
+  - 'No LICENSE file: re-implement from the card only; do not copy code or redistribute weights.'
+  - 'RONIN_torch/main.py cannot run as released: imports missing module CNN_LSTM (line 23); ReduceLROnPlateau(verbose=True)
+    fails on torch 2.11.'
+  - 'RIDI and self-collected datasets use the test list as validation and the OxIOD validation dir is the test dir: model
+    selection leaks test data (main.py 629-689).'
+  - OxIOD loader passes (x,y,z,w) quaternions as (w,x,y,z) and builds vector quaternions as [v,0]; uses gravity-free user
+    acceleration in g; 200-sample windows at 100 Hz (utils.py 382-417).
+  - Predicted velocity is timestamped at the window start (half-window shift); ATE/RTE are per-axis RMSE (IPB value = sqrt(2)
+    x official).
+  - Keras implementation is incomplete (RONIN_keras/IMUNet.py empty, undefined MobileNetV1_1D/MobileNetV2_1D_Arch, input_shape
+    (6,200) vs generator (B,200,6)); paper latency Table III uses Keras models.
+  notes: Official == benchmark config. 27.82M MACs per window (measured).
+- name: eqnio_ronin
+  display_name: EqNIO (RoNIN backbone, O(2) frame)
+  priority: P0
+  family: eqnio
+  card: docs/algorithms/eqnio_ronin.md
+  fixture: tests/fixtures/algorithms/eqnio_ronin.json
+  fidelity: official-code
+  paper:
+    title: 'EqNIO: Subequivariant Neural Inertial Odometry'
+    venue: ICLR
+    year: 2025
+    url: https://arxiv.org/abs/2408.06321
+  repo:
+    url: https://github.com/RoyinaJayanth/EqNIO
+    commit: 97b7a60a5e5cc8f0132bba343c83de114211f827
+    license: none (all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 5230466
+    benchmark: 5230466
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'Released training loop runs a single epoch: range(start_epoch, 1) (ronin_resnet.py:263); checkpoints were trained for
+    120 epochs'
+  - 'Backbone input channels are re-ordered: O(2) feeds [a'', s*w''] (acc first, s=det F), SO(2) feeds [a''x, w''x, a''y,
+    w''y, w_z, a_z]'
+  - Gyro must be treated as a pseudo-vector under reflections; code builds v1=w x w1, v2=w x v1 (differs from paper order/sign)
+  - Frame-network kernel/depth in paper text (16x1, 1 block) disagree with code (32x1); follow code
+  - Only 50% public RoNIN data; train list omits a007_3; metrics inherit RoNIN component-mean ATE and window-start timestamps
+  notes: O(2) variant resnet18_eq_frame_o2 (frame net 595,584 + RoNIN ResNet18 4,634,882); SO(2) resnet18_eq_frame_2vec =
+    6,456,194 in fixture variants. Equivariance verified to 1e-12 (float64) on random and official weights.
+- name: eqnio_tlio
+  display_name: EqNIO (TLIO backbone, O(2) frame)
+  priority: P0
+  family: eqnio
+  card: docs/algorithms/eqnio_tlio.md
+  fixture: tests/fixtures/algorithms/eqnio_tlio.json
+  fidelity: official-code
+  paper:
+    title: 'EqNIO: Subequivariant Neural Inertial Odometry'
+    venue: ICLR
+    year: 2025
+    url: https://arxiv.org/abs/2408.06321
+  repo:
+    url: https://github.com/RoyinaJayanth/EqNIO
+    commit: 97b7a60a5e5cc8f0132bba343c83de114211f827
+    license: none (all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag_in_canonical_frame
+  params:
+    official: 6020230
+    benchmark: 6020230
+  requires_orientation: true
+  official_datasets:
+  - TLIO
+  - Aria Everyday
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'do_train never calls optimizer.zero_grad() for EqNIO frame archs: gradients accumulate (train.py:246-250), clip 0.1 on
+    the sum'
+  - ReduceLROnPlateau never stepped; 49 epochs (range(1,50)); MSE for epochs 1-9 is true MSE, unlike original TLIO (NLL with
+    detached logstd)
+  - O(2) gravity/bias augmentation is applied in the dataloader for train AND val; train transforms only touch imu0 and do
+    not reach feat_o2
+  - Official yaw removal uses the window-start yaw; test.py integrates local-frame displacements without R_world_gla, so ATE*/RTE*
+    are not physical-trajectory errors (units printed as mm)
+  - Outputs (disp, logstd) are in the canonical frame; world = [F d_xy, d_z], Sigma = F Sigma' F^T
+  notes: O(2) arch eq_o2_frame_fullCov_2vec_2deep (frame 595,584 + TLIO ResNet 5,424,646); SO(2) eq_vn_cnn_wo_t_tlio_frame_fullCov_frameop_2vec
+    = 8,884,870. Being O(2)-equivariant, IPB may use frame=gravity_world with identical results.
+- name: llio
+  display_name: LLIO (LLIO-Net)
+  priority: P0
+  family: tlio
+  card: docs/algorithms/llio.md
+  fixture: tests/fixtures/algorithms/llio.json
+  fidelity: official-code
+  paper:
+    title: 'LLIO: Lightweight Learned Inertial Odometer'
+    venue: IEEE Internet of Things Journal
+    year: 2022
+    url: https://doi.org/10.1109/JIOT.2022.3214087
+  repo:
+    url: https://github.com/i2Nav-WHU/LightweightLearnedInertialOdometer
+    commit: e225ab8f3080c35c92481673b6af1d68692941f6
+    license: GPL-3.0
+    framework: pytorch
+  input:
+    rate_hz: 100
+    window: 100
+    stride: null
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 7191654
+    benchmark: 7191654
+  requires_orientation: true
+  official_datasets:
+  - unknown
+  status: spec-partial
+  pitfalls:
+  - 'Only model files are released: no data pipeline, training, EKF or weights; the network is meant to replace TLIO''s network
+    inside the TLIO system.'
+  - PoolingMLPReg dropout is hard-coded to 0.5 (model_twolayer.py:105); the README dropout 0.2 only applies to the ResMLP
+    extractor.
+  - TwoLayerModel(None) raises KeyError 'dropout' (model_twolayer.py:194); reg='MLP' ignores out_dim (always 3 outputs).
+  - _initialize() is never called, so default PyTorch init is used; affine is applied after the residual sum (post-affine).
+  - model_MLP.py imports numpy.lib.arraypad/arraysetops (removed in numpy 2) and MLPCombineNet crashes in xavier_normal on
+    a 1-D bias (model_MLP.py:111).
+  notes: Registry maps to TwoLayerModel with the README config (the repo states this is LLIO). Paper full text was unreachable
+    (IEEE paywall; TechRxiv/figshare 403), so training recipe and reported numbers are unverified; only the abstract's 'up
+    to 12x faster than TLIO' is cited.
+- name: tinyodom
+  display_name: TinyOdom (TCN, RoNIN setup)
+  priority: P0
+  family: tinyodom
+  card: docs/algorithms/tinyodom.md
+  fixture: tests/fixtures/algorithms/tinyodom.json
+  fidelity: official-code
+  paper:
+    title: 'TinyOdom: Hardware-Aware Efficient Neural Inertial Navigation'
+    venue: Proc. ACM IMWUT 6(2), Article 71
+    year: 2022
+    url: https://doi.org/10.1145/3534594
+  repo:
+    url: https://github.com/nesl/tinyodom
+    commit: 7958781baeddf1b99a4f365fb54fb7bac5e96845
+    license: BSD-3-Clause
+    framework: keras
+  input:
+    rate_hz: 200
+    window: 400
+    stride: 20
+    frame: body
+    orientation: none
+    remove_gravity: false
+    channels: '[acc, gyro]'
+    extra:
+    - magnetometer
+    - step_mask
+  output:
+    quantity: displacement
+    dims: 2
+    uncertainty: none
+  params:
+    official: 102008
+    benchmark: 100481
+  requires_orientation: false
+  official_datasets:
+  - RoNIN
+  - OxIOD
+  - AQUALOC
+  - EuRoC MAV
+  - GunDog
+  status: spec-ready
+  pitfalls:
+  - Chained assignment in RoNIN notebook cells 4-5 overwrites X/x_vel/y_vel with the seen-test set, so NAS and final training
+    fit on test data when run top to bottom.
+  - Final-training cell reads best_params['dilations'] but the search key is 'dil_list' (KeyError); cell 23 uses undefined
+    X_tr.
+  - Final NAS architectures are not published; tinyodom_tcn/model.cc is an untrained RoNIN HIL candidate (he_normal init,
+    zero biases), used here as the reference architecture.
+  - Target 'velocity' is window displacement; trajectory step factor 1/19 instead of 20/399; ATE is mean (not RMSE) error
+    and RTE is the mean absolute error over the first minute, both vs a reconstructed GT trajectory.
+  - Search space never enables normalization (norm_flag in [0]); paper describes gated residual blocks but keras-tcn 3.3.0
+    uses plain ReLU blocks.
+  - OxIOD loader copies acc_x into acc_y and acc_z (OxIOD/data_utils.py:84-85).
+  - Without magnetometer the world-frame heading is unobservable from body-frame input; IPB adapts to frame=body with a 3-D
+    body-frame target.
+  notes: Structure verified numerically against the TFLite flatbuffer (max abs err 5.7e-6) using keras-tcn 3.3.0 under Keras
+    3. IPB drops magnetometer and pydometer step-mask channels (10->6) and adds a velz head. No pretrained weights.
+- name: deepils
+  display_name: DeepILS
+  priority: P0
+  family: deepils
+  card: docs/algorithms/deepils.md
+  fixture: tests/fixtures/algorithms/deepils.json
+  fidelity: official-code
+  paper:
+    title: 'DeepILS: Toward Accurate Domain-Invariant AIoT-Enabled Inertial Localization System'
+    venue: IEEE Internet of Things Journal
+    year: 2025
+    url: https://ieeexplore.ieee.org/document/10873819
+  repo:
+    url: https://github.com/OmerTariq-KAIST/DeepILS-IoT-Journal-2025
+    commit: 4fd65aa9564075810dab494d43610857dc3e1d01
+    license: none (no LICENSE file; source headers say All Rights Reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 2290226
+    benchmark: 2290226
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - IMUNet
+  - KIOD
+  - INAIOD
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'No LICENSE; headers claim all rights reserved: clean-room re-implementation only, never redistribute weights'
+  - RIDI/IMUNet/KIOD/INAIOD use the test list as val for model selection; KIOD/INAIOD train list == test list (main.py:607-628)
+  - Official ATE/RTE average over N*2 elements, i.e. IPB value / sqrt(2) (metric.py:17,43)
+  - Trajectory integration stamps window-start times (half-window lag, main.py:302-308)
+  - OxIOD reader builds quaternions in the wrong component order (data_processor.py:329,338-339)
+  - FC head hard-wired to window 200 (in_dim=7, valid T in [191,222]); ReduceLROnPlateau(verbose=True) fails on torch 2.11
+  notes: RoNIN-ResNet18 layout with depthwise-separable convs, CBAM-style channel+temporal attention per block, input conv
+    k5/p3; loss MSE + L1; paper text paywalled, numbers unverified (third-party TinyIO Table I lists 2.291 M params).
+- name: tartanimu
+  display_name: TartanIMU (ResNet-LSTM Foundation_Model)
+  priority: P0
+  family: tartanimu
+  card: docs/algorithms/tartanimu.md
+  fixture: tests/fixtures/algorithms/tartanimu.json
+  fidelity: official-code
+  paper:
+    title: 'Tartan IMU: A Light Foundation Model for Inertial Positioning in Robotics'
+    venue: CVPR
+    year: 2025
+    url: https://openaccess.thecvf.com/content/CVPR2025/papers/Zhao_Tartan_IMU_A_Light_Foundation_Model_for_Inertial_Positioning_in_CVPR_2025_paper.pdf
+  repo:
+    url: https://github.com/superxslam/TartanIMU
+    commit: 8a8025000f85d2c6b0692b88e15c2c91e761f7d7
+    license: Apache-2.0
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 2000
+    stride: 5
+    frame: body
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - sequence_of_10_windows_of_200
+    - decimate_by_5_to_40_samples
+    - motion_type_head_id
+  output:
+    quantity: per_window_body_velocity
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 5698346
+    benchmark: 5698346
+  requires_orientation: true
+  official_datasets:
+  - SubT-MRS
+  - IDOL
+  - Blackbird
+  - UZH-FPV
+  - TartanDrive
+  - TartanIMU-Challenge-v3
+  status: spec-ready
+  pitfalls:
+  - 'Covariance head never receives gradient: body-frame branch always uses 20*L1 (losses.py:179-189); HF config epochs 150
+    < start_cov_epochs 200'
+  - Paper (gravity removed, MSE+NLL, 2 FC layers) differs from released code (gravity kept, 20*L1, 3-layer FcBlock)
+  - LoRA package and Transformer core not released; online-adaptation freeze matches no parameter names (train.py:62-76)
+  - HF unified.yaml keys max_v_norm/clip_max_speed are ignored at this commit (hard-coded 5 and 15 m/s); wdfix2 head weight-decay
+    exemption not in code
+  - '[::5] decimation without anti-aliasing; test-time 3-tap smoothing runs across the batch dimension'
+  - test.py re-anchors every 20 m segment and ATE in compute_accruacy_metrics is a mean, not RMSE
+  - IPB needs a history-context field (window=2000, target span last 200) for faithful seq2seq use; fallback seq_len=1 keeps
+    parameters but drops context
+  notes: 'Only the public ResNet-LSTM multi-head model is specified; params count all 4 heads plus two unused trunk FcBlocks
+    (human forward path 4,605,193). Network input uses no attitude; the (reference) attitude is only needed to rotate body-frame
+    predictions to world for integration. HF weights: MIT tag but research/non-commercial wording.'
+- name: dive
+  display_name: DIVE
+  priority: P1
+  family: dive
+  card: docs/algorithms/dive.md
+  fixture: tests/fixtures/algorithms/dive.json
+  fidelity: official-code
+  paper:
+    title: 'DIVE: Deep Inertial-Only Velocity Aided Estimation for Quadrotors'
+    venue: IEEE RA-L 9(4):3728-3734
+    year: 2024
+    url: https://doi.org/10.1109/LRA.2024.3370006
+  repo:
+    url: https://github.com/decargroup/DIVE
+    commit: e982ddd0643c9d831de77a95467b282b07cceec1
+    license: MIT
+    framework: pytorch
+  input:
+    rate_hz: 400
+    window: 1400
+    stride: 20
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: true
+    channels: '[Log(C_g0_b), acc_gravity_yaw_local_minus_g] (built from body gyro + window-end attitude; NOT [gyro, acc])'
+    extra:
+    - window_end_attitude
+  output:
+    quantity: velocity_at_end
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 12367110
+    benchmark: 7516420
+  requires_orientation: true
+  official_datasets:
+  - DIDO
+  - Blackbird
+  status: spec-ready
+  pitfalls:
+  - Input channels are [so(3) log of back-integrated attitude, gravity-removed local-frame acc], not [gyro, acc] (network/dido_preprocessor.py:158-160).
+  - self_augment=False path raises NameError (undefined sigma_*_ct, dt); axis-misalignment and initial-orientation-error augmentation
+    are computed but never applied.
+  - MSE for epochs 0-9 then TLIO-style diagonal NLL; checkpoint monitors val_loss across both phases; validation data is re-noised
+    every call.
+  - Train default window 3.5 s @400 Hz but EKF scripts default to 0.5/1/3 s; FC input width depends on window.
+  - AdamW default weight_decay=0.01 is silently active; no LR scheduler in the Lightning path.
+  notes: 'Quadrotor method; IPB port needs an aux window-end attitude input (interface extension). Benchmark config: 200 samples
+    @200 Hz, dims=2, residual depth 3.'
+- name: airio
+  display_name: AirIO
+  priority: P1
+  family: airio
+  card: docs/algorithms/airio.md
+  fixture: tests/fixtures/algorithms/airio.json
+  fidelity: official-code
+  paper:
+    title: 'AirIO: Learning Inertial Odometry with Enhanced IMU Feature Observability'
+    venue: IEEE RA-L 10(9):9368-9375
+    year: 2025
+    url: https://arxiv.org/abs/2501.15659
+  repo:
+    url: https://github.com/Air-IO/Air-IO
+    commit: 7214e8a6ddee95ca07a64f01f1fa3e2f8f60df73
+    license: BSD-3-Clause
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 1000
+    stride: 3
+    frame: body
+    orientation: reference
+    remove_gravity: false
+    channels: '[acc, gyro]'
+    extra:
+    - per_sample_attitude_so3
+  output:
+    quantity: per_frame_velocity
+    dims: 3
+    uncertainty: variance_diag
+  params:
+    official: 387014
+    benchmark: 387014
+  requires_orientation: true
+  official_datasets:
+  - EuRoC
+  - Blackbird
+  - Pegasus
+  status: spec-ready
+  pitfalls:
+  - 32,736 registered parameters are never used in forward (inherited cnn, fcn1, batchnorm1); effective 354,278.
+  - Channel order is [acc, gyro]; cov head outputs a variance exp(x-5), not logstd.
+  - Model selection and LR scheduling use the 'test' split; for EuRoC the test sequences are the training sequences.
+  - 'inference_motion.py --whole is always True: whole-sequence bidirectional GRU (non-causal); integration is forward Euler.'
+  - Attitude encoding includes absolute yaw and no yaw augmentation is used.
+  notes: Seq2seq body-frame velocity (T_out=112 for T=1000); IPB port needs per-sample attitude aux input and per-sample body-velocity
+    targets; window-level vel = last token.
+- name: nio_lie_events_ronin
+  display_name: NIO Lie Events (RoNIN backbone)
+  priority: P1
+  family: nio_lie_events
+  card: docs/algorithms/nio_lie_events.md
+  fixture: tests/fixtures/algorithms/nio_lie_events_ronin.json
+  fidelity: official-code
+  paper:
+    title: Neural Inertial Odometry from Lie Events
+    venue: RSS
+    year: 2025
+    url: https://arxiv.org/abs/2505.09780
+  repo:
+    url: https://github.com/RoyinaJayanth/NIO_Lie_Events
+    commit: 1e87470f6479c198875c5f1a32b392a46eb5af74
+    license: none (all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - per_sample_orientation
+    - initial_velocity_v0
+    - timestamps
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 4637570
+    benchmark: 4637570
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'Released training-time event stacking crashes: generate_event_stack called with a stale signature (data_glob_speed.py:605
+    TypeError)'
+  - 'Needs v0: train uses GT previous-window velocity + U(+-0.5), test uses GT for the first window then the previous prediction
+    (stateful, batch=1)'
+  - Events are binned by index (int(linspace(0,199,M))), not by timestamp; theta=0.1 leaves ~184/200 bins empty
+  - Polarity noise is baked into cached features for every split; v0 noise is fixed per cache
+  - Paper says channel order [a||w], code is [w, a]; zero-displacement windows produce NaN (u = w/0)
+  notes: RoNIN ResNet18 with 12 input channels [E_w, E_a, E_rho, E_phi]; SE(3) Lie events (contrast theta=0.1). One shared
+    card with nio_lie_events_tlio.
+- name: nio_lie_events_tlio
+  display_name: NIO Lie Events (TLIO backbone)
+  priority: P1
+  family: nio_lie_events
+  card: docs/algorithms/nio_lie_events.md
+  fixture: tests/fixtures/algorithms/nio_lie_events_tlio.json
+  fidelity: official-code
+  paper:
+    title: Neural Inertial Odometry from Lie Events
+    venue: RSS
+    year: 2025
+    url: https://arxiv.org/abs/2505.09780
+  repo:
+    url: https://github.com/RoyinaJayanth/NIO_Lie_Events
+    commit: 1e87470f6479c198875c5f1a32b392a46eb5af74
+    license: none (all rights reserved)
+    framework: pytorch
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - per_sample_orientation
+    - initial_velocity_v0
+    - timestamps
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 5427334
+    benchmark: 5427334
+  requires_orientation: true
+  official_datasets:
+  - TLIO
+  - Aria Everyday
+  status: spec-ready-license-risk
+  pitfalls:
+  - 'Released event path crashes: self.generate_event_stack(events, ts, window_size=...) TypeError (sequences_dataset.py:1224/1236/1256/1304)'
+  - NN-only test uses ground-truth v0 (privileged); the paper's EKF path uses the filter state
+  - 'Dataloader bias augmentation uses (randn-0.5) instead of uniform: biased Gaussian; stacked with the uniform transform
+    bias'
+  - First/last pseudo-events carry zero IMU measurements (RoNIN variant uses real ones); polarity noise also hits val
+  - Scheduler never stepped; 49 epochs; yaw removal at window start while the backbone is not equivariant
+  notes: TLIO ResNet with input_dim=12 (disp 3 + logstd 3); contrast theta=0.01; checkpoint args contain many flags absent
+    from the released code.
+- name: pedestrian_diffusion
+  display_name: PedestrianDiffusion
+  priority: P1
+  family: pedestrian_diffusion
+  card: docs/algorithms/pedestrian_diffusion.md
+  fixture: tests/fixtures/algorithms/pedestrian_diffusion.json
+  fidelity: official-code
+  paper:
+    title: 'PedestrianDiffusion: Multimodal Generative Denoising and Dense State Estimation for Inertial Navigation'
+    venue: arXiv
+    year: 2026
+    url: https://arxiv.org/abs/2607.03349
+  repo:
+    url: https://github.com/jacklu333333/PedestrianDiffusion
+    commit: 0b6cc2d019397e390ce757335e01712304339c9b
+    license: AGPL-3.0
+    framework: pytorch
+  input:
+    rate_hz: 100
+    window: 100
+    stride: 33
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[acc, gyro] -> STFT(n_fft=30, hop=14) (6,16,8,2)'
+    extra:
+    - clip_text_tokens_77x512
+    - frozen_pretrained_vae
+  output:
+    quantity: per_frame_velocity_and_angular_velocity
+    dims: 3
+    uncertainty: none
+  params:
+    official: 37259798
+    benchmark: 37259798
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - TLIO
+  status: spec-ready-license-risk
+  pitfalls:
+  - Training timestep is always 0 (target_time_steps=1) but inference uses timestep 999 after set_timesteps(1).
+  - 'DPMSolver add_noise before set_timesteps maps t=0 to sigma(t=999): training input is ~pure noise; ''fixing'' it would
+    leak labels.'
+  - Inference is stochastic (initial noise and VAE reparameterization at eval); no seed control.
+  - Train/test CLIP prompt templates differ ('person' vs 'personnel'); RoNIN mounted hard-coded to handheld.
+  - Suspected quaternion order mix (wxyz vs scipy xyzw) in the angular-velocity label; ATE/RTE use element-wise mean (1/sqrt(3)
+    of norm RMSE).
+  notes: AGPL-3.0 with vendored GPL code; params = UNet3D 34,634,252 + frozen VAE encoder 2,625,536 + 10 loss weights (matches
+    paper 37.26M); CLIP text encoder not counted; 200 Hz input decimated x2 inside the port.
+- name: ionet
+  display_name: IONet
+  priority: paper-only
+  family: ionet
+  card: docs/algorithms/ionet.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'IONet: Learning to Cure the Curse of Drift in Inertial Odometry'
+    venue: AAAI
+    year: 2018
+    url: https://arxiv.org/abs/1802.02209
+  repo:
+    url: null
+    commit: null
+    license: none (no official code released)
+    framework: none
+  input:
+    rate_hz: 100
+    window: 200
+    stride: 10
+    frame: body
+    orientation: none
+    remove_gravity: false
+    channels: '[acc, gyro]'
+    extra: []
+  output:
+    quantity: polar_delta
+    dims: 2
+    uncertainty: none
+  params:
+    official: null
+    benchmark: 302978
+  requires_orientation: false
+  official_datasets:
+  - IONet Vicon set (self-collected; precursor of OxIOD)
+  - OxIOD (DeepIO re-run)
+  status: spec-ready
+  pitfalls:
+  - No official code; published IONet numbers come from different re-implementations (RoNIN aligned rotation with ICP).
+  - Chaining of overlapping windows (window 200, stride 10) for Delta-psi integration is not specified.
+  - Official input is raw body-frame IMU; the IPB default adaptation switches to gravity_world input and absolute heading
+    (semantic change).
+  - Bidirectional readout must use h_n (fwd last + bwd last), not out[:, -1, :].
+  - kappa (loss weight) not given; AAAI (h=96, lr 1.5e-3) and OxIOD DeepIO (h=128, lr 1e-4) disagree.
+  notes: 'IPB: window=400 @200Hz with parameter-free AvgPool(2) -> 200 LSTM steps; stride=20; optional stateful ''official
+    protocol'' mode (body frame, delta polar, eval_stride=20) for replication only.'
+- name: ctin
+  display_name: CTIN
+  priority: paper-only
+  family: ctin
+  card: docs/algorithms/ctin.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'CTIN: Robust Contextual Transformer Network for Inertial Navigation'
+    venue: AAAI
+    year: 2022
+    url: https://arxiv.org/abs/2112.02143
+  repo:
+    url: https://github.com/bingrao/ctin
+    commit: 1441c726811ac87283903471562023fd429e3a08
+    license: MIT (LICENSE file; README badge says Apache-2.0) - placeholder repo, no source code
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: per_frame_velocity
+    dims: 2
+    uncertainty: logstd_diag
+  params:
+    official: 557100
+    benchmark: 477572
+  requires_orientation: true
+  official_datasets:
+  - RIDI
+  - OxIOD
+  - RoNIN
+  - IDOL
+  - CTIN
+  status: spec-partial
+  pitfalls:
+  - Official repo contains only README and LICENSE; all layer widths are assumptions, 0.5571M cannot be reproduced uniquely.
+  - Appendix says samples are rotated with the orientation at the beginning of the window, but loaders follow RoNIN (per-sample
+    rotation).
+  - Literal "linear followed by LayerNorm" head on a 2-D output collapses to +/-gamma+beta; LN must act on the hidden features.
+  - Masked decoder self-attention does not make the model causal (BiLSTM temporal embedding and full encoder memory).
+  - IDOL/CTIN results use ground-truth orientation at test time; not comparable with device-orientation results.
+  - No MSE->NLL stage switch in the paper; iMoT's re-run of CTIN added a velocity-only warm-up.
+  notes: Needs a per-frame velocity target view extension (target_seq) for IVL/CNL; window-level fallback loss is a declared
+    degradation.
+- name: imot
+  display_name: iMoT
+  priority: paper-only
+  family: imot
+  card: docs/algorithms/imot.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'iMoT: Inertial Motion Transformer for Inertial Navigation'
+    venue: AAAI
+    year: 2025
+    url: https://arxiv.org/abs/2412.12190
+  repo:
+    url: https://github.com/Minh-Son-Nguyen/iMoT
+    commit: 7f275702bd9b0dbdb60bb4d5dae802f8e9ab9dac
+    license: MIT (LICENSE file) - placeholder repo, no source code
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: null
+    frame: gravity_world
+    orientation: null
+    remove_gravity: false
+    channels: '[acc, gyro]'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 14490000
+    benchmark: 7137482
+  requires_orientation: true
+  official_datasets:
+  - RIDI
+  - RoNIN
+  - OxIOD
+  - IDOL
+  status: spec-partial
+  pitfalls:
+  - Official repo is a placeholder (README + LICENSE); derived spec reaches only ~49% of the reported 14.49M parameters.
+  - Dimension notation is inconsistent (E_A in R^{DxT} times MLP output in R^{3DxT}; Eq. 6 labelled SelfAttn but is cross-attention).
+  - How the progressive decoupler is re-applied in layers j>1 is unspecified (token count would grow 18->54).
+  - 8 attention heads are incompatible with T=100 (100 Hz datasets).
+  - Normalisation of the DSM score list is unspecified (softmax assumed).
+  - Input frame, velocity-segment definition and window stride are unspecified.
+  notes: 'Variate tokens (iTransformer-style): each IMU channel''s full 1 s series is one token of dimension T; channels reordered
+    internally to [acc, gyro].'
+- name: rio
+  display_name: RIO (J-ResNet + adaptive TTT)
+  priority: paper-only
+  family: ronin
+  card: docs/algorithms/rio.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'RIO: Rotation-Equivariance Supervised Learning of Robust Inertial Odometry'
+    venue: CVPR
+    year: 2022
+    url: https://arxiv.org/abs/2111.11676
+  repo:
+    url: null
+    commit: null
+    license: n/a (no public code; CVPR paper links a Huawei Cloud AI Gallery page, unverified)
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra:
+    - ordered_window_stream_for_ttt
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: null
+    benchmark: 4634882
+  requires_orientation: true
+  official_datasets:
+  - RoNIN
+  - OxIOD
+  - RIDI
+  - IPS
+  status: spec-ready
+  pitfalls:
+  - No public code; GroupNorm group count, TTT learning rate, epochs and stop-gradient are unspecified (card defaults are
+    assumptions).
+  - Algorithm 1 sums the velocity loss over x,y,z although the RoNIN backbone outputs 2-D velocity.
+  - Ground-truth formula P_i - P_{i-199} omits division by duration; text says average velocity.
+  - Ensemble variance definition ambiguous (per-component vs squared norm) changes the 0.04 / 1e-4 thresholds by a factor
+    of D.
+  - Test-time training is transductive and must be reported separately and reset per sequence.
+  notes: Backbone = RoNIN ResNet18 with all 21 BatchNorm1d replaced by GroupNorm; params equal ronin_resnet18 (4,634,882 measured
+    by instantiating official RoNIN ResNet1D with BN->GN). A-TTT uses a 3-model deep ensemble (3x params at test time).
+- name: ionext
+  display_name: IONext
+  priority: paper-only
+  family: ionext
+  card: docs/algorithms/ionext.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'IONext: Unlocking the Next Era of Inertial Odometry'
+    venue: arXiv preprint (under review)
+    year: 2025
+    url: https://arxiv.org/abs/2507.17089
+  repo:
+    url: null
+    commit: null
+    license: n/a (code promised after peer review; not released as of 2026-09-17)
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: null
+    frame: gravity_world
+    orientation: reference
+    remove_gravity: false
+    channels: '[acc, gyro] per paper wording (order irrelevant: full-channel stem conv)'
+    extra: []
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: null
+    benchmark: 10641506
+  requires_orientation: true
+  official_datasets:
+  - IMUNet
+  - RoNIN
+  - RIDI
+  - OxIOD
+  - RNIN
+  - TLIO
+  status: spec-partial
+  pitfalls:
+  - No code; v1 (DADM/STGU) and v2 (ADM/AGU) disagree on gating axis and per-wing BN; card follows v2 (only v2 gating matches
+    the reported 1.1e7 params).
+  - Stem/downsample normalisation, head, AGU value-branch kernel and softmax axis are unspecified; card fills them with marked
+    assumptions.
+  - Paper re-splits all datasets randomly 8:1:1 and reports length-normalised metrics x100; not comparable with IPB.
+  notes: 'Spec model: stem Conv(6,96,k4,s4)+BN, stages [2,2,6,2] x [96,192,384,768] ADE blocks (4.5C^2+35C params each), BN+Conv(k2,s2)
+    downsampling, BN+GAP+Linear head; 10,641,506 params (D=2) vs reported 1.1e7; 35.6M MACs at T=200 vs reported 7.3e7 FLOPs.'
+- name: pdr
+  display_name: PDR (step detection + Weinberg + device heading)
+  priority: baseline
+  family: baseline
+  card: docs/algorithms/pdr.md
+  fixture: null
+  fidelity: definition
+  paper:
+    title: Using the ADXL202 in Pedometer and Personal Navigation Applications (Analog Devices AN-602)
+    venue: Analog Devices Application Note
+    year: 2002
+    url: null
+  repo:
+    url: null
+    commit: null
+    license: n/a (IPB definition)
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: '[acc] (gyro unused except through attitude)'
+    extra:
+    - orientation_quaternion
+    - body_frame
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 0
+    benchmark: 0
+  requires_orientation: true
+  official_datasets: []
+  status: spec-ready
+  pitfalls:
+  - Sequence-level method (continuous filtering / peak detection); needs a predictor hook beyond forward(imu) plus per-sample
+    attitude.
+  - Device forward axis depends on body_frame; handheld/pocket placements break the constant heading-offset assumption.
+  notes: 'Defaults: |f|-g0, 4th-order Butterworth 3 Hz filtfilt, find_peaks(height=1.0, prominence=0.5, distance=0.3 s), swing
+    window 1 s, L=K*(amax-amin)^(1/4); calibrated scalars K (least squares on 10 s train segments) and heading offset delta
+    (circular mean on train windows). Report both orientation=device and reference.'
+- name: mean_speed_heading
+  display_name: Mean speed + heading (constant-speed baseline)
+  priority: baseline
+  family: baseline
+  card: docs/algorithms/mean_speed_heading.md
+  fixture: null
+  fidelity: definition
+  paper:
+    title: null
+    venue: null
+    year: null
+    url: null
+  repo:
+    url: null
+    commit: null
+    license: n/a (IPB definition)
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 10
+    frame: gravity_world
+    orientation: device
+    remove_gravity: false
+    channels: 'none (gated variant: [acc])'
+    extra:
+    - orientation_quaternion
+    - body_frame
+  output:
+    quantity: avg_velocity
+    dims: 2
+    uncertainty: none
+  params:
+    official: 0
+    benchmark: 0
+  requires_orientation: true
+  official_datasets: []
+  status: spec-ready
+  pitfalls:
+  - Shares heading definition and offset calibration with pdr; needs per-sample attitude input.
+  notes: v_k = s_bar * [cos psi_k, sin psi_k]; s_bar = mean ||avg_velocity|| over valid train windows; variants gated (acc-norm
+    std > 0.5 m/s^2), zero_velocity and train_mean_velocity (sanity only).
+excluded:
+- name: RepViT
+  reason: Vision backbone (mobile ViT-style CNN for images); no inertial odometry model, task or protocol to reproduce.
+- name: CPUBone
+  reason: Vision backbone optimised for CPU inference; not an inertial positioning method.
+- name: MoRPINet
+  reason: Targets wheeled / snake-like (serpentine) robot motion, not pedestrian inertial positioning; its motion model does
+    not transfer to IPB datasets.
+- name: TALOS-NIO
+  reason: No accompanying paper and no license; cannot be specified from a citable source or redistributed.
+- name: AI-IO
+  reason: Requires rotor speed / thrust (actuator) inputs that pedestrian datasets do not have.
+- name: IMO
+  reason: Requires rotor speed / thrust (actuator) inputs that pedestrian datasets do not have.
+- name: DIDO
+  reason: Requires rotor speed / thrust (actuator) inputs that pedestrian datasets do not have.
