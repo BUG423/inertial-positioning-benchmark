@@ -1,0 +1,10 @@
+# PedLocData
+name: pedlocdata
+path: pedlocdata
+splits:
+  train: train
+  val: val                  # 官方 valid 列表由转换器写为 val.txt
+  test: test
+test_splits: [test]
+notes: >-
+  约 200 Hz 行人数据；官方提供 train/valid/test 三个划分。

@@ -1,0 +1,10 @@
+# RNIN-VIO（Chen et al., ISMAR 2021）自采数据。https://zju3dv.github.io/rnin-vio/
+name: rnin
+path: rnin
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test]
+notes: >-
+  原生约 250 Hz，经多相滤波降到 200 Hz；时间戳非均匀；参考来源需区分 Vicon 与 VIO；使用官方目录划分。

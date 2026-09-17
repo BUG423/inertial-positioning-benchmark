@@ -1,0 +1,11 @@
+# IDOL（Sun et al., AAAI 2021）。https://zenodo.org/records/4484093
+name: idol
+path: idol
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test_known, test_unknown]
+notes: >-
+  原生 100 Hz；15 名用户、3 栋建筑；官方测试集分为已知/未知建筑两部分（若转换器未生成对应子集，
+  评测时跳过并告警）。参考来自 LiDAR-Visual-Inertial SLAM。

@@ -1,0 +1,39 @@
+# RoNIN ResNet18：1D ResNet 速度回归（Herath et al., "RoNIN: Robust Neural Inertial Navigation in
+# the Wild", ICRA 2020）。结构依据官方仓库 model_resnet1d.py / ronin_resnet.py 独立实现。
+name: ronin_resnet18
+arch: ronin_resnet
+paper: https://arxiv.org/abs/1905.12853
+code: https://github.com/Sachini/ronin
+license: GPL-3.0 (official code); this implementation is written from scratch
+commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+args:                      # 官方 get_model('resnet18')
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+input:                     # 官方协议：200 帧、全局系（重力对齐）IMU、2D 平均速度
+  window: 200
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+recipes:
+  official:                # ronin_resnet.py 默认参数
+    epochs: 10000          # 官方脚本默认值（依靠人工中断）；复现时请按需设置 epochs / patience
+    batch: 128
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9          # Adam beta1 = 0.9（PyTorch 默认）
+    weight_decay: 0.0
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=10)，以 val 损失为准
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 10
+    augment: [random_yaw, time_shift]   # RandomHoriRotate(2π) + random_shift = step_size // 2
+    fitness: loss          # 官方按 val 损失保存最优模型
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算

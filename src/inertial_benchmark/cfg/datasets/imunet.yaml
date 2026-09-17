@@ -1,0 +1,11 @@
+# IMUNet_dataset（Zeinali et al., IEEE TIM 2024）。
+name: imunet
+path: imunet
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test]
+notes: >-
+  约 200 Hz 手机数据，参考来自 ARCore/Tango；已知部分序列姿态旋转后重力不完全在 z 轴，
+  转换器必须通过重力检查或在报告中拒收。使用官方列表。

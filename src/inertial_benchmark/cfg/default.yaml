@@ -1,0 +1,70 @@
+# IPB 默认配置：全部超参数的唯一默认来源。
+# 合并顺序：本文件 < 模型 YAML 的 input < 模型 YAML 的 recipes[recipe] < 用户覆盖（CLI key=value / Python 关键字）。
+
+# ---------------------------------------------------------------- 任务
+mode: train            # train / val / predict / benchmark
+model: ronin_resnet18  # 模型名（cfg/models/<name>.yaml）、模型 YAML 或 checkpoint (.pt)
+model_args: {}         # 覆盖模型 YAML 中 args 的结构参数
+data:                  # 数据集名（cfg/datasets/<name>.yaml）、数据集 YAML 或已转换目录
+split: val             # val / predict 使用的划分（逻辑名或 splits/<file>.txt 的文件名）
+source:                # predict 的输入：序列 .h5 文件或目录
+recipe: unified        # 训练配方：official（论文/官方仓库）/ unified（benchmark 统一预算）
+pretrained:            # 仅加载模型权重的 checkpoint
+resume: false          # true（续训 <project>/train/<name>/weights/last.pt）或 last.pt 路径
+
+# ---------------------------------------------------------------- 训练
+epochs: 100
+batch: 128
+lr: 0.001
+optimizer: adamw       # sgd / adam / adamw
+momentum: 0.9          # sgd 动量；adam/adamw 的 beta1
+weight_decay: 0.0001
+scheduler: cosine      # none / cosine / step / plateau
+lr_final: 0.01         # cosine 调度的最终学习率 = lr × lr_final
+step_size: 30          # step 调度周期（epoch）
+gamma: 0.1             # step / plateau 的衰减系数
+plateau_patience: 10   # plateau 调度的耐心（验证次数）
+warmup_epochs: 0       # 线性预热轮数
+grad_clip: 0.0         # 梯度范数裁剪阈值，0 表示关闭
+loss:                  # 覆盖模型默认损失：mse / gaussian_nll / mse_then_nll
+loss_switch_epoch: 10  # mse_then_nll 从 MSE 切换到 NLL 的轮次
+patience: 30           # 早停：fitness 连续多少个 epoch 无改善即停止，0 表示关闭
+seed: 0
+deterministic: true
+device:                # 空 = 自动（优先 CUDA）；cpu / 0 / cuda:0
+workers: 4
+amp: true              # 自动混合精度，仅 CUDA 生效
+cache: true            # true 把序列载入内存；false 逐窗口读取 HDF5
+val_interval: 1        # 每多少个 epoch 验证一次（最后一轮总会验证）
+fitness: ate           # 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse …
+save_period: 0         # 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭
+val_batch: 512         # 推理批大小
+
+# ---------------------------------------------------------------- 任务视图（DESIGN 第 3 节）
+window: 200            # 窗口样本数（200 Hz）
+stride: 10             # 训练滑窗步长
+eval_stride: 10        # 验证/推理步长
+frame: gravity_world   # gravity_world / body / gravity_yaw_local
+orientation: reference # reference / device
+remove_gravity: false
+target: avg_velocity   # avg_velocity / displacement / velocity_at_end
+dims: 2                # 2（水平）/ 3
+augment: [random_yaw, time_shift]
+rate: 200.0            # 统一采样率（Hz），与 IPB v1 数据一致
+
+# ---------------------------------------------------------------- 评测（DESIGN 第 5–6 节）
+metric_dims: 2         # 轨迹与速度指标使用的维度
+rte_delta: 60.0        # RTE 的时间窗（秒）
+t_rte: [1.0, 10.0]     # T-RTE 的时间窗（秒）
+d_rte: [10.0]          # D-RTE 的距离（米）
+min_speed: 0.2         # 方向误差与沿/横向误差的速度阈值（m/s）
+save_predictions: true # 保存 predictions/<seq>.npz
+plots: true
+max_plots: 12          # 最多绘制的单序列轨迹图数量
+efficiency: true       # 记录参数量 / FLOPs / 单窗口延迟
+
+# ---------------------------------------------------------------- 输出
+project: runs          # 输出根目录：<project>/<mode>/<name>/
+name:                  # 运行名，缺省 exp，已存在时自动递增
+exist_ok: false
+verbose: true

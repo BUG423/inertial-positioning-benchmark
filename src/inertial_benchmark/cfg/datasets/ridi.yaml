@@ -1,0 +1,11 @@
+# RIDI（Yan et al., ECCV 2018）。https://yanhangpublic.github.io/ridi/
+name: ridi
+path: ridi
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test]
+notes: >-
+  约 150 分钟、200 Hz；手持/口袋/包/身体等携带方式；参考来自 Google Tango VIO，不等同于动捕真值。
+  官方只给出 train/test 发布列表，val 由转换流水线按 group_id 抽取。

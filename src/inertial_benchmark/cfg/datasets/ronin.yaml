@@ -1,0 +1,11 @@
+# RoNIN（Herath et al., ICRA 2020）公开子集（约 50%）。https://ronin.cs.sfu.ca/
+name: ronin
+path: ronin                 # 相对 IPB_DATASETS
+splits:                     # 逻辑划分 → splits/<file>.txt
+  train: train
+  val: val
+  test: test                # test = test_seen ∪ test_unseen
+test_splits: [test_seen, test_unseen]
+notes: >-
+  官方只公开约一半数据，不能与原论文全量结果直接对比；参考轨迹来自胸前固定的 Tango 手机（VIO），
+  IMU 来自任意携带的另一部手机。官方 seen/unseen 测试列表按受试者划分。

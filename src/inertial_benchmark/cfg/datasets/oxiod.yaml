@@ -1,0 +1,11 @@
+# OxIOD（Chen et al., 2018）。https://deepio.cs.ox.ac.uk/
+name: oxiod
+path: oxiod
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test]
+notes: >-
+  原生 100 Hz，统一上采样到 200 Hz（source_sample_rate_hz 记录原频率）；多数序列为 Vicon 动捕真值，
+  长距离序列来源不同，以逐序列 position_source 为准。官方 Train/Test 按场景给出。

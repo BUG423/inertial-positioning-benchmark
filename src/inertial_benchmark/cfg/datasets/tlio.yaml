@@ -1,0 +1,10 @@
+# TLIO 数据集（Liu et al., RA-L 2020），EqNIO 仓库提供的 golden 版本。
+name: tlio
+path: tlio
+splits:
+  train: train
+  val: val
+  test: test
+test_splits: [test]
+notes: >-
+  头戴设备、200 Hz；参考轨迹来自离线 VIO/EKF。使用官方 train/val/test 列表。
