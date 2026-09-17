@@ -347,6 +347,28 @@ def test_bias_shift_and_gravity_perturb(seq):
     _, augs = build_augmentations(["gravity_perturb"], frame="body")
     assert augs == []
 
+    # 历史子窗口布局 (H, 6, T)：两者都作用于整个输入跨度，所有子窗口共用同一次抽样
+    hist = SequenceView(seq, ViewConfig(dims=3, frame="gravity_yaw_local", history=3,
+                                        history_stride=50))
+    base_h = hist.imu_windows(np.array([300]))[0]
+    assert base_h.shape == (3, 6, 200)
+    sample = {"imu": base_h.copy(), "target": target.copy()}
+    BiasShift(gyro=0.05, acc=0.2)(sample, np.random.default_rng(3))
+    diff_h = sample["imu"] - base_h
+    np.testing.assert_allclose(diff_h[0], diff_h[2], atol=1e-6)
+    np.testing.assert_allclose(diff_h[0][:, 0], diff[:, 0], atol=1e-6)  # 同一随机流
+    sample = {"imu": base_h.copy(), "target": target.copy()}
+    GravityPerturb(max_deg=5.0)(sample, np.random.default_rng(4))
+    np.testing.assert_array_equal(sample["target"], target)
+    for h in range(3):
+        for sl in (slice(0, 3), slice(3, 6)):
+            np.testing.assert_allclose(np.linalg.norm(sample["imu"][h, sl], axis=0),
+                                       np.linalg.norm(base_h[h, sl], axis=0), rtol=1e-5)
+    # 与无历史时同一旋转：重叠部分逐样本一致
+    single = {"imu": base_h[2].copy(), "target": target.copy()}
+    GravityPerturb(max_deg=5.0)(single, np.random.default_rng(4))
+    np.testing.assert_allclose(sample["imu"][2], single["imu"], atol=1e-6)
+
 
 def test_time_shift_range():
     assert TimeShift().resolve_range(10) == (-5, 5)
