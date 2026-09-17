@@ -55,20 +55,30 @@
 `nio_lie_events_ronin` 与 `nio_lie_events_tlio` 共用一张卡 [`nio_lie_events.md`](algorithms/nio_lie_events.md)：两者的事件生成完全相同，只是骨干不同；夹具仍按注册名分开。
 IMUNet 的四个变体指仓库中的一维 MobileNet / MobileNetV2 / MnasNet / EfficientNetB0 实现，并非标准视觉版本（差异见各卡 §10）。
 
-## 3. 需要在 DESIGN 中决定的协议扩展
+## 3. 协议扩展（状态）
 
-DESIGN §3/§4 目前规定模型只接收 `(B, 6, T)`，并返回窗口级 `vel`。下列算法要做到忠实复现，还需要以下扩展。在扩展落地前，
-对应卡片都给出了降级方案，并要求在结果中标注。
+DESIGN §3/§4 原本规定模型只接收 `(B, 6, T)` 并返回窗口级 `vel`。下列扩展已在 DESIGN §3/§4/§5 中落地
+（**已落地**一列给出配置键与文档位置）；尚未落地的扩展，对应卡片仍给出降级方案，并要求在结果中标注。
 
-| 扩展 | 用途 | 涉及算法 |
-|---|---|---|
-| 逐帧辅助目标 `aux_target=frame_velocity`，形状 `(B,T,D)` | seq2seq 专用损失（RoNIN 的 latent velocity loss、CTIN 的 IVL/CNL、AirIO 的逐帧机体系速度） | `ronin_lstm`、`ronin_tcn`、`ctin`、`airio`、`pedestrian_diffusion` |
-| 历史上下文 `history`：模型输入 `window + history` 个样本，速度时间戳仍取最后 `window` 的中心 | 多窗口序列输入（10 个 1 s 子窗） | `rnin`（`history=1800`）、`tartanimu`（方案 A） |
-| 额外输入 `extra_inputs`：逐样本姿态、窗口末姿态、初始速度 v0、时间戳、`body_frame` | 输入不能只由 `[gyro, acc]` 构造 | `dive`、`airio`、`nio_lie_events_*`、`pdr`、`mean_speed_heading` |
-| 序列级 / 有状态预测器钩子（`forward_sequence` 或逐窗口传递状态） | 整序列流式推理、上一窗口预测作为下一窗口输入、测试时训练 | `ronin_lstm@stream`、`ronin_tcn@stream`、`nio_lie_events_ronin`、`ionet`（官方协议模式）、`rio`（A-TTT）、`pdr` |
-| 训练姿态回退 `orientation_fallback`（设备姿态末端对齐误差 > 20° 时改用参考姿态） | RoNIN 系官方训练姿态规则 | `ronin_*`、`eqnio_ronin`、`nio_lie_events_ronin` |
-| 窗口速度上限过滤（例如 3 m/s、4 m/s） | 官方训练样本筛选 | `ronin_lstm`、`ronin_tcn`、`rnin` |
-| `dims=3` 与 `gravity_yaw_local` 的锚点 | TLIO 系官方以**窗口起点**偏航建局部系，IPB 以末端建系；非等变骨干在偏航增强下近似等价 | `tlio`、`llio`、`eqnio_tlio`（严格等变，可直接用 `gravity_world`）、`nio_lie_events_tlio`、`dive` |
+| 扩展 | 用途 | 涉及算法 | 状态 |
+|---|---|---|---|
+| 逐帧目标 `target=frame_velocity`，输出布局 `(B,T,D)` | seq2seq 专用损失（RoNIN 的 latent velocity loss、CTIN 的 IVL/CNL、AirIO 的逐帧机体系速度） | `ronin_lstm`、`ronin_tcn`、`ctin`、`airio`、`pedestrian_diffusion` | **已落地**：DESIGN §3.1；`target=frame_velocity`，损失按 `mask` 跳过无效帧 |
+| 多步目标 `target=multi_displacement` + `output_steps`，输出布局 `(B,H,D)` | 一次预测多步位移（RNIN 的 10 步） | `rnin` | **已落地**：DESIGN §3.1；窗口等分为 `output_steps` 段，各段按自己的跨度换算速度 |
+| 重叠预测合并 `overlap` | 逐帧/多步输出在滑窗下重叠，需要确定的合并规则 | 同上 | **已落地**：DESIGN §5 第 1 条；`overlap=mean`（默认）/ `center` |
+| 历史上下文 `history` / `history_stride`：输入 `(B,H_in,6,T)` | 多窗口序列输入（10 个 1 s 子窗） | `rnin`（`history=10, history_stride=100`）、`tartanimu`（方案 A） | **已落地**：DESIGN §3.2；有效性按整个输入跨度判断 |
+| 额外输入 `extra_inputs`：逐样本姿态、重力、初始速度 v0 | 输入不能只由 `[gyro, acc]` 构造 | `dive`、`airio`、`nio_lie_events_*`、`pdr`、`mean_speed_heading` | **已落地**：DESIGN §3.3；`orientation` / `gravity` / `init_velocity`（**特权输入**，结果中标记并单列） |
+| 序列级 / 有状态预测器钩子 | 整序列流式推理、上一窗口预测作为下一窗口输入、测试时训练 | `ronin_lstm@stream`、`ronin_tcn@stream`、`nio_lie_events_ronin`、`ionet`（官方协议模式）、`rio`（A-TTT）、`pdr` | **已落地**：DESIGN §4 的 `SequenceModel.predict_sequence(seq, view, starts)` 与 `calibrate(views, split)` |
+| 时间戳 / `body_frame` 等序列级元信息 | PDR 的前向轴查表 | `pdr`、`mean_speed_heading` | **已落地**：序列级模型直接拿到 `Sequence` 与 `SequenceView`（含 `attrs`） |
+| 训练姿态回退 `orientation_fallback`（设备姿态末端对齐误差 > 20° 时改用参考姿态） | RoNIN 系官方训练姿态规则 | `ronin_*`、`eqnio_ronin`、`nio_lie_events_ronin` | 未落地（卡片给降级方案） |
+| 窗口速度上限过滤（例如 3 m/s、4 m/s） | 官方训练样本筛选 | `ronin_lstm`、`ronin_tcn`、`rnin` | 未落地（卡片给降级方案） |
+| `dims=3` 与 `gravity_yaw_local` 的锚点 | TLIO 系官方以**窗口起点**偏航建局部系，IPB 以末端建系；非等变骨干在偏航增强下近似等价 | `tlio`、`llio`、`eqnio_tlio`（严格等变，可直接用 `gravity_world`）、`nio_lie_events_tlio`、`dive` | 未落地（仍用末端锚点；航向定义见 DESIGN §3） |
+
+两个经典基线已实现并注册：[`pdr`](algorithms/pdr.md)（`cfg/models/pdr.yaml`，
+`src/inertial_benchmark/models/pdr/`）与 [`mean_speed_heading`](algorithms/mean_speed_heading.md)
+（`cfg/models/mean_speed_heading.yaml`，`src/inertial_benchmark/models/mean_speed_heading/`）。
+两者都是 `SequenceModel`，标定标量（`pdr` 的 `K`、`δ`；`mean_speed_heading` 的 `s̄`、`s̄_move`、`v̄`、`δ`）
+只在 train 划分上拟合（传入其他划分直接报错），并随 checkpoint 与 `metrics.json` 的 `calibration` 一起发布。
+测试见 `tests/test_baselines.py`（合成走路信号上的步数、振幅、距离误差、航向约定与标定恢复）。
 
 ## 4. 跨算法的官方实现问题（摘要）
 

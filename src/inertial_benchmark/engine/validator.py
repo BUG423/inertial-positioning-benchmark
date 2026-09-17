@@ -66,7 +66,8 @@ class Validator:
         model_cfg = getattr(predictor.model, "model_cfg", {}) or {}
         return RunResult(results, dataset=dataset, split=split,
                          model=str(model_cfg.get("name", self.args.model)),
-                         cfg=self.args.to_dict() if hasattr(self.args, "to_dict") else {})
+                         cfg=self.args.to_dict() if hasattr(self.args, "to_dict") else {},
+                         calibration=dict(model_cfg.get("calibration") or {}))
 
     def __call__(self, model: Optional[torch.nn.Module] = None, sources: Optional[list] = None,
                  device: Optional[torch.device] = None, epoch: int = 0,

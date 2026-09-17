@@ -86,6 +86,9 @@ def build_optimizer(model: nn.Module, name: str, lr: float, momentum: float = 0.
     for p in model.parameters():
         if p.requires_grad:
             (decay if p.ndim > 1 else no_decay).append(p)
+    if not decay and not no_decay:
+        # 没有可训练参数（例如只做标定的序列级模型）：torch 不接受空参数列表，放一个占位参数
+        no_decay = [nn.Parameter(torch.zeros(1))]
     groups = [{"params": decay, "weight_decay": weight_decay},
               {"params": no_decay, "weight_decay": 0.0}]
     name = name.lower()

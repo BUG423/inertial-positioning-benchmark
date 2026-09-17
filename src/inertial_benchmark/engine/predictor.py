@@ -206,7 +206,7 @@ class Predictor:
         """
         starts = view.starts(int(self.args.eval_stride), require_valid=False)
         grid = view.target_times(starts)
-        result = self.model.predict_sequence(view.seq, view)
+        result = self.model.predict_sequence(view.seq, view, starts)
         times, velocities = result[0], result[1]
         outputs = dict(result[2]) if len(result) > 2 and result[2] else {}
         times = np.asarray(times, dtype=np.float64)

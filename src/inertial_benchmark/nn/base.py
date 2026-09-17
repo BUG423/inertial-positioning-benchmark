@@ -123,11 +123,12 @@ class SequenceModel(BaseModel):
     这类方法不能逐窗口独立运行（需要跨窗口的连续滤波、状态或整段标定），因此不实现
     ``forward``，而是实现 :meth:`predict_sequence`：
 
-    ``predict_sequence(seq, view) -> (times, velocities[, extras])``
+    ``predict_sequence(seq, view, starts) -> (times, velocities[, extras])``
 
+    * ``starts``：Predictor 给出的窗口起点（由 ``eval_stride`` 决定），模型据此汇总到同一网格；
     * ``times``：``(K,)`` 秒，**必须**落在视图的窗口网格上，即
-      ``view.target_times(view.starts(eval_stride, require_valid=False))``；这样它们与逐窗口
-      模型共用同一套轨迹重建（DESIGN 第 5 节）与同一套指标；
+      ``view.target_times(starts)``；这样它们与逐窗口模型共用同一套轨迹重建
+      （DESIGN 第 5 节）与同一套指标；
     * ``velocities``：``(K, dims)``，**视图坐标系**中的窗口速度（与 ``target`` 同一约定，
       由 Predictor 调用 ``view.to_world_velocity`` 转到世界系）；
     * ``extras``：可选的 ``{名称: (K, ...)}``，按逐窗口输出保存到预测文件。
@@ -140,9 +141,13 @@ class SequenceModel(BaseModel):
         raise NotImplementedError(
             f"{type(self).__name__} is a SequenceModel: use predict_sequence(seq, view)")
 
-    def predict_sequence(self, seq: Any, view: Any) -> tuple:  # pragma: no cover - 抽象方法
+    def predict_sequence(self, seq: Any, view: Any,
+                         starts: Any) -> tuple:  # pragma: no cover - 抽象方法
         raise NotImplementedError
 
-    def calibrate(self, views: Any) -> dict:
-        """在 train 划分上拟合标定标量，返回写入结果的标定信息（缺省无需标定）。"""
+    def calibrate(self, views: Any, split: str = "train") -> dict:
+        """在 train 划分上拟合标定标量，返回写入结果的标定信息（缺省无需标定）。
+
+        ``split`` 由 Trainer 显式传入，实现应在收到 ``train`` 以外的划分时报错（防止泄漏）。
+        """
         return {}

@@ -79,6 +79,7 @@ class Trainer:
         self.epoch = 0
         self.start_epoch = 0
         self.model = None
+        self.sequence_model = False
         self.stopper = EarlyStopping(int(self.args.patience))
 
     # ------------------------------------------------------------------ 准备
@@ -125,6 +126,7 @@ class Trainer:
                           for k in range(len(self.val_set.sequence_ids))]
 
         self.model = load_model(a, self.device)
+        self.sequence_model = isinstance(de_parallel(self.model), SequenceModel)
         info = model_info(self.model, self.model.input_spec.window, flops=False)
         LOGGER.info(f"model {self.model.model_cfg.get('name')} "
                     f"({type(self.model).__name__}): {info['parameters']:,} parameters, "
@@ -233,7 +235,7 @@ class Trainer:
             return {"train/loss": math.nan}
         views = [self.train_set.sequence_view(k)
                  for k in range(len(self.train_set.sequence_ids))]
-        stats = model.calibrate(views) or {}
+        stats = model.calibrate(views, split="train") or {}
         model.model_cfg["calibration"] = to_builtin(stats)
         LOGGER.info(f"calibrate: {model.model_cfg.get('name')} on {self.spec.name}/train "
                     f"({len(views)} sequences): {stats}")
@@ -266,6 +268,10 @@ class Trainer:
             raise
         a = self.args
         epochs = int(a.epochs)
+        if self.sequence_model:
+            # 序列级模型没有梯度训练：只在 train 划分上标定一次，再走同一套验证与结果写出
+            epochs = self.start_epoch + 1
+            LOGGER.info("sequence model: calibrating once instead of running gradient epochs")
         LOGGER.info(f"train: {self.spec.name}, {len(self.train_set)} windows, "
                     f"{len(self.val_views)} val sequences, epochs {self.start_epoch}->{epochs}, "
                     f"save_dir={self.save_dir}")
@@ -282,7 +288,7 @@ class Trainer:
                 run_callbacks(self.callbacks, "on_train_epoch_end", self)
                 is_plateau = isinstance(self.scheduler,
                                         torch.optim.lr_scheduler.ReduceLROnPlateau)
-                if not is_plateau:
+                if not is_plateau and not self.sequence_model:
                     self.scheduler.step()
                 last_epoch = epoch == epochs - 1
                 improved = False

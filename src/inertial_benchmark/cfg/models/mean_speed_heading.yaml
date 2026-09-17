@@ -1,0 +1,30 @@
+# 常速 + 航向基线：速度大小取训练集平均速率，方向取设备（或参考）姿态的航向。
+# 规格卡 docs/algorithms/mean_speed_heading.md 即定义；没有可学习参数，只在 train 划分上标定。
+name: mean_speed_heading
+arch: mean_speed_heading
+paper: none (IPB definition, see docs/algorithms/mean_speed_heading.md)
+code: none
+license: not applicable (IPB's own definition)
+args:
+  variant: constant        # constant / gated / zero_velocity / train_mean_velocity
+  motion_threshold: 0.5    # gated 变体的 σ_th（m/s²，固定经验值）
+  horizontal_min: 0.2
+  calibrate_delta: true
+  delta_stride: 10
+  min_speed: 0.5
+input:
+  window: 200
+  frame: gravity_world
+  orientation: device      # 建议同时报告 orientation=reference
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+recipes:
+  official:
+    epochs: 1
+    patience: 0
+    fitness: ate
+  unified:
+    epochs: 1              # 只标定一次
+    patience: 0
+    fitness: ate

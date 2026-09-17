@@ -187,6 +187,8 @@ class RunResult:
     cfg: dict = field(default_factory=dict)
     efficiency: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
+    # 序列级/标定型模型在 train 划分上拟合的标定量（随结果一起发布）
+    calibration: dict = field(default_factory=dict)
     save_dir: Optional[Path] = None
 
     def __len__(self) -> int:
@@ -255,6 +257,7 @@ class RunResult:
             "std": agg["std"],
             "count": agg["count"],
             "efficiency": self.efficiency,
+            "calibration": self.calibration,
         }
 
     def summary(self, keys: Iterable[str] = MAIN_METRICS) -> str:

@@ -475,12 +475,11 @@ def test_sequence_model_uses_the_same_trajectory_pipeline():
             self.gain = torch.nn.Parameter(torch.ones(1))
             self.calibrated = 0
 
-        def calibrate(self, views):
+        def calibrate(self, views, split="train"):
             self.calibrated = len(views)
             return {"scale": 1.0, "sequences": len(views)}
 
-        def predict_sequence(self, seq, view):
-            starts = view.starts(10, require_valid=False)
+        def predict_sequence(self, seq, view, starts):
             return view.target_times(starts), view.targets(starts), {"note": np.zeros(len(starts))}
 
     try:
@@ -494,7 +493,7 @@ def test_sequence_model_uses_the_same_trajectory_pipeline():
         assert res.outputs["note"].shape == res.starts.shape
         # 时间戳必须落在窗口网格上
         model = Predictor(cfg).model
-        model.predict_sequence = lambda seq, view: (np.array([0.0]), np.zeros((1, 3)))
+        model.predict_sequence = lambda seq, view, starts: (np.array([0.0]), np.zeros((1, 3)))
         with pytest.raises(ValueError, match="window grid"):
             Predictor(cfg, model=model).predict_sequence(seq)
     finally:

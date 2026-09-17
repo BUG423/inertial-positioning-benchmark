@@ -1,0 +1,37 @@
+# PDR 基线：步检测 + Weinberg 步长 + 设备航向。规格卡 docs/algorithms/pdr.md 即定义
+# （经典公知方法，非某个官方仓库的复现）。没有可学习参数，只在 train 划分上拟合 K 与 δ。
+name: pdr
+arch: pdr
+paper: https://www.analog.com/media/en/technical-documentation/application-notes/513772624AN602.pdf
+code: none (IPB definition, see docs/algorithms/pdr.md)
+license: not applicable (classic method, IPB's own definition)
+args:                      # 第 4 节的默认参数，除 K、δ 外全部固定
+  signal: norm             # norm（世界系比力模长 − g₀）/ vertical
+  cutoff_hz: 3.0
+  order: 4
+  causal: false            # 零相位 filtfilt（离线评测允许非因果）
+  min_height: 1.0          # 峰值高度阈值（m/s²）
+  min_prominence: 0.5
+  min_interval_s: 0.3      # 最小步间隔（步频上限 3.33 Hz）
+  amp_window_s: 1.0        # 振幅统计窗 W
+  horizontal_min: 0.2      # 前向轴水平投影阈值，低于时换备用轴
+  calibrate_delta: true
+  segment_s: 10.0          # K 标定的分段长度
+  delta_stride: 10         # δ 标定使用的窗口步长（与训练视图一致）
+  min_speed: 0.5           # δ 标定只用真值速度超过该值的窗口
+input:                     # 与被比较模型相同的窗口网格；航向来自视图的 orientation
+  window: 200
+  frame: gravity_world
+  orientation: device      # 建议同时报告 orientation=reference（“理想姿态 PDR”）
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+recipes:
+  official:                # 没有官方实现；配方等同于统一预算（只做一次标定）
+    epochs: 1
+    patience: 0
+    fitness: ate
+  unified:
+    epochs: 1              # 序列级模型没有梯度训练：只在 train 划分上标定一次
+    patience: 0
+    fitness: ate
