@@ -287,12 +287,13 @@ def save_sequence(
     path: PathLike,
     seq: Sequence,
     *,
-    compression: str = "lzf",
+    compression: str = "gzip",
     check: bool = True,
 ) -> Path:
     """写出 v1 HDF5（先写临时文件再原子替换）。
 
-    ``compression`` 取 ``lzf`` / ``gzip`` / ``none``；
+    ``compression`` 取 ``gzip``（默认，字节级可复现）/ ``lzf`` / ``none``。注意 h5py 自带的
+    LZF 不初始化哈希表，相同数据两次写出的字节可能不同，会破坏基于 sha256 的数据集指纹。
     ``check=True`` 时先做结构校验（不含重力检查）。
     """
     if check:

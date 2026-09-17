@@ -10,7 +10,6 @@ from pathlib import Path
 
 from inertial_benchmark import CanonicalSequence
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER_PATH = ROOT / "tools/inertial-positioning-lab/tools/convert_dataset.py"
 SPEC = importlib.util.spec_from_file_location("inertial_lab_converter", CONVERTER_PATH)

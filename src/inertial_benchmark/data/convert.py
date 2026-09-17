@@ -187,7 +187,7 @@ def convert_dataset(
     converter: Union[str, Path, ModuleType, None] = None,
     rate: float = DEFAULT_RATE,
     gap_threshold: float = DEFAULT_GAP_THRESHOLD,
-    compression: str = "lzf",
+    compression: str = "gzip",
     min_duration: float = 2.0,
     val_fraction: float = 0.1,
     seed: int = 0,
