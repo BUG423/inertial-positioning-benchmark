@@ -3,7 +3,9 @@
 输入通道顺序固定为 ``[gyro_xyz, acc_xyz]``，窗口形状 ``(6, T)``；目标与输入处于同一坐标系：
 
 * ``gravity_world``：用姿态把 IMU 旋到重力对齐世界系，目标为世界系向量；
-* ``gravity_yaw_local``：在上面的基础上再按窗口末端偏航 ``ψ_e`` 旋转 ``Rz(-ψ_e)``；
+* ``gravity_yaw_local``：在上面的基础上再按窗口末端航向 ``ψ_e`` 旋转 ``Rz(-ψ_e)``；
+  ``ψ_e`` 用 :func:`~inertial_benchmark.utils.geometry.heading_from_quat`（绕世界 z 轴的扭转分量）
+  计算，在任意姿态下连续（机体 x 轴接近竖直时不会像 ZYX 偏航那样跳 180°）；
 * ``body``：IMU 保持机体系，目标用窗口末端姿态旋到机体系（要求 ``dims=3``）。
 """
 
@@ -16,13 +18,13 @@ import numpy as np
 
 from ..utils.geometry import (
     GRAVITY,
+    heading_from_quat,
     quat_conjugate,
     quat_from_yaw,
     quat_multiply,
     quat_normalize,
     quat_rotate,
     rotate_z,
-    yaw_from_quat,
 )
 from .format import Sequence
 
@@ -87,10 +89,10 @@ class ViewConfig:
 
 
 def yaw_offset(q_ref: np.ndarray, q_dev: np.ndarray) -> float:
-    """``R_off = R_ref · R_dev^T`` 的偏航分量：设备世界系 → 参考世界系。"""
+    """``R_off = R_ref · R_dev^T`` 的航向分量：设备世界系 → 参考世界系。"""
     q_ref = np.asarray(q_ref, dtype=np.float64)
     q_dev = np.asarray(q_dev, dtype=np.float64)
-    return float(yaw_from_quat(quat_multiply(q_ref, quat_conjugate(q_dev))))
+    return float(heading_from_quat(quat_multiply(q_ref, quat_conjugate(q_dev))))
 
 
 def first_valid_index(valid: np.ndarray) -> int:
@@ -187,7 +189,7 @@ class SequenceView:
         self.yaw_offset = device_yaw_offset(seq) if cfg.orientation == "device" else None
         self.q = input_orientation(seq, cfg, self.yaw_offset)
         self.imu = frame_imu(seq.gyroscope, seq.accelerometer, self.q, cfg).astype(np.float32)
-        self.yaw = yaw_from_quat(self.q) if cfg.frame == "gravity_yaw_local" else None
+        self.yaw = heading_from_quat(self.q) if cfg.frame == "gravity_yaw_local" else None
         self.valid = seq.valid_imu & seq.valid_pose
 
     def __len__(self) -> int:
@@ -282,7 +284,7 @@ def read_window(handle: Any, start: int, cfg: ViewConfig, yaw_offset: Optional[f
         q_dev = handle["imu/orientation"][s:s + t].astype(np.float64)
         q = quat_normalize(quat_multiply(quat_from_yaw(yaw_offset), q_dev))
     imu = frame_imu(gyro, acc, q, cfg).astype(np.float32)
-    yaw_end = float(yaw_from_quat(q[-1])) if cfg.frame == "gravity_yaw_local" else 0.0
+    yaw_end = float(heading_from_quat(q[-1])) if cfg.frame == "gravity_yaw_local" else 0.0
     if cfg.frame == "gravity_yaw_local":
         imu = np.concatenate([rotate_z(imu[:, :3], -yaw_end), rotate_z(imu[:, 3:], -yaw_end)], 1)
 

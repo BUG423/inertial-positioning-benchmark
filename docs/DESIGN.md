@@ -176,7 +176,7 @@ runs/<mode>/<name>/
 | `window` | 窗口样本数（200 Hz 下） | 200 |
 | `stride` | 训练滑窗步长（样本） | 10 |
 | `eval_stride` | 推理步长（样本） | 10 |
-| `frame` | `gravity_world`（用姿态旋转到重力对齐世界系）/ `body` / `gravity_yaw_local`（按窗口末端偏航去除后的重力对齐系） | `gravity_world` |
+| `frame` | `gravity_world`（用姿态旋转到重力对齐世界系）/ `body` / `gravity_yaw_local`（按窗口末端航向去除后的重力对齐系） | `gravity_world` |
 | `orientation` | `reference` / `device`（输入旋转使用哪个姿态） | `reference` |
 | `remove_gravity` | bool | false |
 | `target` | `avg_velocity`（窗口首末位移/时长）/ `displacement` / `velocity_at_end` | `avg_velocity` |
@@ -188,7 +188,15 @@ runs/<mode>/<name>/
 
 补充约定（实现时澄清）：
 
-- **目标与输入同一坐标系**：`gravity_world` 下目标是参考世界系速度；`gravity_yaw_local` 下目标同样按窗口末端偏航旋转；
+- **航向定义（`heading_from_quat`）**：所有“偏航/航向”一律取**绕世界 z 轴的扭转分量**，
+  即把姿态分解为 `q = q_z(ψ) ⊗ q_tilt`（`q_tilt` 的旋转轴水平，为 body-z 与世界 z 之间的最小旋转），
+  闭式解 `ψ = 2·atan2(q_z, q_w)`；它与“取最水平的机体轴求方位角、再减去该轴在纯倾斜帧中的方位角”等价。
+  该定义偏航等变（`q_z(α) ⊗ q` 使 `ψ` 加 `α`）、在 |pitch| → 90° 附近连续，roll = 0 时与 ZYX 偏航逐位相同，
+  一般姿态下与 ZYX 偏航相差约 `pitch·roll/2`。**不使用 ZYX 偏航**：它等于机体 x 轴水平投影的方位角，
+  机体 x 轴接近竖直时跳变 180°（pitch 80° → 100° 时从 28.6° 跳到 −151.4°），会把姿态噪声放大成协议噪声。
+  唯一奇点是姿态完全倒置（机体 z 轴竖直向下、倾斜角 = 180°），此时 `w² + z² = 0`，约定取 `ψ = 0`；
+  等变的航向定义必然存在奇点（S² 上非平凡 S¹ 主丛没有全局截面），把奇点放在“完全倒置”比放在“x 轴竖直”合理。
+- **目标与输入同一坐标系**：`gravity_world` 下目标是参考世界系速度；`gravity_yaw_local` 下目标同样按窗口末端航向旋转；
   `body` 下目标用窗口末端姿态旋到机体系，因而**必须 `dims=3`**（机体系没有“水平面”）。推理时用同一姿态把预测旋回世界系。
 - 窗口 `[s, s+T)` 的 `avg_velocity = (p[s+T−1] − p[s]) / ((T−1)·dt)`，`displacement` 为同一差分，`velocity_at_end`
   为窗口末端速度（有 `pose/velocity` 时直接取，否则用末端前后各一个样本的中心差分）。
