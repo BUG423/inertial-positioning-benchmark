@@ -1,0 +1,41 @@
+# IMUNet-MobileNet：IMUNet 仓库中的一维 MobileNetV1 基线（对比基线，出自 IMUNet, IEEE TIM
+# 2024；原始骨干 Howard et al., arXiv:1704.04861）。依据 docs/algorithms/imunet_mobilenet.md
+# 规格卡独立实现（洁净室）。许可风险：官方仓库无 LICENSE，不得复制代码或分发权重。
+name: imunet_mobilenet
+arch: imunet_mobilenet
+paper: https://arxiv.org/abs/2208.00068
+code: https://github.com/BehnamZeinali/IMUNet
+license: none (no LICENSE in the official repo); this implementation is written from the spec card
+commit: c57f14d0f4f5bbb8e29d836dabacc8718ca825e1
+fidelity: official-code
+args:                      # main.py 第 49–50 行：MobileNet(channels=[...], width_multiplier=1)
+  channels: [32, 64, 128, 256, 512, 1024]
+  width_multiplier: 1.0
+  kernel_size: 3
+input:                     # 全局池化头，结构上可接受任意窗口；官方只用 200
+  window: 200
+  frame: gravity_world
+  orientation: reference   # 官方用设备姿态（game RV）；复现官方测试时设 orientation=device
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+recipes:
+  official:                # 与 imunet.yaml 完全相同（同一训练脚本 RONIN_torch/main.py）
+    epochs: 300
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=10, eps=1e-12) on val MSE
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 10
+    eval_stride: 10
+    amp: false
+    augment: [random_yaw, time_shift]   # RandomHoriRotate(2π) + ±5 样本随机平移
+    fitness: loss          # 官方按最低验证 MSE 保存 checkpoint_best.pt
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算
