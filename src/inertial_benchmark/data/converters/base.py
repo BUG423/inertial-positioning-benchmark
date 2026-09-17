@@ -15,6 +15,17 @@
     逐条产出原生时钟上的数据；``only`` 非空时只解析这些 ``sequence_id``。
     无法解析的序列应产出 ``RawSequence`` 并在 ``rejected`` 中写明原因，而不是静默跳过。
 
+可选成员（统一流水线 ``data/convert.py`` 会使用）：
+
+``list_sequences(source: Path) -> list[str]``
+    全部可转换的 ``sequence_id``。多进程转换（``workers > 1``）时用它枚举序列；
+    未提供时使用 ``official_splits`` 的并集，不在任何官方划分中的序列将不会被转换。
+
+属性约定：``attrs["start_time_unix"]``（可选）为原始 IMU 时钟**第一个样本**对应的
+Unix 时间（秒），统一流水线会换算到重采样网格的起点；未提供且原始时钟本身是 Unix 秒
+（> 1e8）时直接取网格起点，否则记为 NaN。``attrs`` 中还可以覆盖 ``source_license``，
+其余未知键原样写入 HDF5 根属性。
+
 解析阶段的职责边界（见 ``docs/DESIGN.md`` 第 2 节）：
 
 * 统一单位：秒、rad/s、m/s²（比力，含重力）、米；
