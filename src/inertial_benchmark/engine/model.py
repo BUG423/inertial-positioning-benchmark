@@ -51,14 +51,20 @@ class NIO:
         add_callback(self.callbacks, event, fn)
 
     # ------------------------------------------------------------------ 训练与评测
-    def train(self, **kwargs: Any) -> dict:
-        """训练；若当前模型来自 checkpoint 且未指定 ``resume``，则以其权重作为 ``pretrained``。"""
+    def train(self, trainer: Optional[type] = None, **kwargs: Any) -> dict:
+        """训练；若当前模型来自 checkpoint 且未指定 ``resume``，则以其权重作为 ``pretrained``。
+
+        ``trainer`` 可传入 :class:`Trainer` 的子类以定制训练流程（缺省为 ``Trainer``）。
+        """
         from .trainer import Trainer
 
+        trainer = trainer or Trainer
+        if not (isinstance(trainer, type) and issubclass(trainer, Trainer)):
+            raise TypeError(f"trainer must be a Trainer subclass, got {trainer!r}")
         overrides = self._merge("train", kwargs)
         if self.ckpt_path and not overrides.get("resume") and "pretrained" not in kwargs:
             overrides["pretrained"] = self.ckpt_path
-        self.trainer = Trainer(overrides=overrides, callbacks=self.callbacks)
+        self.trainer = trainer(overrides=overrides, callbacks=self.callbacks)
         self.metrics = self.trainer.train()
         self.model = self.trainer.model
         self.ckpt_path = str(self.trainer.best)

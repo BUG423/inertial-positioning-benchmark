@@ -227,7 +227,7 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 from inertial_benchmark import NIO
 
 model = NIO("ronin_resnet18")
-model.train(data="ronin", epochs=40, device=0)          # ipb train ...
+model.train(data="ronin", epochs=40, device=0)          # ipb train ...（trainer=Trainer 子类可定制训练流程）
 result = model.val(data="ronin", split="test")          # ipb val ...（返回 RunResult）
 traj = model.predict("seq.h5")                          # ipb predict ...（返回 Trajectory）
 model.info(); model.benchmark()                         # 参数量 / FLOPs / 延迟

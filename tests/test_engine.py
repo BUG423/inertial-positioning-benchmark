@@ -276,6 +276,22 @@ def test_nio_facade(dataset, tmp_path):
     assert ft["cfg"]["pretrained"] == str(ckpt)
 
 
+def test_nio_custom_trainer(dataset, tmp_path):
+    class Counting(Trainer):
+        calls = 0
+
+        def fitness(self, metrics):
+            type(self).calls += 1
+            return super().fitness(metrics)
+
+    model = NIO("ronin_resnet18", **{k: v for k, v in TINY.items() if k != "model"})
+    model.train(data=str(dataset), epochs=1, project=str(tmp_path), name="c", trainer=Counting,
+                save_predictions=False)
+    assert isinstance(model.trainer, Counting) and Counting.calls == 1
+    with pytest.raises(TypeError, match="Trainer subclass"):
+        model.train(data=str(dataset), trainer=object)
+
+
 def test_training_requires_data():
     with pytest.raises(ConfigError, match="data is required"):
         Trainer(overrides={"model": "ronin_resnet18"})
