@@ -322,6 +322,10 @@ class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推�
     EqNIO 用等变规范帧**代替**偏航增强，RIO 的旋转监督即其方法，TLIO 的重力/零偏扰动是其稳健性主张的
     组成部分。强行统一会把这些方法改成另一个方法，反而不公平。因此模型 YAML 的 `augment` 在
     `official` 与 `unified` 两个配方中一致，`metrics.json` 记录实际生效的增强列表。
+- **未显式声明的键沿用 `default.yaml`**，`amp` 尤其要注意：缺省为 `false`，因此没有在配方里写
+  `amp` 的算法（`ronin_*`、`eqnio_ronin` 等）在 `official` 下也是关闭混合精度——这与多数官方实现
+  一致（RoNIN 系的官方训练脚本并不使用 AMP），因此更忠实。若某算法的官方实现**确实**使用混合精度，
+  应在其模型 YAML 的 `official` 配方里显式写 `amp: true`，并在对应规格卡中注明出处。
 
 ## 5. 推理与轨迹重建
 
@@ -387,8 +391,10 @@ class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推�
   `ipb report` 汇总前核对所有 run 的**评测协议**键是否一致：不一致（或缺少 `protocol`）直接报错，
   指出差异键与对应目录；输入规格键本来就随模型不同，只记录不比较。
 
-**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE，
-且 `fitness` 在配置解析时就按“越小越好的验证指标”校验（拼错立即报错，不会等到第一轮结束）。
+**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE 的
+逐序列均值（指标名 `fitness`，跨序列聚合统计量 `fitness_stat`，两者都在配置解析时校验，拼错立即
+报错，不会等到第一轮结束）。`fitness_stat=median` 供 val 小而偏斜的数据集使用（见 `docs/CLI.md` §4.3）；
+`results.csv` 的列集合与这两个键无关，只有固定的 `fitness` 一列。
 
 **可复现优先于吞吐（缺省取值的理由）**：`deterministic: true` 保持开启（逐位可复现是第 0 节的第 4 条
 原则），而 `amp` 缺省为 **`false`**。理由是实测：A100 上 `ronin_resnet18`、`window=200`、batch 128 的

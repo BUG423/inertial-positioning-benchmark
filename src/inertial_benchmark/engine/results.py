@@ -220,16 +220,16 @@ class RunResult:
         """各指标跨序列均值（``fitness`` 的缺省来源）。"""
         return self.aggregate()["mean"]
 
-    def value(self, key: str) -> Optional[float]:
-        """按 ``fitness`` 键取值：``<metric>`` 取跨序列均值，``<metric>_median`` 取中位数。
+    def value(self, key: str, stat: str = "mean") -> Optional[float]:
+        """取某个指标的跨序列聚合值；``stat`` 为 ``"mean"``（缺省）或 ``"median"``。
 
-        未知键返回 ``None``（调用方给出可用键列表）。
+        未知指标名返回 ``None``（调用方给出可用键列表）。
         """
-        from ..metrics import split_metric_key
+        from ..metrics import FITNESS_STATS
 
-        agg = self.aggregate()
-        base, statistic = split_metric_key(key, agg["mean"])
-        return agg[statistic].get(base)
+        if stat not in FITNESS_STATS:
+            raise ValueError(f"stat must be one of {FITNESS_STATS}, got {stat!r}")
+        return self.aggregate()[stat].get(key)
 
     def __getitem__(self, key: str) -> float:
         return self.metrics[key]

@@ -37,6 +37,7 @@ amp: false             # 自动混合精度，仅 CUDA 生效；与 deterministi
 cache: true            # true 把序列载入内存；false 逐窗口读取 HDF5
 val_interval: 1        # 每多少个 epoch 验证一次（最后一轮总会验证）
 fitness: ate           # 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse …
+fitness_stat: mean     # fitness 的跨序列聚合统计量：mean / median（val 小且偏斜时用 median）
 save_period: 0         # 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭
 val_batch: 512         # 推理批大小
 

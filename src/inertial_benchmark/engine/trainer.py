@@ -19,7 +19,7 @@ from .. import __version__
 from ..cfg import ConfigError, get_cfg, protocol_from_cfg
 from ..data.build import build_dataloader, build_dataset
 from ..data.manifest import resolve_dataset
-from ..metrics import METRIC_INFO, split_metric_key
+from ..metrics import METRIC_INFO
 from ..nn.base import SequenceModel
 from ..utils import LOGGER, add_file_handler, json_save, to_builtin, yaml_save
 from ..utils.callbacks import add_callback, default_callbacks, run_callbacks
@@ -253,14 +253,14 @@ class Trainer:
         return result.metrics
 
     def fitness(self, metrics: dict) -> float:
-        """选模指标：``<metric>`` 取跨序列均值，``<metric>_median`` 取逐序列中位数。"""
+        """选模标量：指标名来自 ``fitness``，跨序列聚合统计量来自 ``fitness_stat``。"""
         key = self.args.fitness
-        base, statistic = split_metric_key(key, metrics)
-        value = metrics.get(base) if statistic == "mean" else self.val_result.value(key)
+        stat = self.args.fitness_stat
+        value = metrics.get(key) if stat == "mean" else self.val_result.value(key, stat)
         if value is None:
             raise ConfigError(f"fitness={key!r} is not a validation metric; "
                               f"available: {sorted(metrics)}")
-        if METRIC_INFO.get(base, ("", "", True))[2] is not True:
+        if METRIC_INFO.get(key, ("", "", True))[2] is not True:
             raise ConfigError(f"fitness={key!r} is not a lower-is-better metric")
         return float(value)
 
@@ -300,9 +300,9 @@ class Trainer:
                     val = self.validate(epoch)
                     row.update({f"val/{k}": v for k, v in val.items()
                                 if not k.startswith("num_")})
+                    # 列集合固定：只写 ``fitness`` 这一列（本轮用于选模的标量），
+                    # 含义由 args.yaml 的 fitness / fitness_stat 决定，跨 run 汇总才不会错位
                     fit = self.fitness(val)
-                    # 中位数型 fitness 的取值不在均值字典里，单独记一列便于复盘
-                    row.setdefault(f"val/{a.fitness}", fit)
                     row["fitness"] = fit
                     improved = self.stopper.update(epoch, fit)
                     if is_plateau:
@@ -317,7 +317,7 @@ class Trainer:
                     break
             self.final_eval(epoch)
             LOGGER.info(f"train: done in {(time.time() - t_start) / 60:.2f} min, "
-                        f"best {a.fitness}={self.stopper.best:.4f} "
+                        f"best {a.fitness_stat} {a.fitness}={self.stopper.best:.4f} "
                         f"(epoch {self.stopper.best_epoch}), weights → {self.best}")
             run_callbacks(self.callbacks, "on_train_end", self)
         finally:

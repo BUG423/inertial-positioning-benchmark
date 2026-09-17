@@ -16,13 +16,14 @@ from inertial_benchmark.cfg import (
     recipe_keys,
 )
 from inertial_benchmark.data.manifest import dataset_yaml_names, resolve_dataset
-from inertial_benchmark.metrics import fitness_keys, split_metric_key
+from inertial_benchmark.metrics import FITNESS_STATS, fitness_keys
 from inertial_benchmark.utils import CFG_DIR, yaml_load
 
 REQUIRED_DEFAULT_KEYS = (
     "mode model data epochs batch lr optimizer scheduler weight_decay patience seed "
     "deterministic device workers amp window stride eval_stride frame orientation "
-    "remove_gravity target dims augment fitness val_interval project name exist_ok "
+    "remove_gravity target dims augment fitness fitness_stat val_interval project name "
+    "exist_ok "
     "save_predictions plots recipe"
 ).split()
 
@@ -137,18 +138,19 @@ def test_fitness_is_validated_when_the_config_is_parsed():
     assert get_cfg({"fitness": "d_rte_5m", "d_rte": [5.0]}).fitness == "d_rte_5m"
     assert "ate" in fitness_keys() and "params" not in fitness_keys()
     assert "ate_oracle" not in fitness_keys()  # 与模型无关，不能用于选模
-    # 中位数型变体：逐序列该指标的中位数（val 小、构成偏斜时均值型信号很噪）
-    assert get_cfg({"fitness": "ate_median"}).fitness == "ate_median"
-    assert get_cfg({"fitness": "t_rte_1s_median"}).fitness == "t_rte_1s_median"
-    assert "ate_median" in fitness_keys() and "ate_oracle_median" not in fitness_keys()
-    assert "loss_median" not in fitness_keys()  # loss 按窗口数加权，没有逐序列中位数语义
-    assert split_metric_key("ate") == ("ate", "mean")
-    assert split_metric_key("ate_median") == ("ate", "median")
-    # dir_err_median 本身是指标名（序列内窗口角度的中位数），不能被当成聚合键
-    assert split_metric_key("dir_err_median") == ("dir_err_median", "mean")
-    assert split_metric_key("dir_err_median_median") == ("dir_err_median", "median")
+    # 聚合统计量是独立的键，不靠指标名的后缀（避免字符串重载带来的歧义）
+    assert get_cfg({}).fitness_stat == "mean"
+    assert get_cfg({"fitness": "ate", "fitness_stat": "median"}).fitness_stat == "median"
+    assert FITNESS_STATS == ("mean", "median")
+    with pytest.raises(ConfigError, match="fitness_stat"):
+        get_cfg({"fitness_stat": "mode"})
+    # 指标名里不再有 _median 一族；dir_err_median 仍然是一个指标名（序列内窗口角度的中位数）
+    assert "ate_median" not in fitness_keys() and "t_rte_1s_median" not in fitness_keys()
+    assert "dir_err_median" in fitness_keys()
+    assert get_cfg({"fitness": "dir_err_median", "fitness_stat": "median"}).fitness == \
+        "dir_err_median"
     with pytest.raises(ConfigError, match="lower-is-better"):
-        get_cfg({"fitness": "plr_median"})  # 比值指标的中位数同样不能用于选模
+        get_cfg({"fitness": "ate_median"})
     with pytest.raises(ConfigError, match="did you mean ate"):
         get_cfg({"fitness": "ate_"})
     with pytest.raises(ConfigError, match="lower-is-better"):

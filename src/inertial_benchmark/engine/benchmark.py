@@ -32,7 +32,8 @@ PathLike = Union[str, Path]
 # 评测时不需要的训练专用键
 TRAIN_ONLY = ("epochs", "batch", "lr", "optimizer", "momentum", "weight_decay", "scheduler",
               "lr_final", "step_size", "gamma", "plateau_patience", "warmup_epochs", "grad_clip",
-              "patience", "val_interval", "fitness", "save_period", "augment", "stride",
+              "patience", "val_interval", "fitness", "fitness_stat", "save_period", "augment",
+              "stride",
               "resume", "pretrained", "recipe", "loss", "loss_switch_epoch", "model_args")
 
 

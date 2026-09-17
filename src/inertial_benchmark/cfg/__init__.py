@@ -39,6 +39,7 @@ CHOICES = {
     "dims": (2, 3),
     "metric_dims": (2, 3),
     "recipe": ("official", "unified"),
+    "fitness_stat": ("mean", "median"),
     "loss": (None, "mse", "mse_sum", "mse_l1", "gaussian_nll", "mse_then_nll",
              "nll_detach_then_nll"),
 }
