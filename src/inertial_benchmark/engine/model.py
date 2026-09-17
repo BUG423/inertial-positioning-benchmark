@@ -115,7 +115,7 @@ class NIO:
                 "loss": self.model.loss_name,
                 "args": self.model.model_cfg.get("args", {}),
                 **model_info(self.model, spec.window, spec.num_channels, flops,
-                             input_shape=spec.input_shape)}
+                             input_shape=spec.input_shape, extra=spec.dummy_extra())}
         for key in ("paper", "code", "license", "commit"):
             if key in self.model.model_cfg:
                 info[key] = self.model.model_cfg[key]
@@ -132,4 +132,4 @@ class NIO:
         devices = ["cpu"] + ([str(dev)] if dev.type == "cuda" else [])
         spec = self.model.input_spec
         return efficiency_metrics(self.model, spec.window, spec.num_channels, devices, runs,
-                                  input_shape=spec.input_shape)
+                                  input_shape=spec.input_shape, extra=spec.dummy_extra())

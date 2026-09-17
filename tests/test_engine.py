@@ -458,11 +458,14 @@ def test_privileged_inputs_are_marked_in_results(dataset, tmp_path):
     try:
         model = NIO({"name": "priv", "arch": "test_privileged_model",
                      "input": {"window": 100, "extra_inputs": ["init_velocity"]}},
-                    device="cpu", workers=0, efficiency=False, plots=False)
+                    device="cpu", workers=0, efficiency=True, plots=False)
         result = model.val(data=str(dataset), split="test", project=str(tmp_path), name="priv")
         meta = json.loads((tmp_path / "val" / "priv" / "metrics.json").read_text())
         assert meta["privileged_inputs"] == ["init_velocity"]
         assert result.privileged_inputs == ["init_velocity"]
+        # 声明了额外输入的模型也能算效率指标（用 InputSpec.dummy_extra 造占位输入）
+        assert meta["efficiency"]["latency_ms_cpu"] > 0  # 前向真的跑通了
+        assert model.info(verbose=False)["flops_backend"] != "not applicable"
     finally:
         MODELS.pop("test_privileged_model")
 

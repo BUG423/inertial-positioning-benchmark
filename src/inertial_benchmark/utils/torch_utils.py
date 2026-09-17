@@ -194,7 +194,8 @@ def time_sync(device: Optional[torch.device] = None) -> float:
 
 
 def model_info(model: nn.Module, window: Optional[int] = None, channels: int = 6,
-               flops: bool = True, input_shape: Any = None) -> dict:
+               flops: bool = True, input_shape: Any = None,
+               extra: Optional[dict] = None) -> dict:
     """参数量（总数/可训练）与单窗口 FLOPs。
 
     ``input_shape`` 为单个样本的输入形状（不含批维），缺省 ``(channels, window)``；
@@ -209,7 +210,7 @@ def model_info(model: nn.Module, window: Optional[int] = None, channels: int = 6
         shape = tuple(int(v) for v in (input_shape if input_shape is not None
                                        else (channels, int(window))))
         try:
-            info.update(count_flops(model, (1, *shape)))
+            info.update(count_flops(model, (1, *shape), extra=extra))
         except NotImplementedError:
             info.update({"flops": None, "flops_backend": "not applicable"})
     return info

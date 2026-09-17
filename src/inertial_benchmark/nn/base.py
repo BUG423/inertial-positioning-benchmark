@@ -53,6 +53,24 @@ class InputSpec(ViewConfig):
             return (self.sub_windows, self.num_channels, int(self.window))
         return (self.num_channels, int(self.window))
 
+    def dummy_extra(self, batch: int = 1, device: Any = None) -> dict:
+        """按 ``extra_inputs`` 构造占位额外输入（效率指标的前向需要它们）。"""
+        from ..utils.geometry import GRAVITY
+
+        lead = (batch,) + ((self.sub_windows,) if self.sub_windows > 0 else ())
+        out: dict = {}
+        if "orientation" in self.extra_inputs:
+            quat = torch.zeros(lead + (int(self.window), 4), device=device)
+            quat[..., 0] = 1.0
+            out["orientation"] = quat
+        if "gravity" in self.extra_inputs:
+            gravity = torch.zeros(lead + (int(self.window), 3), device=device)
+            gravity[..., 2] = GRAVITY
+            out["gravity"] = gravity
+        if "init_velocity" in self.extra_inputs:
+            out["init_velocity"] = torch.zeros((batch, self.dims), device=device)
+        return out
+
 
 # 损失接口的 batch 结构：训练与验证都必须提供这些键（其余键可选，例如 mask / extra）
 LOSS_BATCH_KEYS = ("target", "imu")

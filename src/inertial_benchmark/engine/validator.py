@@ -126,7 +126,8 @@ class Validator:
         devices = ["cpu"] + ([str(device)] if device.type == "cuda" else [])
         try:
             return efficiency_metrics(model, spec.window, spec.num_channels, devices,
-                                      input_shape=spec.input_shape)
+                                      input_shape=spec.input_shape,
+                                      extra=spec.dummy_extra())
         except Exception as exc:  # noqa: BLE001 - 效率统计失败不影响精度结果
             LOGGER.warning(f"efficiency metrics failed: {exc}")
             return {}

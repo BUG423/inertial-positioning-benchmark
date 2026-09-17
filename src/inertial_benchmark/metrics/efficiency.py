@@ -37,7 +37,7 @@ def _rnn_flops(m: nn.RNNBase, inp: torch.Tensor) -> float:
     return total * batch
 
 
-def hook_flops(model: nn.Module, x: torch.Tensor) -> float:
+def hook_flops(model: nn.Module, x: torch.Tensor, extra: Optional[dict] = None) -> float:
     """用前向钩子粗算整批输入的乘加次数：Conv / Linear / 归一化 / RNN / 多头注意力。"""
     total = [0.0]
 
@@ -79,7 +79,7 @@ def hook_flops(model: nn.Module, x: torch.Tensor) -> float:
                 break
     try:
         with torch.no_grad():
-            model(x)
+            model(x, extra) if extra else model(x)
     finally:
         for h in handles:
             h.remove()
@@ -87,17 +87,19 @@ def hook_flops(model: nn.Module, x: torch.Tensor) -> float:
 
 
 def count_flops(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
-                backend: str = "auto") -> dict:
+                backend: str = "auto", extra: Optional[dict] = None) -> dict:
     """返回 ``{"flops": 乘加次数, "flops_backend": 实际使用的后端}``（batch=1）。
 
     ``auto`` 依次尝试 thop、fvcore，都不可用时使用本模块的钩子粗算；不同后端的计数约定
-    略有差异，因此结果中总是记录后端名。
+    略有差异，因此结果中总是记录后端名。``extra`` 为声明了 ``extra_inputs`` 的模型所需的占位
+    额外输入（见 ``InputSpec.dummy_extra``）。
     """
     if backend not in FLOP_BACKENDS:
         raise ValueError(f"backend must be one of {FLOP_BACKENDS}")
     params = list(model.parameters())
     device = params[0].device if params else torch.device("cpu")
     dummy = torch.zeros(*input_shape, device=device)
+    args = (dummy,) if not extra else (dummy, {k: v.to(device) for k, v in extra.items()})
     candidates = ["thop", "fvcore", "hooks"] if backend == "auto" else [backend]
     for name in candidates:
         work = copy.deepcopy(model).eval()
@@ -105,16 +107,16 @@ def count_flops(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
             if name == "thop":
                 import thop  # type: ignore
 
-                macs, _ = thop.profile(work, inputs=(dummy,), verbose=False)
+                macs, _ = thop.profile(work, inputs=args, verbose=False)
                 flops = float(macs)
             elif name == "fvcore":
                 from fvcore.nn import FlopCountAnalysis  # type: ignore
 
-                analysis = FlopCountAnalysis(work, dummy)
+                analysis = FlopCountAnalysis(work, args)
                 analysis.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
                 flops = float(analysis.total())
             else:
-                flops = hook_flops(work, dummy)
+                flops = hook_flops(work, *args)
         except ImportError:
             continue
         return {"flops": int(round(flops / input_shape[0])), "flops_backend": name}
@@ -123,11 +125,12 @@ def count_flops(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
 
 def measure_latency(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
                     device: Optional[torch.device] = None, warmup: int = 10,
-                    runs: int = 50) -> dict:
+                    runs: int = 50, extra: Optional[dict] = None) -> dict:
     """单窗口（batch=1）前向延迟的中位数（毫秒）。"""
     device = device or next(model.parameters()).device
     work = copy.deepcopy(model).to(device).eval()
     x = torch.randn(*input_shape, device=device)
+    args = (x,) if not extra else (x, {k: v.to(device) for k, v in extra.items()})
     times = []
     with torch.inference_mode():
         for i in range(warmup + runs):
@@ -137,13 +140,13 @@ def measure_latency(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
             if start is not None:
                 end = torch.cuda.Event(enable_timing=True)
                 start.record()
-                work(x)
+                work(*args)
                 end.record()
                 torch.cuda.synchronize(device)
                 elapsed = start.elapsed_time(end)
             else:
                 t0 = time.perf_counter()
-                work(x)
+                work(*args)
                 elapsed = (time.perf_counter() - t0) * 1000.0
             if i >= warmup:
                 times.append(elapsed)
@@ -153,7 +156,8 @@ def measure_latency(model: nn.Module, input_shape: Sequence[int] = (1, 6, 200),
 
 def efficiency_metrics(model: nn.Module, window: int, channels: int = 6,
                        devices: Sequence[str] = ("cpu",), runs: int = 30,
-                       input_shape: Optional[Sequence[int]] = None) -> dict:
+                       input_shape: Optional[Sequence[int]] = None,
+                       extra: Optional[dict] = None) -> dict:
     """汇总效率指标：``params``、``flops``、``latency_ms_<device>``。
 
     ``input_shape`` 为单个样本的输入形状（不含批维，缺省 ``(channels, window)``）；声明历史子窗口的
@@ -163,12 +167,12 @@ def efficiency_metrics(model: nn.Module, window: int, channels: int = 6,
                                    else (channels, int(window))))
     out = {"params": count_params(model)}
     try:
-        out.update(count_flops(model, (1, *shape)))
+        out.update(count_flops(model, (1, *shape), extra=extra))
         for dev in devices:
             d = torch.device(dev)
             if d.type == "cuda" and not torch.cuda.is_available():
                 continue
-            lat = measure_latency(model, (1, *shape), d, runs=runs)
+            lat = measure_latency(model, (1, *shape), d, runs=runs, extra=extra)
             out[f"latency_ms_{d.type}"] = lat["latency_ms"]
     except NotImplementedError:  # 序列级模型（PDR 等）不实现 forward
         out.update({"flops": None, "flops_backend": "not applicable"})
