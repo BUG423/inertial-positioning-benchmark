@@ -333,6 +333,53 @@ def test_early_stopping_and_schedulers():
     assert isinstance(plateau, torch.optim.lr_scheduler.ReduceLROnPlateau)
 
 
+def test_predictions_are_only_filled_where_the_input_is_invalid():
+    """位姿缺口不应替换模型预测：模型穿越缺口的漂移必须被评测到。"""
+    @register_model("test_mean_acc_model")
+    class MeanAcc(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.gain = torch.nn.Parameter(torch.ones(1))
+
+        def forward(self, imu):
+            return {"vel": imu[:, 3:5].mean(dim=-1) * self.gain}
+
+    seq = make_sequence(duration=20.0, seed=7, device_yaw_offset=0.4)
+    seq.valid_pose[1000:2000] = False  # 只缺位姿，IMU 与设备姿态正常
+    try:
+        cfg = get_cfg({"model": {"name": "mean", "arch": "test_mean_acc_model"},
+                       "device": "cpu", "orientation": "device", "eval_stride": 20})
+        predictor = Predictor(cfg)
+        res = predictor.predict_sequence(seq)
+        gap = ~res.window_valid_target
+        assert gap.any() and res.window_valid_input.all()
+        assert not res.window_valid[gap].any()  # 窗口级指标仍然排除这些窗口
+        view = SequenceView(seq, predictor.view_cfg)
+        raw = predictor.infer(view)
+        world = view.to_world_velocity(raw["vel"], raw["starts"])
+        np.testing.assert_allclose(res.vel_pred[gap], world[gap], rtol=1e-6)  # 预测未被插值
+        # 目标在位姿缺口处被插值替换（否则位置差分会横跨缺口）
+        assert np.isfinite(res.vel_target).all()
+        m = res.compute_metrics()
+        assert m["num_windows"] == int(res.window_valid.sum()) < len(res.starts)
+    finally:
+        MODELS.pop("test_mean_acc_model")
+
+
+def test_body_frame_windows_ignore_pose_gaps_for_the_input(zero_model):
+    """frame=body 且不去重力时输入完全不用姿态，输入掩码只看 valid/imu。"""
+    seq = make_sequence(duration=8.0, seed=8)
+    seq.valid_pose[400:800] = False
+    seq.valid_imu[1000:1100] = False
+    view = SequenceView(seq, ViewConfig(frame="body", dims=3, window=100))
+    assert view.valid_input[500] and not view.valid_input[1050]
+    np.testing.assert_array_equal(view.valid_input, seq.valid_imu)
+    np.testing.assert_array_equal(view.valid_target, seq.valid_pose)
+    # orientation=reference 时输入旋转来自参考姿态，因此位姿缺口也让输入无效
+    world = SequenceView(seq, ViewConfig(frame="gravity_world", window=100))
+    assert not world.valid_input[500]
+
+
 def _interrupt_after(trainer, epoch: int) -> None:
     def stop(obj):
         if obj.epoch == epoch:

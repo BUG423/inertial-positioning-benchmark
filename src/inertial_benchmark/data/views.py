@@ -87,6 +87,11 @@ class ViewConfig:
         """把目标数值换算为速度的比例（位移目标除以窗口跨度）。"""
         return 1.0 / ((self.window - 1) * self.dt) if self.target == "displacement" else 1.0
 
+    @property
+    def uses_orientation(self) -> bool:
+        """视图构造输入时是否需要姿态（``body`` 且不去重力时不需要）。"""
+        return not (self.frame == "body" and not self.remove_gravity)
+
 
 def yaw_offset(q_ref: np.ndarray, q_dev: np.ndarray) -> float:
     """``R_off = R_ref · R_dev^T`` 的航向分量：设备世界系 → 参考世界系。"""
@@ -100,11 +105,40 @@ def first_valid_index(valid: np.ndarray) -> int:
     return int(idx[0]) if len(idx) else 0
 
 
+def device_orientation_valid(seq: Sequence) -> Optional[np.ndarray]:
+    """设备姿态的有效掩码。
+
+    格式里的 ``valid/device_orientation`` 是可选字段，字段不存在时返回 ``None``（视为全部有效）。
+    """
+    mask = getattr(seq, "valid_device_orientation", None)
+    return None if mask is None else np.asarray(mask, bool)
+
+
+def input_valid_mask(cfg: ViewConfig, valid_imu: np.ndarray, valid_pose: np.ndarray,
+                     valid_device: Optional[np.ndarray] = None) -> np.ndarray:
+    """**输入**有效的样本掩码：IMU 样本 + 视图构造输入所需的姿态。
+
+    ``orientation=device`` 时只有设备姿态参与（设备姿态缺口仅在这种情况下影响窗口筛选）；
+    ``orientation=reference`` 时输入旋转来自参考姿态，因此参考位姿缺口同样使输入无效；
+    ``frame=body`` 且不去重力时完全不用姿态，输入只取决于 ``valid/imu``。
+    """
+    mask = np.asarray(valid_imu, bool)
+    if not cfg.uses_orientation:
+        return mask
+    if cfg.orientation == "device":
+        return mask if valid_device is None else (mask & valid_device)
+    return mask & np.asarray(valid_pose, bool)
+
+
 def device_yaw_offset(seq: Sequence) -> float:
-    """设备世界系 → 参考世界系的常值偏航（首个 IMU/位姿均有效的样本处估计）。"""
+    """设备世界系 → 参考世界系的常值偏航（首个 IMU/位姿/设备姿态均有效的样本处估计）。"""
     if seq.device_orientation is None:
         raise ValueError(f"{seq.sequence_id}: orientation=device requires imu/orientation")
-    k = first_valid_index(seq.valid)
+    valid = seq.valid_imu & seq.valid_pose
+    device_valid = device_orientation_valid(seq)
+    if device_valid is not None:
+        valid = valid & device_valid
+    k = first_valid_index(valid)
     return yaw_offset(seq.orientation[k], seq.device_orientation[k])
 
 
@@ -179,7 +213,12 @@ def window_valid_mask(valid: np.ndarray, starts: np.ndarray, window: int) -> np.
 
 
 class SequenceView:
-    """一条序列上的向量化窗口视图（预先把整条序列旋到世界系/机体系）。"""
+    """一条序列上的向量化窗口视图（预先把整条序列旋到世界系/机体系）。
+
+    有效性分两套掩码（DESIGN 第 3/5 节）：``valid_input``（模型输入可用）与
+    ``valid_target``（参考位姿可用）。训练与窗口级指标要求两者同时成立；推理时预测只在输入无效处
+    填补、目标只在位姿无效处填补，这样模型穿越位姿缺口的漂移才会被真实评测。
+    """
 
     def __init__(self, seq: Sequence, cfg: ViewConfig) -> None:
         if abs(seq.sample_rate - cfg.rate) > 1e-6:
@@ -190,7 +229,10 @@ class SequenceView:
         self.q = input_orientation(seq, cfg, self.yaw_offset)
         self.imu = frame_imu(seq.gyroscope, seq.accelerometer, self.q, cfg).astype(np.float32)
         self.yaw = heading_from_quat(self.q) if cfg.frame == "gravity_yaw_local" else None
-        self.valid = seq.valid_imu & seq.valid_pose
+        self.valid_input = input_valid_mask(cfg, seq.valid_imu, seq.valid_pose,
+                                            device_orientation_valid(seq))
+        self.valid_target = np.asarray(seq.valid_pose, bool)
+        self.valid = self.valid_input & self.valid_target
 
     def __len__(self) -> int:
         return len(self.seq)
@@ -208,7 +250,16 @@ class SequenceView:
         return starts[self.window_valid(starts)] if require_valid else starts
 
     def window_valid(self, starts: np.ndarray) -> np.ndarray:
+        """窗口的输入与目标都有效（训练与窗口级指标用）。"""
         return window_valid_mask(self.valid, starts, self.cfg.window)
+
+    def window_valid_input(self, starts: np.ndarray) -> np.ndarray:
+        """窗口的模型输入全部有效（预测是否需要填补由它决定）。"""
+        return window_valid_mask(self.valid_input, starts, self.cfg.window)
+
+    def window_valid_target(self, starts: np.ndarray) -> np.ndarray:
+        """窗口的参考位姿全部有效（目标是否需要填补由它决定）。"""
+        return window_valid_mask(self.valid_target, starts, self.cfg.window)
 
     def _end_state(self, starts: np.ndarray):
         end = np.asarray(starts, dtype=np.int64) + self.cfg.window - 1

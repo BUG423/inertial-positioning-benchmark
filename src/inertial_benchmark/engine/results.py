@@ -59,7 +59,8 @@ class Trajectory:
 
 
 ARRAYS = ("t", "pos_pred", "pos_gt", "pos_oracle", "valid_pose", "t_window", "starts",
-          "vel_pred", "vel_target", "window_valid", "logstd")
+          "vel_pred", "vel_target", "window_valid", "window_valid_input",
+          "window_valid_target", "logstd")
 OUTPUT_PREFIX = "out_"  # 其他逐窗口模型输出在 .npz 中的键前缀
 
 
@@ -80,6 +81,9 @@ class SequenceResult:
     vel_pred: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     vel_target: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     window_valid: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
+    # 拆分的窗口有效性：输入（IMU + 所需姿态）与目标（参考位姿），见 DESIGN 第 5 节
+    window_valid_input: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
+    window_valid_target: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
     logstd: Optional[np.ndarray] = None
     # 模型的其他逐窗口输出（键 → (K, ...)），保持模型输出的视图坐标系，未做无效窗口插值
     outputs: dict = field(default_factory=dict)

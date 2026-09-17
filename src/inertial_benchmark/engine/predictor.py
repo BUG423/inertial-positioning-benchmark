@@ -2,7 +2,8 @@
 
 1. 以 ``eval_stride`` 滑窗推理，窗口速度的时间戳为目标对应时刻（平均速度/位移为窗口中心，
    ``velocity_at_end`` 为窗口末端）；
-2. 含无效样本的窗口照常推理，但其速度用相邻有效窗口按时间线性插值替换；
+2. 含无效样本的窗口照常推理；**预测**只在输入（IMU 与所需姿态）无效的窗口上按相邻有效窗口插值替换，
+   **目标**只在参考位姿无效的窗口上替换；
 3. 逐帧速度为窗口速度的分段线性插值，首尾半窗内常值外推；
 4. 梯形积分，起点锚定首个有效参考位置，不做任何对齐；
 5. 同时积分窗口目标得到 oracle 轨迹。
@@ -107,7 +108,9 @@ class Predictor:
         was_training = model.training
         model.eval()
         starts = view.starts(int(self.args.eval_stride), require_valid=False)
-        valid = view.window_valid(starts)
+        valid_input = view.window_valid_input(starts)
+        valid_target = view.window_valid_target(starts)
+        valid = valid_input & valid_target
         keep = getattr(model, "saved_outputs", None)
         outs: dict = {}
         extras: dict = {}
@@ -134,7 +137,8 @@ class Predictor:
                 loss_sum += float(loss) * int(v.sum())
                 loss_n += int(v.sum())
         model.train(was_training)
-        result = {"starts": starts, "window_valid": valid, "loss_sum": loss_sum, "loss_n": loss_n}
+        result = {"starts": starts, "window_valid": valid, "window_valid_input": valid_input,
+                  "window_valid_target": valid_target, "loss_sum": loss_sum, "loss_n": loss_n}
         dims = self.view_cfg.dims
         for k in ("vel", "logstd"):
             result[k] = np.concatenate(outs[k]) if k in outs else (
@@ -156,19 +160,23 @@ class Predictor:
             return res
         out = self.infer(view, collect_loss, epoch)
         starts, wvalid = out["starts"], out["window_valid"]
+        w_input, w_target = out["window_valid_input"], out["window_valid_target"]
         anchors = np.flatnonzero(seq.valid_pose)
-        if not wvalid.any() or len(anchors) == 0:
-            res.skipped = "no valid window or no valid reference pose"
+        if not w_input.any() or not w_target.any() or len(anchors) == 0:
+            res.skipped = "no valid input window, no valid target window or no reference pose"
             return res
         t_window = view.target_times(starts)
         vel = view.to_world_velocity(out["vel"], starts)
         tgt = view.to_world_velocity(view.targets(starts), starts)
-        vel = fill_invalid_windows(t_window, vel, wvalid)
-        tgt = fill_invalid_windows(t_window, tgt, wvalid)
+        # 预测只在**输入**无效处填补，目标只在**位姿**无效处填补：位姿有缺口而 IMU 正常时，
+        # 模型仍然自己穿越缺口，其漂移会体现在轨迹指标里（旧实现把这些预测也插值掉了）
+        vel = fill_invalid_windows(t_window, vel, w_input)
+        tgt = fill_invalid_windows(t_window, tgt, w_target)
         i0 = int(anchors[0])
         res.pos_pred = reconstruct(seq.timestamp, t_window, vel, i0, seq.position[i0])
         res.pos_oracle = reconstruct(seq.timestamp, t_window, tgt, i0, seq.position[i0])
         res.t_window, res.starts, res.window_valid = t_window, starts, wvalid
+        res.window_valid_input, res.window_valid_target = w_input, w_target
         res.vel_pred, res.vel_target, res.logstd = vel, tgt, out["logstd"]
         res.outputs = out["outputs"]
         if collect_loss and out["loss_n"]:

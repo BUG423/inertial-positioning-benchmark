@@ -20,6 +20,7 @@ from .views import (
     SequenceView,
     ViewConfig,
     first_valid_index,
+    input_valid_mask,
     read_window,
     window_valid_mask,
     yaw_offset,
@@ -36,7 +37,14 @@ class _LazySource:
         with h5py.File(self.path, "r") as f:
             attrs = dict(f.attrs)
             self.n = int(f["timestamp"].shape[0])
-            self.valid = np.asarray(f["valid/imu"]) & np.asarray(f["valid/pose"])
+            valid_imu = np.asarray(f["valid/imu"], bool)
+            valid_pose = np.asarray(f["valid/pose"], bool)
+            # valid/device_orientation 是可选字段：存在时才参与（orientation=device）
+            device_valid = (np.asarray(f["valid/device_orientation"], bool)
+                            if "valid/device_orientation" in f else None)
+            self.valid_input = input_valid_mask(cfg, valid_imu, valid_pose, device_valid)
+            self.valid_target = valid_pose
+            self.valid = self.valid_input & self.valid_target
             self.has_velocity = "pose/velocity" in f
             self.sequence_id = str(attrs.get("sequence_id", self.path.stem))
             self.group_id = str(attrs.get("group_id", self.sequence_id))
