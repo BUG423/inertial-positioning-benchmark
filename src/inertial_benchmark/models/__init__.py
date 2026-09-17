@@ -13,6 +13,7 @@ from . import (  # noqa: F401
     ronin,
     tinyodom,
     tlio,
+    velobins,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "ronin",
     "tinyodom",
     "tlio",
+    "velobins",
 ]

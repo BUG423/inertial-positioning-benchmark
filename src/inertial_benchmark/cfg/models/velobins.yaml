@@ -1,0 +1,64 @@
+# VeloBins：逐轴 512 箱分类 + 误差条件高斯标签（Azhari et al., arXiv:2608.29720）。
+# paper-only：代码"录用后发布"，依据 docs/algorithms/velobins.md 规格卡实现。
+#
+# !!! 这是 IMU-only 变体，不是论文配置 !!!
+# 官方输入除 IMU 外还有逐旋翼转速（RPM）或 PWM 指令；行人数据集与 IPB 格式都没有这一模态，
+# 因此把执行器支路整条去掉（模态支路 3 → 2，每条宽度 16 → 24 以保持 D_h = 48）。这改变了结构，
+# 论文 Table II 的收益（空中平台 + EKF 融合）不适用于本变体，报告时必须注明。
+# 参数量 69,968 为本卡推导值（论文报告约 76.6 k），由单元测试锁定。
+name: velobins
+arch: velobins
+paper: https://arxiv.org/abs/2608.29720
+code: none (the code will be released upon acceptance)
+license: paper-only re-implementation (no official code)
+commit: n/a
+fidelity: paper-only (IMU-only variant; the official rotor-speed branch is removed)
+args:
+  width: 24                 # IPB 变体：2 条支路 × 24 = d_model 48（官方 3 条 × 16）
+  kernel_size: 5            # [A] 论文未给出卷积核/通道，取卡 §4.1 的参考配置
+  d_model: 48               # D_h = 48（论文 §III-B [P]）
+  heads: 4                  # [A] 论文未给出头数
+  feedforward: 192          # [A] 4 × d_model
+  layers: 2                 # two-layer transformer encoder [P]
+  dropout: 0.1              # [A] PyTorch 默认
+  bins: 512                 # N = 512（论文 §IV-A.4 [P]；消融扫 16…2048，参数量与 N 无关）
+  value_range: 5.0          # R：论文按数据集取 1.1 × 训练集逐轴最大速度；换数据集必须用
+                            # **训练划分**重新统计并记录越界比例（卡 §3.1、§10-4）
+  code_dim: 64              # C = 64 [P]
+  query_dim: 32             # D = 32 [P]
+  encoding: spe             # spe（可学习频率，论文 Table IV 最优）/ pe / direct（消融）
+  decode: expectation       # expectation（式 1）/ argmax / topk_expectation（对照实验）
+  topk: 5
+  clamp_std: true           # σ̂ >= Δ/10，与训练标签的 σ 下限一致，避免 logstd = −∞
+  decimate: 1               # 1 = 直接吃 200 个 token；2 = 复现 1 s @100 Hz 的 token 数
+input:                      # 论文 §III-A：机体系速度，1 s 窗口；DESIGN §3 规定 body 系必须 dims=3
+  window: 200
+  frame: body
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity      # [A] 论文未定义 velocity segment 的时刻；velocity_at_end 为备选
+  dims: 3
+loss: velobins_bins         # 式 8–10：Huber + KL(误差条件高斯标签 ‖ π)，**没有 NLL 项**
+loss_kwargs:
+  huber_weight: 1.0         # λ_H = 1（论文 §IV-A.4）
+  kl_weight: 1.0            # λ_KL = 1
+  delta: 0.1                # Huber 转折点 0.1 m/s（论文 §IV-A.4）
+  sigma_floor_ratio: 0.1    # σ 下限 = 1/10 箱宽（论文 §IV-A.4）
+recipes:
+  official:                 # 论文 §IV-A.4
+    epochs: 100
+    batch: 128
+    val_batch: 512
+    lr: 3.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0       # [A] 论文未提及权重衰减
+    scheduler: none         # 常数学习率 3e-4 [P]
+    grad_clip: 0.0          # [A] 论文未提及裁剪
+    stride: 10
+    augment: []             # [A] 论文未提及增强
+    amp: false
+    fitness: loss           # [A] 按 val 选模
+    patience: 0
+  unified:                  # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: []             # 增强属于算法本身，两个配方一致（本方法不做增强）
