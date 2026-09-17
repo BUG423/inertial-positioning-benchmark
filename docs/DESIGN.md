@@ -243,7 +243,7 @@ class BaseModel(nn.Module):
 | 指标 | 定义 |
 |---|---|
 | ATE | `sqrt(mean_t ‖p̂_t − p_t‖²)`，不对齐（另提供 `ATE_aligned`：刚体对齐后） |
-| RTE | RoNIN 定义：Δ=60 s，`sqrt(mean_t ‖(p̂_{t+Δ}−p̂_t) − (p_{t+Δ}−p_t)‖²)`；序列短于 60 s 时取全长并按 60/时长线性缩放 |
+| RTE | RoNIN 定义：Δ=60 s，`sqrt(mean_t ‖(p̂_{t+Δ}−p̂_t) − (p_{t+Δ}−p_t)‖²)`；没有相距 Δ 的有效样本对时取首末有效样本并按 60/**有效跨度**线性换算，并输出 `rte_scaled` 与 `valid_span_s` |
 | T-RTE@τ | 同上，τ ∈ {1 s, 10 s}（可配） |
 | D-RTE@d | 参考轨迹每走过 d 米（默认 10 m）的相对位移误差 RMSE |
 | Drift / PDE | `‖p̂_N − p_N‖ / L_ref × 100%` |

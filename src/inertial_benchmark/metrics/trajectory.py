@@ -87,32 +87,56 @@ def ate_aligned(pred: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray] = 
     return ate(align_trajectory(pred, gt, valid, dims), gt, valid, dims)
 
 
-def rte(pred: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray] = None, rate: float = 200.0,
-        delta: float = 60.0, dims: int = 2) -> float:
-    """RoNIN 定义的相对轨迹误差。
+def valid_span(valid: np.ndarray, rate: float = 200.0) -> float:
+    """有效跨度（秒）：首个与末个有效样本之间的时长（中间的缺口计入跨度）。"""
+    idx = np.flatnonzero(np.asarray(valid, bool))
+    return float((idx[-1] - idx[0]) / rate) if len(idx) >= 2 else 0.0
 
-    ``Δ = round(delta·rate)`` 个样本；对所有两端均有效的 ``(i, i+Δ)``：
-    ``sqrt(mean ‖(p̂_{i+Δ}−p̂_i) − (p_{i+Δ}−p_i)‖²)``。序列时长短于 ``delta`` 时，
-    取首末有效样本这一对，并按 ``delta / 实际跨度`` 线性放大。
+
+def relative_error(pred: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray] = None,
+                   rate: float = 200.0, delta: float = 60.0, dims: int = 2) -> dict:
+    """RoNIN 定义的相对轨迹误差，返回 ``{"value", "scaled", "span_s", "pairs"}``。
+
+    ``Δ = round(delta·rate)``：
+
+    1. 只要存在两端均有效的 ``(i, i+Δ)`` 对，就对**全部**这样的对求
+       ``sqrt(mean ‖(p̂_{i+Δ}−p̂_i) − (p_{i+Δ}−p_i)‖²)``，``scaled = 0``；
+    2. 否则（**有效跨度**不足 ``delta``，或缺口把序列切成的片段都短于 ``delta``）取首末有效样本
+       这一对，按 ``delta / 有效跨度`` 线性换算，``scaled = 1``；
+    3. 有效样本少于 2 个或跨度为 0 时为 ``NaN``。
+
+    统一按“有效跨度”而不是“样本数”决定是否换算：否则 70 s 序列因为有效跨度不足 60 s 而得到 ``NaN``、
+    40 s 序列却按比例放大给出数值，聚合时就会产生选择偏差（长序列里最难的那些被悄悄剔除）。
     """
     pred, gt, valid = _prep(pred, gt, valid, dims)
     n = len(gt)
     d = int(round(delta * rate))
     idx = np.flatnonzero(valid)
+    out = {"value": NAN, "scaled": NAN, "span_s": valid_span(valid, rate), "pairs": 0}
     if len(idx) < 2 or d < 1:
-        return NAN
-    if n - 1 < d:
-        i0, i1 = idx[0], idx[-1]
-        err = (pred[i1] - pred[i0]) - (gt[i1] - gt[i0])
-        return float(np.linalg.norm(err) * delta / ((i1 - i0) / rate))
-    i = np.arange(0, n - d)
-    j = i + d
-    ok = valid[i] & valid[j]
-    if not ok.any():
-        return NAN
-    i, j = i[ok], j[ok]
-    err = (pred[j] - pred[i]) - (gt[j] - gt[i])
-    return float(np.sqrt(np.mean(np.sum(err**2, axis=1))))
+        return out
+    if n > d:
+        i = np.arange(0, n - d)
+        j = i + d
+        ok = valid[i] & valid[j]
+        if ok.any():
+            i, j = i[ok], j[ok]
+            err = (pred[j] - pred[i]) - (gt[j] - gt[i])
+            out.update(value=float(np.sqrt(np.mean(np.sum(err**2, axis=1)))), scaled=0.0,
+                       pairs=int(len(i)))
+            return out
+    if out["span_s"] <= 0:
+        return out
+    i0, i1 = int(idx[0]), int(idx[-1])
+    err = (pred[i1] - pred[i0]) - (gt[i1] - gt[i0])
+    out.update(value=float(np.linalg.norm(err) * delta / out["span_s"]), scaled=1.0, pairs=1)
+    return out
+
+
+def rte(pred: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray] = None, rate: float = 200.0,
+        delta: float = 60.0, dims: int = 2) -> float:
+    """:func:`relative_error` 的数值部分（换算标记与有效跨度见该函数）。"""
+    return relative_error(pred, gt, valid, rate, delta, dims)["value"]
 
 
 def cumulative_distance(gt: np.ndarray, valid: np.ndarray, rate: float,
@@ -135,14 +159,19 @@ def d_rte(pred: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray] = None,
 
     起点沿参考路径每 ``start_step`` 米取一个（避免静止段重复计数）；终点为累计距离首次
     达到 ``起点 + distance`` 的样本；两端都必须有效。
+
+    累计距离在首个有效样本之前恒为 0，所以索引一律从首个有效样本开始搜索：否则序列开头无效时
+    ``k = 0`` 的起点会落在样本 0（无效）上而被整段丢弃。
     """
     pred, gt, valid = _prep(pred, gt, valid, dims)
     s = cumulative_distance(gt, valid, rate)
-    if s[-1] < distance:
+    first = np.flatnonzero(valid)
+    if len(first) == 0 or s[-1] < distance:
         return NAN
+    start = int(first[0])
     marks = np.arange(0.0, s[-1] - distance + 1e-9, start_step)
-    i = np.searchsorted(s, marks, side="left")
-    j = np.searchsorted(s, s[i] + distance, side="left")
+    i = start + np.searchsorted(s[start:], marks, side="left")
+    j = start + np.searchsorted(s[start:], s[i] + distance, side="left")
     ok = (j < len(s))
     i, j = i[ok], j[ok]
     ok = valid[i] & valid[j]
@@ -202,14 +231,23 @@ def trajectory_metrics(
     t_rte: Iterable[float] = (1.0, 10.0),
     d_rte_distance: Iterable[float] = (10.0,),
 ) -> dict:
-    """一次计算全部轨迹级指标，返回 ``{name: value}``。"""
+    """一次计算全部轨迹级指标，返回 ``{name: value}``。
+
+    RTE 系指标另附 ``*_scaled``（该序列的值是否按有效跨度线性换算，见 :func:`relative_error`）与
+    ``valid_span_s``（有效跨度，秒），使聚合结果里“换算过的序列占多少”可见。
+    """
+    main = relative_error(pred, gt, valid, rate, rte_delta, dims)
     out = {
         "ate": ate(pred, gt, valid, dims),
         "ate_aligned": ate_aligned(pred, gt, valid, dims),
-        "rte": rte(pred, gt, valid, rate, rte_delta, dims),
+        "rte": main["value"],
+        "rte_scaled": main["scaled"],
+        "valid_span_s": main["span_s"],
     }
     for tau in t_rte:
-        out[f"t_rte_{tau:g}s"] = rte(pred, gt, valid, rate, tau, dims)
+        detail = relative_error(pred, gt, valid, rate, tau, dims)
+        out[f"t_rte_{tau:g}s"] = detail["value"]
+        out[f"t_rte_{tau:g}s_scaled"] = detail["scaled"]
     for dist in d_rte_distance:
         out[f"d_rte_{dist:g}m"] = d_rte(pred, gt, valid, rate, dist, dims)
     out["pde"] = drift(pred, gt, valid, rate, dims)

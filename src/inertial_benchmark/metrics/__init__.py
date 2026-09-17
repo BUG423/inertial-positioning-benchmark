@@ -18,8 +18,10 @@ from .trajectory import (
     drift,
     length_ratios,
     path_length,
+    relative_error,
     rte,
     trajectory_metrics,
+    valid_span,
 )
 from .velocity import angle_between, window_metrics
 
@@ -28,6 +30,8 @@ METRIC_INFO = {
     "ate": ("ATE", "m", True),
     "ate_aligned": ("ATE (aligned)", "m", True),
     "rte": ("RTE", "m", True),
+    "rte_scaled": ("RTE scaled", "", None),  # 该序列的 RTE 是否按有效跨度换算（聚合后=换算比例）
+    "valid_span_s": ("Valid span", "s", None),
     "t_rte_1s": ("T-RTE@1s", "m", True),
     "t_rte_10s": ("T-RTE@10s", "m", True),
     "d_rte_10m": ("D-RTE@10m", "m", True),
@@ -106,8 +110,10 @@ __all__ = [
     "fitness_keys",
     "length_ratios",
     "path_length",
+    "relative_error",
     "rte",
     "sequence_metrics",
     "trajectory_metrics",
+    "valid_span",
     "window_metrics",
 ]
