@@ -14,6 +14,13 @@ from inertial_benchmark.data.convert import convert_dataset  # noqa: E402
 from inertial_benchmark.data.views import SequenceView, ViewConfig  # noqa: E402
 from inertial_benchmark.engine import Predictor, RunResult, SequenceResult, Trainer  # noqa: E402
 from inertial_benchmark.engine import trainer as trainer_module  # noqa: E402
+from inertial_benchmark.engine.benchmark import run_benchmark  # noqa: E402
+from inertial_benchmark.engine.budget import (  # noqa: E402
+    budget_epochs,
+    count_train_windows,
+    is_sequence_model,
+    resolve_budget,
+)
 from inertial_benchmark.engine.predictor import (  # noqa: E402
     fill_invalid_windows,
     integrate,
@@ -852,3 +859,151 @@ def test_trainer_lazy_val_does_not_cache_sequences(dataset, tmp_path):
     assert all(isinstance(s, SequenceView) for s in cached.val_sources)
     # 惰性与缓存路径必须给出完全相同的指标
     assert cached_metrics["ate"] == pytest.approx(metrics["ate"], rel=1e-9)
+
+
+def test_budget_epochs_arithmetic_and_bounds():
+    """等窗口预算的换算：向上取整，下界 1 轮，上界 ``budget_max_epochs``。"""
+    assert budget_epochs(900, 300) == 3            # 整除
+    assert budget_epochs(901, 300) == 4            # 向上取整：预算不足一轮也要跑完那一轮
+    assert budget_epochs(1, 10**6) == 1            # 下界：至少一轮
+    assert budget_epochs(10**9, 10, max_epochs=200) == 200   # 上界
+    assert budget_epochs(10**9, 10, max_epochs=7) == 7
+    for bad in ({"budget": 0}, {"budget": -1}):
+        with pytest.raises(ValueError, match="train_windows_budget must be > 0"):
+            budget_epochs(windows_per_epoch=10, **bad)
+    with pytest.raises(ValueError, match="windows_per_epoch must be > 0"):
+        budget_epochs(100, 0)
+    with pytest.raises(ValueError, match="budget_max_epochs must be >= 1"):
+        budget_epochs(100, 10, max_epochs=0)
+    # resolve_budget 记录换算过程；预算为 0 表示关闭
+    info = resolve_budget({"train_windows_budget": 1000, "budget_max_epochs": 3}, 300)
+    assert info == {"train_windows_budget": 1000, "windows_per_epoch": 300,
+                    "epochs_uncapped": 4, "epochs": 3, "budget_max_epochs": 3,
+                    "planned_windows": 900}
+    assert resolve_budget({"train_windows_budget": 0, "budget_max_epochs": 3}, 300) is None
+
+
+def test_train_windows_budget_equalises_the_budget_across_dataset_sizes(tmp_path):
+    """两个规模不同的数据集在同一预算下得到不同的 epoch 数，但看过的窗口数相当。
+
+    这正是等窗口预算要解决的问题：按固定 epoch 数跑，大数据集会吃掉全部算力。
+    """
+    small = make_dataset(tmp_path / "small", n_train=4, duration=6.0)
+    big = make_dataset(tmp_path / "big", n_train=4, duration=24.0)
+    budget = 3000
+    seen = {}
+    for name, data in (("small", small), ("big", big)):
+        over = {**TINY, "data": str(data), "train_windows_budget": budget,
+                "budget_max_epochs": 200, "project": str(tmp_path), "name": name,
+                "save_predictions": False}
+        trainer = Trainer(overrides=over)
+        trainer.train()
+        windows = len(trainer.train_set)
+        info = json.loads((tmp_path / "train" / name / "metrics.json").read_text())
+        gap = info["train_budget"]
+        assert gap["windows_per_epoch"] == windows
+        assert gap["epochs"] == math.ceil(budget / windows) == trainer.args.epochs
+        assert gap["planned_windows"] == gap["epochs"] * windows >= budget
+        # 换算结果必须落在 args.yaml 里（审计：这个 run 到底跑了几轮）
+        assert yaml_load(tmp_path / "train" / name / "args.yaml")["epochs"] == gap["epochs"]
+        seen[name] = gap
+    assert seen["big"]["windows_per_epoch"] > seen["small"]["windows_per_epoch"]
+    assert seen["big"]["epochs"] < seen["small"]["epochs"]
+    # 两个数据集看过的窗口数都在预算的一轮误差内（这才叫“等预算”）
+    for gap in seen.values():
+        assert budget <= gap["planned_windows"] < budget + gap["windows_per_epoch"]
+
+
+def test_train_windows_budget_respects_the_epoch_cap(dataset, tmp_path, caplog):
+    """预算需要的轮数超过 ``budget_max_epochs`` 时截断，并记下未截断的轮数与告警。"""
+    over = {**TINY, "data": str(dataset), "train_windows_budget": 10**9,
+            "budget_max_epochs": 1, "project": str(tmp_path), "name": "cap",
+            "save_predictions": False}
+    with caplog.at_level("WARNING", logger=LOGGER.name):
+        trainer = Trainer(overrides=over)
+        trainer.train()
+    assert trainer.args.epochs == 1
+    gap = json.loads((tmp_path / "train" / "cap" / "metrics.json").read_text())["train_budget"]
+    assert gap["epochs"] == 1 and gap["epochs_uncapped"] > 1
+    assert gap["planned_windows"] < gap["train_windows_budget"]
+    assert any("budget_max_epochs=1 caps it" in r.message for r in caplog.records)
+    # 预算关闭（缺省 0）时 epochs 原样生效，metrics.json 的 train_budget 为空
+    plain = Trainer(overrides={**TINY, "data": str(dataset), "epochs": 1,
+                               "project": str(tmp_path), "name": "plain",
+                               "save_predictions": False})
+    plain.train()
+    meta = json.loads((tmp_path / "train" / "plain" / "metrics.json").read_text())
+    assert plain.args.epochs == 1 and meta["train_budget"] == {} and meta["epochs"] == 1
+
+
+def test_count_train_windows_matches_the_training_dataset(dataset):
+    """规划用的窗口计数必须与训练时实际构建的数据集一致（否则 dry_run 的轮数是假的）。"""
+    cfg = get_cfg({**TINY, "data": str(dataset), "train_windows_budget": 5000})
+    trainer = Trainer(cfg=cfg)
+    trainer.setup()
+    try:
+        assert count_train_windows(cfg) == len(trainer.train_set)
+        assert trainer.args.epochs == budget_epochs(5000, len(trainer.train_set), 200)
+    finally:
+        trainer._close_log()
+
+
+def test_sequence_models_ignore_the_window_budget(dataset, tmp_path):
+    """序列级模型只在 train 划分上标定一次，不适用等窗口预算（epochs 不被改写）。"""
+    @register_model("test_budget_sequence_model")
+    class Calib(SequenceModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.gain = torch.nn.Parameter(torch.ones(1))
+
+        def calibrate(self, views, split="train"):
+            return {"sequences": len(views)}
+
+        def predict_sequence(self, seq, view, starts):
+            return view.target_times(starts), view.targets(starts)
+
+    try:
+        model = {"name": "calib", "arch": "test_budget_sequence_model"}
+        assert is_sequence_model(model) and not is_sequence_model("ronin_resnet18")
+        over = {**{k: v for k, v in TINY.items() if k not in ("model", "model_args")},
+                "model": model,
+                "data": str(dataset), "epochs": 1, "train_windows_budget": 10**9,
+                "project": str(tmp_path), "name": "seqmodel", "save_predictions": False}
+        trainer = Trainer(overrides=over)
+        trainer.train()
+        assert trainer.args.epochs == 1 and trainer.budget == {}
+        meta = json.loads((tmp_path / "train" / "seqmodel" / "metrics.json").read_text())
+        assert meta["train_budget"] == {}
+    finally:
+        MODELS.pop("test_budget_sequence_model")
+
+
+def test_benchmark_dry_run_plans_epochs_per_dataset(dataset, tmp_path):
+    """``dry_run`` 必须在开跑之前给出每个 run 的 epoch 数，并且只计划 ``splits`` 指定的划分。"""
+    plan = {"name": "b", "project": str(tmp_path), "models": ["ronin_resnet18"],
+            "datasets": [str(dataset)], "seeds": [0], "splits": ["val"], "report": False,
+            "overrides": {**TINY, "train_windows_budget": 5000, "budget_max_epochs": 200}}
+    statuses = run_benchmark(plan, dry_run=True)
+    assert len(statuses) == 1
+    windows = count_train_windows(get_cfg({**TINY, "data": str(dataset)}))
+    assert statuses[0]["epochs"] == budget_epochs(5000, windows, 200)
+    assert statuses[0]["train_budget"]["windows_per_epoch"] == windows
+    assert statuses[0]["splits"] == ["val"]   # 诚实协议：矩阵不计划 test
+
+
+def test_benchmark_can_continue_after_a_failed_run(dataset, tmp_path):
+    """``continue_on_error`` 让长跑矩阵不被一个坏组合拖垮，失败项进 benchmark.json。"""
+    plan = {"name": "c", "project": str(tmp_path), "models": ["ronin_resnet18"],
+            "datasets": [str(dataset), str(tmp_path / "missing")], "seeds": [0],
+            "splits": ["val"], "report": False, "continue_on_error": True,
+            "overrides": {**TINY, "epochs": 1, "save_predictions": False}}
+    statuses = run_benchmark(plan)
+    assert [s["train"] for s in statuses] == ["trained", "failed"]
+    assert statuses[0]["epochs"] == 1 and statuses[0]["fitness"] == "mean ate"
+    assert statuses[0]["val_fitness"] > 0 and statuses[0]["test"] is False
+    assert statuses[0]["splits"] == {"val": "evaluated"}
+    assert "error" in statuses[1]
+    saved = json.loads((tmp_path / "c" / "benchmark.json").read_text())["runs"]
+    assert len(saved) == 2 and saved[1]["error"] == statuses[1]["error"]
+    with pytest.raises(FileNotFoundError):   # 缺省仍然直接抛出，不静默跳过
+        run_benchmark({**plan, "name": "d", "continue_on_error": False})

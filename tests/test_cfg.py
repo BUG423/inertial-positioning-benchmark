@@ -197,3 +197,16 @@ def test_model_yamls_resolve():
         load_model_cfg("not_a_model")
     with pytest.raises(ConfigError, match="required"):
         load_model_cfg(None)
+
+
+def test_window_budget_keys_are_validated():
+    """等窗口预算的两个键在解析时就校验：负预算与 0 上限都是配置错误。"""
+    assert get_cfg({"train_windows_budget": 0}).train_windows_budget == 0        # 0 = 关闭
+    assert get_cfg({"train_windows_budget": 3.2e7}).train_windows_budget == 32000000
+    assert get_cfg({"budget_max_epochs": 400}).budget_max_epochs == 400
+    with pytest.raises(ConfigError, match="train_windows_budget must be >= 0"):
+        get_cfg({"train_windows_budget": -1})
+    with pytest.raises(ConfigError, match="budget_max_epochs must be >= 1"):
+        get_cfg({"budget_max_epochs": 0})
+    with pytest.raises(ConfigError, match="not allowed"):
+        get_cfg({"train_windows_budget": None})

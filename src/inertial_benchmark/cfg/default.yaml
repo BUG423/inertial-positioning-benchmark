@@ -14,6 +14,8 @@ resume: false          # true（续训 <project>/train/<name>/weights/last.pt）
 
 # ---------------------------------------------------------------- 训练
 epochs: 100
+train_windows_budget: 0  # >0 时启用“等窗口预算”：epochs = clip(ceil(预算 / 每轮训练窗口数), 1, budget_max_epochs)
+budget_max_epochs: 200   # 等窗口预算换算出的 epoch 上限（下界固定为 1）
 batch: 128
 lr: 0.001
 optimizer: adamw       # sgd / adam / adamw

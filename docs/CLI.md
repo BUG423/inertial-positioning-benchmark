@@ -119,7 +119,7 @@ ipb benchmark cfg=benchmarks/my.yaml device=0            # 自定义 YAML；其�
 ```
 
 `cfg` 为 YAML 路径；路径不存在时按文件名在 `cfg/benchmarks/` 中查找（`cfg=main` 即内置主基准：
-`ronin_resnet18` × 八个核心数据集 × 种子 0/1/2）。
+`ronin_resnet18` × 八个核心数据集 × 种子 0/1/2；`cfg=batchA` 见下）。
 
 ```yaml
 name: main
@@ -129,13 +129,52 @@ models:
   - {label: ronin_official, model: ronin_resnet18, overrides: {recipe: official, epochs: 100}}
 datasets: [ronin, ridi, {data: /data/ipb/oxiod, overrides: {batch: 256}}]
 seeds: [0, 1, 2]
-splits:                            # 缺省为数据集 YAML 的 test_splits
-overrides: {epochs: 100, device: 0}
+splits:                            # 缺省为数据集 YAML 的 test_splits；[val] = 只评 val
+overrides: {train_windows_budget: 3.2e+7, device: 0}
 report: true                       # 结束后汇总到 <project>/<name>/report
+continue_on_error: false           # true 时单项失败只记录进 benchmark.json 并继续
 ```
 
 完成标志为 `train/metrics.json` 与 `<split>/metrics.json`：重复运行会跳过已完成项；训练中断（有 `last.pt` 无 `metrics.json`）会自动续训；
 数据集缺少某个测试子集时跳过并告警。进度写入 `<project>/<name>/benchmark.json`。
+命令行的 `project=<dir>` 会覆盖 YAML 里的输出根目录（同一份矩阵可以写到别的盘而不改配置）。
+
+每个 run 的开始与结束各写一行结构化日志，便于 `grep` 与自动监控：
+
+```text
+benchmark run start: {"i": 3, "n": 36, "model": "tlio", "dataset": "rnin", "seed": 0, "dir": ...}
+benchmark run done:  {"i": 3, ..., "train": "trained", "epochs": 69, "seconds": 8123.4,
+                      "fitness": "median ate", "val_fitness": 3.41, "test": false,
+                      "splits": {"val": "evaluated"}}
+```
+
+`dry_run=true` 只打印计划，并且**已经给出每个 run 的 epoch 数**（等窗口预算按 train 划分的窗口
+数换算；惰性读取掩码，不载入序列）：
+
+```text
+benchmark run planned: {"i": 1, "n": 36, "model": "ronin_resnet18", "dataset": "ridi",
+                        "seed": 0, "epochs": 334, "splits": ["val"]}
+```
+
+`continue_on_error: true`（或命令行 `continue_on_error=true`）时单个组合失败不终止矩阵：状态里
+带 `error`，写进 `benchmark.json`，命令最终以退出码 `1` 结束。
+
+#### 内置 `batchA`
+
+`cfg/benchmarks/batchA.yaml`：十个学习型算法 + 两个经典基线 × `ridi` / `imunet` / `rnin` × 种子 0，
+`recipe: unified`、`fitness=ate` + `fitness_stat=median`、`amp=false`、`deterministic=true`、
+`train_windows_budget=3.2e7`（`budget_max_epochs=400`），`splits: [val]` —— **只评 val**，遵守
+DESIGN 第 6 节的诚实协议。
+
+```bash
+CUDA_VISIBLE_DEVICES=2 CUDA_DEVICE_ORDER=PCI_BUS_ID ipb benchmark cfg=batchA   # 启动/续跑
+ipb benchmark cfg=batchA dry_run=true                                          # 只看计划
+ipb report runs=<project>/batchA out=<project>/batchA/report                    # 部分完成即可汇总
+```
+
+最终一次性评 test（**需先确认**）：复制 `batchA.yaml`、保留同一个 `name` 与 `project`、删掉
+`splits`（改用各数据集 YAML 的 `test_splits`），再跑同一条命令——训练目录已有 `metrics.json`，
+训练会被跳过，只做一次 test 评测。
 
 加入经典基线作为下界参照（`pdr` / `mean_speed_heading`，见 [ALGORITHMS.md](ALGORITHMS.md) §3）：
 
@@ -208,7 +247,9 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `pretrained` | `（空）` | 仅加载模型权重的 checkpoint |
 | `resume` | `false` | true（续训 <project>/train/<name>/weights/last.pt）或 last.pt 路径 |
 | **训练** | | |
-| `epochs` | `100` |  |
+| `epochs` | `100` | `train_windows_budget > 0` 时由框架改写，见第 4.4 节 |
+| `train_windows_budget` | `0` | >0 时启用等窗口预算：固定“看过的训练窗口总数”，框架据此算 `epochs`（0 = 关闭） |
+| `budget_max_epochs` | `200` | 等窗口预算换算出的 epoch 上限（下界固定为 1） |
 | `batch` | `128` |  |
 | `lr` | `0.001` |  |
 | `optimizer` | `adamw` | sgd / adam / adamw |
@@ -311,6 +352,44 @@ ipb train data=ridi fitness=ate fitness_stat=median   # 逐序列 ATE 的中位�
 - `loss` 是按窗口数加权的窗口级损失，`fitness_stat=median` 对它没有额外意义（仍按均值字典取值）；
 - `results.csv` 的**列集合固定**，不随这两个键变化：每轮只写一列 `fitness`（本轮用于选模的标量），
   其含义由 `args.yaml` 里记录的 `fitness` / `fitness_stat` 决定——这样跨 run 汇总不会错位。
+
+### 4.4 `train_windows_budget`：等窗口预算
+
+固定 epoch 数在规模差一个数量级的数据集之间不是等算力预算。实测每轮训练窗口数
+（`window=200`、`stride=10`、只算窗口内全部样本有效的窗口）：
+
+| 数据集 | train 划分时长 | 每轮训练窗口数 |
+|---|---:|---:|
+| RIDI | 1.35 h | 96 084 |
+| IMUNet | 4.84 h | 346 977 |
+| RNIN | 6.59 h | 470 135 |
+| PedLocData | 约 89 h（全集） | 百万级 |
+
+按固定 `epochs` 跑，算力就按数据集大小分配；`train_windows_budget` 改为固定**每个 run 看过的
+训练窗口总数** `B`，epoch 数由框架计算：
+
+```text
+epochs = clip(ceil(B / 每轮训练窗口数), 1, budget_max_epochs)
+```
+
+```bash
+ipb train model=ronin_resnet18 data=ridi   train_windows_budget=3.2e+7   # → 334 轮
+ipb train model=ronin_resnet18 data=rnin   train_windows_budget=3.2e+7   # → 69 轮
+```
+
+- “每轮训练窗口数”即日志里 `train: <n> windows` 的数字（`len(train_set)`，窗口内含无效样本的
+  窗口已被剔除）；换算发生在 `Trainer.setup()` 里、写 `args.yaml` 之前，因此 `args.yaml` 的
+  `epochs` 就是实际跑的轮数，`metrics.json` 的 `train_budget` 块另记
+  `{train_windows_budget, windows_per_epoch, epochs_uncapped, epochs, budget_max_epochs,
+  planned_windows}`，可以审计“这个 run 到底看过多少窗口”。
+- 上限被触发（`epochs < epochs_uncapped`）时告警，`planned_windows` 会小于预算——此时这个 run
+  **没有**用完预算，跨数据集不再等预算，必须调大 `budget_max_epochs` 或在报告中说明。
+- 这是**配置层**能力：模型 YAML 不得为此硬编码 `epochs`（`official` 配方里的 `epochs` 是论文
+  超参数，与本键无关；同时给出两者时 `train_windows_budget` 优先）。
+- 序列级模型（`pdr`、`mean_speed_heading` 等 `SequenceModel`）只在 train 划分上标定一次，
+  不适用等窗口预算：框架记录一条 info 并保留配方里的 `epochs`。
+- `patience`（早停）照常生效：预算给出的是**上界**，实际轮数以 `results.csv` 为准。
+- YAML 里写科学计数法要带指数符号（`3.2e+7`）；PyYAML 会把 `3.2e7` 当字符串。
 
 ### 4.2 `train_eval_gap`：train/eval 失配诊断
 

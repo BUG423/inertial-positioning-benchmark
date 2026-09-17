@@ -135,9 +135,16 @@ def cmd_benchmark(kv: dict) -> int:
     cfg = kv.pop("cfg")
     dry_run = bool(kv.pop("dry_run", False))
     report = kv.pop("report", None)
-    statuses = run_benchmark(cfg, overrides=kv, dry_run=dry_run, report=report)
+    tolerate = kv.pop("continue_on_error", None)
+    statuses = run_benchmark(cfg, overrides=kv, dry_run=dry_run, report=report,
+                             continue_on_error=None if tolerate is None else bool(tolerate))
     for s in statuses:
         LOGGER.info(json.dumps(to_builtin(s), ensure_ascii=False))
+    failed = [s for s in statuses if s.get("error")]
+    if failed:
+        LOGGER.error(f"benchmark: {len(failed)}/{len(statuses)} runs failed: "
+                     + ", ".join(f"{s.get('label')}x{s.get('data')}" for s in failed))
+        return 1
     return 0
 
 

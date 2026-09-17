@@ -1,0 +1,67 @@
+# IPB v1 batch A：十个学习型算法 + 两个经典基线 × 三个最便宜的数据集 × 单种子，统一配方。
+#
+# 用法（本机，只用 GPU2；完整启动命令见 ipb-runs/benchmark/batchA/README.txt）：
+#   CUDA_VISIBLE_DEVICES=2 CUDA_DEVICE_ORDER=PCI_BUS_ID ipb benchmark cfg=batchA
+#   ipb benchmark cfg=batchA dry_run=true        # 只打印计划（run 数与逐数据集 epoch 数）
+#   ipb report runs=<project>/batchA out=<project>/batchA/report    # 部分完成即可汇总
+#
+# 设计取舍（口径必须随结果一起报告，见 docs/DESIGN.md 第 4 节）：
+#
+# * **数据集**：ridi / imunet / rnin 是八个核心数据集里最便宜且信息量最高的三个
+#   （2.7 h / 7.9 h / 8.5 h；分别覆盖“同设备 VIO 参考 + 四种携带方式”“ARCore/Tango 参考”
+#   “混合参考 + 非均匀源采样率”）。ronin / tlio / oxiod / idol / pedlocdata 留给第二批。
+# * **单种子**：先用 seed 0 出主表；多种子（0/1/2）的方差估计留给第二批，届时 ipb report
+#   会给出种子间标准差。
+# * **等窗口预算**：固定“看过的训练窗口总数”而不是 epoch 数——三个数据集每轮的训练窗口数
+#   差 5 倍（ridi ≈ 9.7e4、imunet ≈ 3.5e5、rnin ≈ 4.7e5），按固定 epoch 数跑等于把算力
+#   按数据集大小分配。框架按 ceil(预算 / 每轮窗口数) 换算 epoch 数并写入 args.yaml 与
+#   metrics.json 的 train_budget 块（见 src/inertial_benchmark/engine/budget.py）。
+#   budget_max_epochs 取 400 而不是缺省的 200：ridi 需要约 331 轮才能用完 3.2e7 的预算，
+#   200 的上限会把它截到 1.9e7，反而破坏“等预算”。
+# * **fitness=ate + fitness_stat=median**：RIDI 自动生成的 val 只有 1 名受试者、6 条序列，
+#   其中两条的携带方式在 train 中不存在，误差远高于其余序列——均值几乎由这两条决定，
+#   选模信号很噪。逐序列中位数不受少数极端序列主导，在这种偏斜 val 上更稳（docs/CLI.md §4.3）。
+#   三个数据集用同一个选模口径，不逐数据集挑。
+# * **amp=false / deterministic=true**：可复现优先于吞吐，且 deterministic+amp 是四种组合里
+#   最慢的一种（docs/CLI.md §4.1）。两者都与 default.yaml 一致，这里显式写出以便审计。
+# * **诚实协议**：splits 显式写成 [val]，矩阵只评 val，不碰 test。最终一次性评 test 的做法见
+#   README.txt（复制本文件、去掉 splits 即按各数据集 YAML 的 test_splits 评测；训练会被跳过）。
+name: batchA
+project: /workspace/webCodex/ipb-runs/benchmark   # 本机运行输出根目录（不写进仓库）；可用 project=<dir> 覆盖
+datasets: [ridi, imunet, rnin]
+seeds: [0]
+splits: [val]            # 只评 val（诚实协议）；缺省会按数据集 YAML 的 test_splits 评 test
+report: false            # 用 `ipb report` 手动汇总，矩阵部分完成时也能出表
+continue_on_error: true  # 单个组合失败只记录进 benchmark.json 并继续，不拖垮整个矩阵
+models:
+  - ronin_resnet18
+  - tlio
+  - imunet
+  - imunet_mobilenetv2
+  - deepils
+  - eqnio_ronin
+  - llio
+  - tinyodom
+  - rio
+  - ionet
+  # 两个经典基线（下界参照，见 docs/ALGORITHMS.md §3）。前提检查：pdr 与
+  # mean_speed_heading 需要 (a) 已知机体系的前向轴，(b) 视图能取到姿态。ridi / imunet / rnin
+  # 三个数据集的全部序列都是 body_frame=android_device（内置于 BODY_AXES），且 100% 提供
+  # imu/orientation，因此两个前提在三个数据集上都成立，基线放在全部三个数据集上。
+  # 这里用 orientation=reference（模型 YAML 缺省为 device）：batchA 的十个学习型算法全部用
+  # 参考姿态把 IMU 旋到世界系，基线用同一种姿态输入才是同信息量的下界；设备姿态变体
+  # （pdr_device / mean_speed_heading_device）留给第二批。
+  - {label: pdr, model: pdr, overrides: {orientation: reference}}
+  - {label: mean_speed_heading, model: mean_speed_heading, overrides: {orientation: reference}}
+overrides:
+  recipe: unified
+  train_windows_budget: 32000000  # = 3.2e7； 每个 run 看过的训练窗口总数（序列级基线不适用，只标定一次）
+  budget_max_epochs: 400
+  fitness: ate
+  fitness_stat: median
+  amp: false
+  deterministic: true
+  device: 0                     # 配合 CUDA_VISIBLE_DEVICES=2：只用 GPU2
+  workers: 8
+  save_predictions: false       # val 的逐序列 npz 在最终 test 评测时再存，矩阵阶段省磁盘
+  plots: false

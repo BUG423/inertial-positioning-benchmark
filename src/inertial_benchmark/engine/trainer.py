@@ -37,6 +37,7 @@ from ..utils.torch_utils import (
     seed_everything,
     select_device,
 )
+from .budget import log_budget, resolve_budget
 from .predictor import load_model
 from .validator import Validator
 
@@ -80,6 +81,7 @@ class Trainer:
         self.start_epoch = 0
         self.model = None
         self.sequence_model = False
+        self.budget: dict = {}
         self.stopper = EarlyStopping(int(self.args.patience))
 
     # ------------------------------------------------------------------ 准备
@@ -129,6 +131,7 @@ class Trainer:
 
         self.model = load_model(a, self.device)
         self.sequence_model = isinstance(de_parallel(self.model), SequenceModel)
+        self.resolve_epoch_budget()
         info = model_info(self.model, self.model.input_spec.window, flops=False)
         LOGGER.info(f"model {self.model.model_cfg.get('name')} "
                     f"({type(self.model).__name__}): {info['parameters']:,} parameters, "
@@ -145,6 +148,24 @@ class Trainer:
         self.env = collect_env(self.device, self.spec)
         json_save(self.save_dir / "env.json", self.env)
         run_callbacks(self.callbacks, "on_pretrain_routine_end", self)
+
+    def resolve_epoch_budget(self) -> None:
+        """等窗口预算：把 ``train_windows_budget`` 换算成本数据集的 ``epochs``（见 ``budget.py``）。
+
+        必须在 ``build_scheduler`` 之前调用（cosine 调度按 ``epochs`` 铺开），并在写出
+        ``args.yaml`` 之前完成，使换算结果对审计可见。序列级模型只做一次标定，跳过。
+        """
+        a = self.args
+        if not int(a.train_windows_budget or 0):
+            return
+        if self.sequence_model:
+            LOGGER.info("train_windows_budget: ignored for sequence models "
+                        "(they calibrate once instead of running gradient epochs)")
+            return
+        self.budget = resolve_budget(a, len(self.train_set)) or {}
+        if self.budget:
+            log_budget(self.spec.name, self.budget)
+            a.epochs = int(self.budget["epochs"])
 
     def _load_resume_state(self) -> None:
         ckpt = load_checkpoint(self.resume_ckpt, map_location=self.device)
@@ -480,7 +501,8 @@ class Trainer:
             result.efficiency = self.validator.efficiency(self.model, self.device)
         result.cfg = self.args.to_dict()
         payload = result.to_dict()
-        payload.update(mode="train", best_epoch=int(ckpt["epoch"]), last_epoch=epoch)
+        payload.update(mode="train", best_epoch=int(ckpt["epoch"]), last_epoch=epoch,
+                       epochs=int(self.args.epochs), train_budget=self.budget)
         try:
             payload["train_eval_gap"] = self.train_eval_gap()
         except Exception as exc:  # noqa: BLE001 - 诊断失败不影响训练结果
