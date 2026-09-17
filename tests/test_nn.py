@@ -18,7 +18,13 @@ from inertial_benchmark.nn import (  # noqa: E402
     list_models,
     register_model,
 )
-from inertial_benchmark.nn.losses import MIN_LOGSTD, MSEThenNLL  # noqa: E402
+from inertial_benchmark.nn.losses import (  # noqa: E402
+    LOSSES,
+    MIN_LOGSTD,
+    DetachedNLLThenNLL,
+    MSEThenNLL,
+    register_loss,
+)
 from inertial_benchmark.nn.modules import ResNet1DBackbone  # noqa: E402
 
 # 官方 RoNIN 仓库（Sachini/ronin@805b7f0）get_model() 在 window=200 下的参数量，
@@ -163,3 +169,55 @@ def test_mse_then_nll_schedule():
     assert loss_fn.stage(1) == "mse" and loss_fn.stage(2) == "nll"
     with pytest.raises(ValueError, match="unknown loss"):
         build_loss("huber")
+
+
+def test_sum_and_l1_losses():
+    out = {"vel": torch.tensor([[1.0, 2.0], [0.0, -1.0]])}
+    target = torch.zeros(2, 2)
+    loss, items = build_loss("mse_sum")(out, target)
+    assert loss.item() == pytest.approx((1 + 4 + 0 + 1) / 2)  # mean_b Σ_d
+    assert items["mse"].item() == pytest.approx(6 / 4)
+    loss, items = build_loss("mse_l1")(out, target)
+    assert loss.item() == pytest.approx(6 / 4 + 4 / 4)
+    assert set(items) == {"mse", "l1"}
+    loss, _ = build_loss("mse_l1", mse_weight=0.0, l1_weight=2.0)(out, target)
+    assert loss.item() == pytest.approx(2.0)
+
+
+def test_detached_nll_schedule():
+    loss_fn = DetachedNLLThenNLL(switch_epoch=9)
+    target = torch.zeros(4, 3)
+    for epoch, logstd_grad in ((8, False), (9, True)):
+        vel = torch.ones(4, 3, requires_grad=True)
+        logstd = torch.full((4, 3), 0.3, requires_grad=True)
+        loss, items = loss_fn({"vel": vel, "logstd": logstd}, target, epoch)
+        # 两个阶段的数值相同（detach 不改变前向）
+        expected = gaussian_nll(vel, logstd, target, MIN_LOGSTD, None).item()
+        assert loss.item() == pytest.approx(expected) and set(items) == {"nll", "mse"}
+        loss.backward()
+        assert vel.grad.abs().sum() > 0
+        assert bool(logstd.grad.abs().sum() > 0) is logstd_grad
+    assert loss_fn.stage(8) == "nll_detached" and loss_fn.stage(9) == "nll"
+    # 缺省只有下限裁剪：大 logstd 不被截断
+    big = torch.full((1, 3), 10.0)
+    value, _ = loss_fn({"vel": torch.zeros(1, 3), "logstd": big}, torch.zeros(1, 3), 20)
+    assert value.item() == pytest.approx(10.0)
+    with pytest.raises(KeyError, match="logstd"):
+        loss_fn({"vel": torch.zeros(1, 3)}, torch.zeros(1, 3), 0)
+    cfg = get_cfg({"model": "ronin_resnet18", "loss": "nll_detach_then_nll",
+                   "loss_switch_epoch": 4})
+    assert build_model(cfg).loss_kwargs == {"switch_epoch": 4}
+
+
+def test_register_loss():
+    @register_loss("test_tmp_loss")
+    class Tmp:
+        def __call__(self, out, target, epoch=0):
+            return out["vel"].sum(), {}
+
+    try:
+        assert build_loss("test_tmp_loss").name == "test_tmp_loss"
+        with pytest.raises(KeyError, match="already registered"):
+            register_loss("test_tmp_loss")(type("Other", (), {}))
+    finally:
+        LOSSES.pop("test_tmp_loss")

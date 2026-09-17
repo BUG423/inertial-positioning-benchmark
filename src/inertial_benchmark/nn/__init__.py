@@ -2,7 +2,7 @@
 
 from .base import BaseModel, InputSpec
 from .heads import GaussianHead, PolarHead, VelocityHead, build_head
-from .losses import LOSSES, build_loss, gaussian_nll, mse
+from .losses import LOSSES, build_loss, gaussian_nll, mse, register_loss
 from .registry import MODELS, build_model, import_models, list_models, register_model
 
 __all__ = [
@@ -20,5 +20,6 @@ __all__ = [
     "import_models",
     "list_models",
     "mse",
+    "register_loss",
     "register_model",
 ]

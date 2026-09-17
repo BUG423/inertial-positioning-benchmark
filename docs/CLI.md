@@ -189,8 +189,8 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `plateau_patience` | `10` | plateau 调度的耐心（验证次数） |
 | `warmup_epochs` | `0` | 线性预热轮数 |
 | `grad_clip` | `0.0` | 梯度范数裁剪阈值，0 表示关闭 |
-| `loss` | `（空）` | 覆盖模型默认损失：mse / gaussian_nll / mse_then_nll |
-| `loss_switch_epoch` | `10` | mse_then_nll 从 MSE 切换到 NLL 的轮次 |
+| `loss` | `（空）` | 覆盖模型默认损失：mse / mse_sum / mse_l1 / gaussian_nll / mse_then_nll / nll_detach_then_nll |
+| `loss_switch_epoch` | `10` | mse_then_nll / nll_detach_then_nll 切换到完整 NLL 的轮次（0 起） |
 | `patience` | `30` | 早停：fitness 连续多少个 epoch 无改善即停止，0 表示关闭 |
 | `seed` | `0` |  |
 | `deterministic` | `true` |  |

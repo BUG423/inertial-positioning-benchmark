@@ -53,9 +53,11 @@ def build_model(cfg: Any, input_spec: Optional[Any] = None,
     model_cfg["args"] = args
     # 损失：用户覆盖 > 模型配置（checkpoint 中保存的是训练时实际使用的损失）
     if get("loss"):
+        from .losses import SWITCH_LOSSES
+
         loss = get("loss")
         kwargs = {"switch_epoch": int(get("loss_switch_epoch", 10))} \
-            if loss == "mse_then_nll" else {}
+            if loss in SWITCH_LOSSES else {}
     else:
         loss = model_cfg.get("loss")
         kwargs = dict(model_cfg.get("loss_kwargs") or {})

@@ -1,0 +1,53 @@
+# RIO：旋转等变自监督学习（Cao et al., "RIO: Rotation-Equivariance Supervised Learning of
+# Robust Inertial Odometry", CVPR 2022）。paper-only：没有找到公开代码，依据
+# docs/algorithms/rio.md 规格卡实现；卡中标为假设的项（GN 组数、TTT 学习率、epoch、
+# stop-gradient）都取卡片推荐默认值。骨干为 RoNIN-ResNet18，BN 全部换成 GroupNorm。
+name: rio
+arch: rio
+paper: https://arxiv.org/abs/2111.11676
+code: none (no public repository found)
+license: paper-only re-implementation; the RoNIN backbone is re-implemented in IPB (GPL-3.0 upstream)
+commit: n/a
+fidelity: paper-only
+args:                      # 论文 §3/§4：RoNIN-ResNet18 + GroupNorm
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+  gn_groups: 32            # 论文未给出，取 Wu & He 2018 的默认值
+  conjugate: true          # 训练时前向共轭旋转窗口（K=1）
+input:                     # 与 RoNIN 相同的任务视图
+  window: 200
+  frame: gravity_world
+  orientation: reference   # 论文未单列；主表用 reference，另可报告 device
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+  augment: [random_yaw, time_shift]   # RoNIN 的一致增强策略 + 随机窗口偏移
+loss: rio_joint            # 速度项（逐分量求和）+ 旋转等变自监督项（负余弦、速度门控）
+loss_kwargs:
+  ssl_weight: 1.0          # 论文两项权重 1:1
+  speed_gate: 0.5          # ‖v̂‖ ≤ 0.5 m/s 的样本辅助损失为 0
+  gate_on: pred            # 伪代码用预测速度的范数（测试时也只能如此）
+  stop_grad: false         # 论文未提 stop-gradient
+recipes:
+  official:                # 论文未给出全部超参数，按“其余与 RoNIN 完全相同”推断（未核实）
+    epochs: 10000          # 论文未给出；RoNIN 官方脚本默认值，依靠调度/人工停止
+    batch: 128             # 每个样本再加一个共轭窗口，前向实际 256
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # RoNIN 官方 ReduceLROnPlateau(factor=0.1, patience=10)
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 10
+    eval_stride: 10
+    amp: false
+    fitness: loss          # RoNIN 按 val 损失选模
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算

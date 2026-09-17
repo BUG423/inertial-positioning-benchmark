@@ -1,0 +1,47 @@
+# EqNIO（RoNIN 骨干）：O(2) 规范帧网络 + RoNIN-ResNet18（Jayanth et al., "EqNIO: Subequivariant
+# Neural Inertial Odometry", ICLR 2025）。依据 docs/algorithms/eqnio_ronin.md 规格卡独立实现。
+# 许可风险：官方仓库无 LICENSE，且派生自 GPL-3.0 的 RoNIN 代码——不得复制代码或分发权重。
+name: eqnio_ronin
+arch: eqnio_ronin
+paper: https://arxiv.org/abs/2408.06321
+code: https://github.com/RoyinaJayanth/EqNIO
+license: none (no LICENSE in the official repo); this implementation is written from the spec card
+commit: 97b7a60a5e5cc8f0132bba343c83de114211f827
+fidelity: official-code
+args:                      # arch=resnet18_eq_frame_o2：规范帧网络 hidden 64 / depth 2 / 核 32
+  hidden: 64
+  depth: 2
+  frame_kernel: 32
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+input:                     # 与 RoNIN 相同的任务视图；等变架构不需要随机偏航增强
+  window: 200
+  frame: gravity_world
+  orientation: reference   # 官方测试用设备姿态（game RV）；另可设 orientation=device 对照
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+  augment: [time_shift]    # 只有 random_shift（±step_size//2）
+recipes:
+  official:                # ronin_resnet.py + 官方权重的 config.json
+    epochs: 120            # config.json 为 120；发布的循环写死 range(start_epoch, 1)，只跑 1 轮
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=10, eps=1e-12) on val MSE
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 10
+    eval_stride: 10
+    amp: false
+    fitness: loss          # 官方按验证 MSE 保存 checkpoint_<epoch>.pt
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算（augment 仍取 input 的 [time_shift]）

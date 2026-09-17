@@ -1,0 +1,49 @@
+# DeepILS：深度可分离残差 + CBAM 注意力的窗口速度回归网络（Tariq et al., "DeepILS: Toward
+# Accurate Domain-Invariant AIoT-Enabled Inertial Localization System", IEEE IoT-J 2025）。
+# 依据 docs/algorithms/deepils.md 规格卡独立实现（洁净室）。
+# 许可风险：官方仓库无 LICENSE，文件头声明 All Rights Reserved——不得复制代码或分发权重。
+name: deepils
+arch: deepils
+paper: https://doi.org/10.1109/JIOT.2025.3538938
+code: https://github.com/OmerTariq-KAIST/DeepILS-IoT-Journal-2025
+license: none (no LICENSE, headers say All Rights Reserved); written from the spec card
+commit: 4fd65aa9564075810dab494d43610857dc3e1d01
+fidelity: official-code
+args:                      # src/main.py 第 43、51–52 行
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  input_kernel: 5
+  input_padding: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+  feature_length: 7        # 官方 in_dim=7，只有 T ∈ [191, 222] 成立；null 表示按窗口推导
+input:
+  window: 200
+  frame: gravity_world
+  orientation: reference   # 官方测试用设备姿态（game RV）；另可设 orientation=device 对照
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+loss: mse_l1               # 官方：MSE + mean|pred − targ|（“Differential Loss”），权重均为 1
+recipes:
+  official:                # src/main.py 第 175–290、564–566 行
+    epochs: 200
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=10, eps=1e-12)
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 10
+    eval_stride: 10
+    amp: false             # 官方不用 AMP
+    augment: [random_yaw, time_shift]   # RandomHoriRotate(2π) + ±5 样本随机平移
+    fitness: loss          # 官方按 val 平均 L1 选模、按 val MSE 调度；IPB 统一用验证损失
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算

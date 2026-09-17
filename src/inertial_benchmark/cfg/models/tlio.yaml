@@ -1,0 +1,53 @@
+# TLIO：1 s 窗口 → 3D 位移 + 对角 log σ 的一维 ResNet（Liu et al., "TLIO: Tight Learned
+# Inertial Odometry", IEEE RA-L 2020）。结构、损失与阶段切换依据 docs/algorithms/tlio.md
+# 规格卡独立实现（洁净室，未读官方代码）。EKF 不在 v1 范围内，本模型等价于论文的 3D-RONIN。
+name: tlio
+arch: tlio
+paper: https://arxiv.org/abs/2007.01867
+code: https://github.com/CathIAS/TLIO
+license: BSD-3-Clause (official code); this implementation is written from the spec card
+commit: d7051c4ff14834b93931984b75b40f894e39654d
+fidelity: official-code (network); EKF not implemented
+args:                      # 官方 model_factory.py：ResNet1D(BasicBlock1D, 6, 3, [2,2,2,2])
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+input:                     # 官方协议：200 帧 @200 Hz、局部重力对齐系、3D 位移目标
+  window: 200
+  frame: gravity_yaw_local
+  orientation: reference
+  remove_gravity: false
+  target: displacement
+  dims: 3
+  # 官方增强顺序：偏置 → 重力方向扰动 → 随机偏航 → 起点偏移（U{0..9}）
+  augment:
+    - {bias_shift: {gyro: 0.05, acc: 0.2}}
+    - {gravity_perturb: {max_deg: 5.0}}
+    - random_yaw
+    - {time_shift: {min_shift: 0, max_shift: 9}}
+loss: nll_detach_then_nll  # 官方 losses.py：epoch（1 起）< 10 时 NLL 的 logstd 被 detach
+loss_kwargs:
+  switch_epoch: 9          # IPB 的 epoch 从 0 起，对应官方的“前 9 个 epoch”
+  min_logstd: -6.907755278982137   # log(1e-3)，与官方一致；官方没有上限
+recipes:
+  official:                # main_net.py / train.py 默认值
+    epochs: 10000          # 官方默认（实际跑 1…9999，需人工停止）
+    batch: 1024
+    val_batch: 1024
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9          # Adam beta1（PyTorch 默认）
+    weight_decay: 0.0
+    scheduler: none        # 官方构造了 ReduceLROnPlateau 但从未 step()，lr 恒为 1e-4
+    grad_clip: 0.1         # clip_grad_norm_(0.1)
+    stride: 10
+    eval_stride: 10
+    amp: false
+    fitness: loss          # 官方按 val 平均 NLL 保存 checkpoint_best.pt
+    patience: 0            # 无早停
+  unified:                 # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    grad_clip: 0.1
+    scheduler: cosine      # 显式声明：官方调度器未生效，unified 按 IPB 默认使用余弦

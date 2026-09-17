@@ -1,0 +1,46 @@
+# IONet：双层双向 LSTM + 极坐标头（Chen et al., "IONet: Learning to Cure the Curse of Drift in
+# Inertial Odometry", AAAI 2018）。paper-only：没有官方代码，依据 docs/algorithms/ionet.md
+# 规格卡实现；卡中标为 [A] 的假设取卡片推荐默认值。
+# IPB 默认适配**改变语义**：输入由机体系改为重力对齐世界系，输出由 (Δl, Δψ) 改为 (s, ψ)；
+# 结果表必须注明 “IONet (gravity_world adaptation)”。
+name: ionet
+arch: ionet
+paper: https://arxiv.org/abs/1802.02209
+code: none (no public repository)
+license: paper-only re-implementation (no official code exists)
+commit: n/a
+fidelity: paper-only
+args:                      # AAAI 版：hidden=96、dropout 0.25（OxIOD 的 DeepIO 变体为 hidden=128）
+  hidden: 96
+  dropout: 0.25
+  decimation: 2            # IPB 适配：200 Hz×400 → 100 Hz×200，保持论文的 2 s / 200 步
+  permute_channels: true   # (B,6,T) [gyro,acc] → [acc,gyro]
+input:                     # 2 s 窗口、0.1 s 训练步长
+  window: 400
+  frame: gravity_world     # 语义改变：论文用机体系原始读数（见文件头与规格卡 §6）
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+  augment: []              # 论文不做增强（靠运动丰富的数据 + dropout）
+loss: ionet_polar          # ‖s̃ − s‖² + κ·m·wrap(ψ̃ − ψ)²
+loss_kwargs:
+  kappa: 1.0               # 论文未给出 κ；卡片推荐默认 1.0（可在 val 上扫 {0.1, 1, 10}）
+  min_speed: 0.1           # 角度项的速度掩码阈值（m/s）
+recipes:
+  official:                # 论文 §Training Details（batch 与选模策略为卡片假设）
+    epochs: 100            # “training converges typically after 100 iterations”，Fig. 8 横轴
+    batch: 128
+    val_batch: 512
+    lr: 1.5e-3
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: none        # 论文未说明调度
+    grad_clip: 0.0
+    stride: 20             # 0.1 s
+    eval_stride: 10        # IPB 统一推理步长（窗口彼此独立，不影响语义）
+    amp: false
+    fitness: ate           # 论文看验证损失；IPB 按 val ATE 选模
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算

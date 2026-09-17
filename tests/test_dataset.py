@@ -83,6 +83,18 @@ def test_augmentation_reproducible(files):
     np.testing.assert_allclose(plain[3]["target"].norm(), aug[3]["target"].norm(), rtol=1e-5)
 
 
+def test_one_sided_time_shift(files):
+    _, paths = files
+    ds = InertialDataset(paths, ViewConfig(), stride=10, training=True, seed=0,
+                         augment=[{"time_shift": {"min_shift": 0, "max_shift": 9}}])
+    assert ds.shift_range == (0, 9)
+    shifts = []
+    for epoch in range(3):
+        ds.set_epoch(epoch)
+        shifts += [ds[i]["start"] - ds.index[i, 1] for i in range(0, len(ds), 7)]
+    assert min(shifts) >= 0 and max(shifts) <= 9 and len(set(shifts)) > 5
+
+
 def test_dataloader_independent_of_workers(files):
     _, paths = files
     ds = InertialDataset(paths, ViewConfig(), stride=20, training=True, seed=1,

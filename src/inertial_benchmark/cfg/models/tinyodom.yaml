@@ -1,0 +1,45 @@
+# TinyOdom：因果 TCN + 线性头的窗口位移回归网络（Saha et al., "TinyOdom: Hardware-Aware
+# Efficient Neural Inertial Navigation", ACM IMWUT 2022）。依据 docs/algorithms/tinyodom.md
+# 规格卡独立实现（洁净室，PyTorch 版；官方为 Keras + keras-tcn 3.3.0）。
+# IPB 适配改变了结构：无磁力计、无 step mask（10 → 6 通道），机体系 3 维输出（+velz 头）。
+name: tinyodom
+arch: tinyodom
+paper: https://doi.org/10.1145/3534594
+code: https://github.com/nesl/tinyodom
+license: BSD-3-Clause (official code); this implementation is written from the spec card
+commit: 7958781baeddf1b99a4f365fb54fb7bac5e96845
+fidelity: official-code (fixed RoNIN NAS candidate from tinyodom_tcn/model.cc)
+args:                      # model.cc 中 RoNIN 候选的超参数
+  filters: 30
+  kernel_size: 12
+  dilations: [1, 2, 4, 8, 64]
+  dropout: 0.0             # 推理图中无法得知，取 NAS 搜索范围 {0,…,0.4} 的下界
+  pre_units: 32
+  pool_size: 2
+  permute_channels: true   # (B,6,T) [gyro,acc] → [acc,gyro]
+input:                     # 官方 RoNIN 设置：2 s 窗口、机体系原始读数、网络不使用姿态
+  window: 400
+  frame: body              # 无磁力计时世界系航向不可观测 → 预测窗口末端机体系速度
+  orientation: reference   # 只用于目标构造与轨迹重建
+  remove_gravity: false
+  target: avg_velocity
+  dims: 3                  # DESIGN §3：frame=body 必须 dims=3
+  augment: []              # 官方 RoNIN 笔记本 AugmentationCopies=0，不做增强
+loss: mse_sum              # 各头 MSE 等权求和（官方 {'velx':'mse','vely':'mse'}）
+recipes:
+  official:                # TinyOdom_RoNIN.ipynb cell 7/11
+    epochs: 900
+    batch: 256
+    val_batch: 512
+    lr: 1.0e-3             # tf.keras.optimizers.Adam() 默认
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: none        # 常数学习率，无调度
+    grad_clip: 0.0
+    stride: 20             # 官方训练/推理步长 0.1 s
+    eval_stride: 10        # IPB 统一推理步长
+    amp: false
+    fitness: ate           # 官方按训练损失选模（monitor='loss'）；IPB 诚实协议改用 val ATE
+    patience: 0
+  unified: {}              # 使用 default.yaml 的统一预算
