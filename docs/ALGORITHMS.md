@@ -88,7 +88,7 @@ DESIGN §3/§4 原本规定模型只接收 `(B, 6, T)` 并返回窗口级 `vel`�
 
 逐条证据（文件与行号）见各卡 §10。
 
-1. **窗口起点时间戳 / 按分量平均的 ATE**：RoNIN、IMUNet、DeepILS 都把窗口速度的时间戳记在窗口起点，积分轨迹因此滞后半个窗口；ATE/RTE 对 N×2 个坐标分量求均值，数值为欧氏定义的 1/√2（PedestrianDiffusion 为 3D 分量平均，是 1/√3）。TinyOdom 的 ATE 用的是平均误差而非 RMSE。IPB 按 DESIGN §5/§6 统一计算，与论文数值对照时须换算。
+1. **窗口起点时间戳 / 按分量平均的 ATE**：RoNIN、IMUNet、DeepILS 都把窗口速度的时间戳记在窗口起点，积分轨迹因此滞后半个窗口；ATE/RTE 对 N×2 个坐标分量求均值，数值为欧氏定义的 1/√2（PedestrianDiffusion 为 3D 分量平均，是 1/√3）——**ATE 与 RTE 两者都已核实**（`ronin/source/metric.py`，`compute_absolute_trajectory_error` 与 `compute_relative_trajectory_error` 都是 `np.sqrt(np.mean(err ** 2))`，`err` 形状 `(·, 2)`），数值核对见 `docs/METRICS.md` §2.2。TinyOdom 的 ATE 用的是平均误差而非 RMSE。IPB 按 DESIGN §5/§6 统一计算，与论文数值对照时须换算。
 2. **阶段切换或调度器实际不生效**
    - TLIO：前 9 个 epoch 用的是“logstd 被 detach 的 NLL”，并非论文所说的 MSE；`ReduceLROnPlateau` 从未 `step()`。
    - EqNIO-TLIO、NIO-TLIO：调度器同样从未调用；EqNIO 的规范帧架构从不调用 `zero_grad`，梯度一直累积。
