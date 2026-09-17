@@ -1,6 +1,6 @@
 # OxIOD 数据集卡片
 
-> 转换器：[`converters/oxiod.py`](../../src/inertial_benchmark/data/converters/oxiod.py)，`oxiod@1.0`；
+> 转换器：[`converters/oxiod.py`](../../src/inertial_benchmark/data/converters/oxiod.py)，`oxiod@1.1`；
 > 共享工具与物理自检：[`converters/_phone_utils.py`](../../src/inertial_benchmark/data/converters/_phone_utils.py)。
 > 统计基于本机 `/workspace/webCodex/datasets/imu_odometry/raw/_staging/OxIOD`（`Oxford Inertial Odometry Dataset/`，128 条 raw 序列），2026-09-17。
 
@@ -127,10 +127,13 @@
 test = `handheld_data5_seq1–4`、`handbag_data2_seq4`、`pocket_data2_seq6`、`running_data1_seq7`、`slow_walking_data1_seq8`、`trolley_data2_seq6`。
 
 - 无官方 val。主场景的 train 按会话划组后，可由统一流水线抽取 val（handheld 的 test 恰好是整个会话 data5，其余场景的 test 与 train 同属一个会话）。
-- **multi users（31 条，接收 30 条）与 multi devices（26 条）不在任何官方列表中**。`official_splits()` 不返回它们，但 `list_sequences()` 会枚举到，统一流水线会把它们归入 train 候选或单独标注：
-  - multi users：受试者 user2–user5 从未出现在官方 train/test 中（主场景都是 user1），每人包含手持、口袋、包等放置方式，适合作为“未见受试者”的附加测试集；
-  - multi devices：iPhone 5、iPhone 6、Nexus 5 三种设备（受试者未知），与主场景的 iPhone 7 Plus 不同，适合作为“未见设备”的附加测试集；其中 Nexus 5 是 Android 格式、没有设备姿态；
-  - 它们的 `group_id`（`multi_users_userN`、`multi_devices_<设备>`）与官方 test 的会话不重叠，即使并入 train 也不会造成序列或会话级泄漏。
+- **multi users（31 条，接收 30 条）与 multi devices（26 条）不在任何官方列表中**。`official_splits()` 不返回它们，
+  `extra_splits()`（`oxiod@1.1` 起）把它们声明为附加测试子集，统一流水线原样写出，**绝不并入 train**（DESIGN 2.4）：
+  - `test_unseen_subject`（multi users，30 条）：受试者 user2–user5 从未出现在官方 train/test 中（主场景都是 user1），
+    每人包含手持、口袋、包等放置方式；
+  - `test_unseen_device`（multi devices，26 条）：iPhone 5、iPhone 6、Nexus 5 三种设备（受试者未知），
+    与主场景的 iPhone 7 Plus 不同；其中 Nexus 5 是 Android 格式、没有设备姿态；
+  - 它们的 `group_id`（`multi_users_userN`、`multi_devices_<设备>`）与官方 train/val/test 的会话不重叠。
 
 ## 7. 物理自检（全量）
 
@@ -213,3 +216,52 @@ test = `handheld_data5_seq1–4`、`handbag_data2_seq4`、`pocket_data2_seq6`、
 ```bash
 PYTHONPATH=src python -m pytest tests/converters/test_oxiod.py tests/data/test_raw_oxiod.py
 ```
+
+
+## 11. 转换结果（IPB v1）
+
+输出：`/workspace/webCodex/datasets/ipb/oxiod`｜转换器 `oxiod@1.1`｜转换时间 2026-09-17｜
+指纹 `559c7c3de0078876…`
+
+接收 126 / 拒收 2（第 8 节的时间戳损坏），共 13.60 h、36.90 km、20 个采集会话。官方无 val，流水线从 `train`
+按会话抽出 7 条（`slow_walking_data1`，占 train 时长 14.5%）；multi users / multi devices 按第 6 节写成附加测试子集，
+**没有并入 train**。
+
+| 划分 | 序列 | 时长 (h) | 距离 (km) | 会话 |
+|---|---:|---:|---:|---:|
+| `train` | 54 | 6.47 | 18.17 | 11 |
+| `val` | 7 | 1.10 | 2.13 | 1 |
+| `test` | 9 | 1.03 | 2.89 | 6 |
+| `test_unseen_subject`（multi users） | 30 | 2.96 | 8.56 | 4 |
+| `test_unseen_device`（multi devices） | 26 | 2.04 | 5.16 | 3 |
+
+`ipb check data=oxiod full=true hash=true`：**通过**（0 错误，3 警告）：`test/train` 4 组、`test/val` 1 组
+会话重叠（官方 test 与 train 同属一个会话），以及 `pocket_data2_seq2` 的“重力检查勉强通过”（倾角 2.57°）。
+附加子集的会话与 train/val 不相交。无重复内容、无未分配序列。
+
+Vicon 野值掩码使 `valid` 比例最低为 93.0%（`multi_users_user5_seq7`）；5 条序列的末尾恰好是野值区加一段
+短于 1 s 的有效碎片，按 DESIGN 2.3 第 6 条被裁掉：`multi_devices_iphone5_seq9`（2.54 s）、
+`multi_users_user5_seq8`（2.44 s）、`multi_users_user4_seq7`（1.29 s）、`multi_users_user5_seq3`（0.87 s）、
+`multi_users_user3_seq4`（0.87 s）。
+
+### 一致性抽检（5 条随机序列）
+
+> 抽检方法：用固定种子（`numpy.random.default_rng(0)`）从 `dataset.json` 的序列中随机抽 5 条，
+> 比较**转换器解析结果**（原生时钟、未重采样，已含该转换器声明的单位/坐标系/外参/时钟修正）与
+> **200 Hz 输出**：路径长度按 METRICS 的 1 s 分辨率折线计算（原始侧取每个刻度最近的原生样本，
+> 不插值、不跨缺口），窗口取 200 Hz 结果实际覆盖的时间区间；重力对齐加速度均值为
+> `mean(R(q) · f)`（原始侧用 SLERP 把参考姿态插到 IMU 时刻）；位置 RMS 是把 200 Hz 结果插回
+> 原生位姿时刻后的水平误差。
+
+
+| 序列 | 时长 (s) | 路径长度 原始 → 200 Hz (m) | Δ | 平均速度 (m/s) | 重力对齐加速度均值 (m/s²) | Δ\|acc\| | 位置 RMS (cm) |
+|---|---:|---|---:|---:|---|---:|---:|
+| `multi_devices_iphone5_seq6` | 178.89 | 127.25 → 127.26 | +0.005% | 0.711 | [−0.097, 0.008, 9.683] | 0.0038 | 0.01 |
+| `multi_devices_nexus5_seq7` | 186.36 | 128.18 → 128.18 | −0.000% | 0.688 | [0.004, −0.024, 9.870] | 0.0001 | 0.00 |
+| `pocket_data2_seq6` | 637.90 | 466.53 → 466.53 | −0.000% | 0.731 | [−0.119, −0.005, 9.818] | 0.0004 | 0.01 |
+| `trolley_data1_seq2` | 309.00 | 167.16 → 167.17 | +0.007% | 0.541 | [−0.129, 0.005, 9.773] | 0.0000 | 0.01 |
+| `trolley_data2_seq4` | 163.13 | 111.45 → 111.45 | +0.000% | 0.683 | [−0.130, −0.019, 9.780] | 0.0001 | 0.01 |
+
+100 Hz → 200 Hz 的多相上采样后路径长度差异 ≤ 0.007%，时长与样本数完全一致（Vicon 时钟经逐序列的
+偏移/速率差映射到手机时钟后，网格取两者重叠区）；加速度均值的水平分量最大 0.13 m/s²（约 0.8°），
+与第 7 节的外参残差一致。

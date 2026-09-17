@@ -1,6 +1,6 @@
 # RIDI 数据集卡片
 
-> 转换器：[`converters/ridi.py`](../../src/inertial_benchmark/data/converters/ridi.py)，`ridi@1.0`；
+> 转换器：[`converters/ridi.py`](../../src/inertial_benchmark/data/converters/ridi.py)，`ridi@1.1`；
 > 共享工具与物理自检：[`converters/_phone_utils.py`](../../src/inertial_benchmark/data/converters/_phone_utils.py)。
 > 统计基于本机 `/workspace/webCodex/datasets/imu_odometry/raw/_staging/RIDI/data_publish_v2`（94 条），2026-09-17。
 
@@ -70,9 +70,13 @@
 | test | `list_test_publish_v2.txt` | 25 | 23（缺 `hang_leg_new3`、`huayi_handheld_test1`） | 23 |
 
 - 无官方 val。
-- 22 条本地序列不在任何官方列表中，`list_sequences()` 会枚举到它们，统一流水线会把它们归入 train 候选或单独标注：
-  - 11 条属于官方列表中已有的受试者：`dan_handheld2 hang_bag_normal2 hang_bag_side1 hang_bag_stop1 hang_handheld_speed2 hao_bag2 hao_body2 hao_handheld2 hao_leg2 huayi_bag2 huayi_handheld2`。其中 `dan`、`hang`、`huayi` 也出现在 test 中；由于官方划分本来就按序列而非受试者划分，把它们并入 train 不会造成序列级泄漏，但会增加受试者重叠；
-  - 11 条属于**不在 train/test 中出现**的受试者：`ruixuan`（8 条）和 `shali`（3 条）。它们对应官方的 cross-subject 列表，更适合作为“未见受试者”的附加测试集，不建议并入 train。
+- 22 条本地序列不在任何官方列表中。`list_sequences()` 会枚举它们，`extra_splits()`（`ridi@1.1` 起）把它们声明为
+  两个附加测试子集，统一流水线原样写出，**绝不并入 train**（DESIGN 2.4）：
+  - `test_unlisted_seen_subject`（11 条）：受试者出现在官方列表中的 `dan_handheld2 hang_bag_normal2 hang_bag_side1
+    hang_bag_stop1 hang_handheld_speed2 hao_bag2 hao_body2 hao_handheld2 hao_leg2 huayi_bag2 huayi_handheld2`，
+    与官方 test 一样属 seen-subject 设定；
+  - `test_unseen_subject`（11 条）：受试者**不在** train/test 中的 `ruixuan`（8 条）和 `shali`（3 条），
+    是 `list_crosssubject.txt` 的超集，作为“未见受试者”测试集。
 - 数据包还带有 `list_crosssubject.txt`（ruixuan/shali 共 8 条，本地有 7 条）和 `list_submission.txt`（8 条，与 test 部分重叠）。它们与 test 不是子集关系，`official_splits()` 不返回，如有需要可自行使用。
 - train 与 test 共享受试者（官方按序列划分）。
 
@@ -126,3 +130,48 @@
 ```bash
 PYTHONPATH=src python -m pytest tests/converters/test_ridi.py tests/data/test_raw_ridi.py
 ```
+
+
+## 11. 转换结果（IPB v1）
+
+输出：`/workspace/webCodex/datasets/ipb/ridi`｜转换器 `ridi@1.1`｜转换时间 2026-09-17｜
+指纹 `6e47893cb3b6dbf0…`
+
+接收 94 / 拒收 0，共 2.71 h、10.30 km、11 名受试者。官方无 val，流水线从 `train` 按受试者抽出 6 条
+（受试者 `ma`，占 train 时长 11.5%）；22 条不在官方列表中的序列按第 6 节写成两个附加测试子集，**没有并入 train**。
+
+| 划分 | 序列 | 时长 (h) | 距离 (km) | 受试者 |
+|---|---:|---:|---:|---:|
+| `train` | 43 | 1.35 | 5.11 | 8 |
+| `val` | 6 | 0.17 | 0.65 | 1 |
+| `test` | 23 | 0.61 | 2.35 | 8 |
+| `test_unseen_subject` | 11 | 0.30 | 1.12 | 2（`ruixuan`、`shali`） |
+| `test_unlisted_seen_subject` | 11 | 0.29 | 1.07 | 4（`dan`、`hang`、`hao`、`huayi`） |
+
+`ipb check data=ridi full=true hash=true`：**通过**（0 错误，3 警告）：`test/train` 7 组、`test/val` 1 组、
+`test_unlisted_seen_subject/train` 4 组受试者重叠（官方按序列划分的后果）。`test_unseen_subject` 与 train/val
+的受试者不相交。无重复内容、无未分配序列。
+
+`huayi_bag2` 的原始数据在 15.6 s 处有一个 4.4 s 的缺口（唯一一条），转换结果按契约把该区间标为无效，
+`valid` 比例 90.0%（其余序列 ≥ 99.9%）；缺口位于中间，不触发首尾裁剪。
+
+### 一致性抽检（5 条随机序列）
+
+> 抽检方法：用固定种子（`numpy.random.default_rng(0)`）从 `dataset.json` 的序列中随机抽 5 条，
+> 比较**转换器解析结果**（原生时钟、未重采样，已含该转换器声明的单位/坐标系/外参/时钟修正）与
+> **200 Hz 输出**：路径长度按 METRICS 的 1 s 分辨率折线计算（原始侧取每个刻度最近的原生样本，
+> 不插值、不跨缺口），窗口取 200 Hz 结果实际覆盖的时间区间；重力对齐加速度均值为
+> `mean(R(q) · f)`（原始侧用 SLERP 把参考姿态插到 IMU 时刻）；位置 RMS 是把 200 Hz 结果插回
+> 原生位姿时刻后的水平误差。
+
+
+| 序列 | 时长 (s) | 路径长度 原始 → 200 Hz (m) | Δ | 平均速度 (m/s) | 重力对齐加速度均值 (m/s²) | Δ\|acc\| | 位置 RMS (cm) |
+|---|---:|---|---:|---:|---|---:|---:|
+| `dan_handheld1` | 63.95 | 66.91 → 66.91 | −0.001% | 1.046 | [−0.005, 0.016, 9.919] | 0.0015 | 0.00 |
+| `hang_bag_speed2` | 145.90 | 151.52 → 151.52 | −0.000% | 1.039 | [−0.002, −0.023, 9.928] | 0.0013 | 0.00 |
+| `hao_handheld2` | 85.71 | 105.02 → 105.02 | −0.001% | 1.225 | [0.022, −0.026, 9.914] | 0.0008 | 0.00 |
+| `ruixuan_body2` | 64.31 | 71.53 → 71.53 | −0.000% | 1.112 | [0.002, −0.028, 9.996] | 0.0014 | 0.11 |
+| `yajie_bag1` | 93.75 | 101.29 → 101.29 | +0.000% | 1.080 | [−0.009, −0.051, 10.018] | 0.0016 | 0.11 |
+
+202.3 Hz → 200 Hz 走“±3% 直接插值”分支，路径长度差异 ≤ 0.001%，时长差 ≤ 5 ms，样本数与
+⌊时长×200⌋+1 一致；加速度均值 z 分量 9.91–10.02 m/s² 即第 4 节的 1–3% 比例误差。

@@ -83,7 +83,7 @@ inertial-positioning-benchmark/
 
 | 目录 | 内容入口 |
 | --- | --- |
-| `docs/` | [文档索引](docs/README.md) · [设计宪法](docs/DESIGN.md) · [指标](docs/METRICS.md) · [命令行](docs/CLI.md) · [v0.1 数据格式](docs/FORMAT.md) · [数据集](docs/DATASETS.md) · [论文](docs/PAPERS.md) · [FAST-LIVO 配置](docs/setup/fast-livo.md) |
+| `docs/` | [文档索引](docs/README.md) · [设计宪法](docs/DESIGN.md) · [指标](docs/METRICS.md) · [命令行](docs/CLI.md) · [v0.1 数据格式](docs/FORMAT.md) · [数据集](docs/DATASETS.md) · [v1 数据发布](docs/DATASETS_V1.md) · [论文](docs/PAPERS.md) · [FAST-LIVO 配置](docs/setup/fast-livo.md) |
 | `tools/` | [工具索引](tools/README.md) · [Android 工具](tools/inertial-positioning-lab/) · [PaperFlow IO](tools/paperflow-io/) |
 | `research/` | [研究索引](research/README.md) · [方法提案](research/methods/) · [实验研究](research/studies/) |
 

@@ -7,6 +7,8 @@
 | [CLI.md](CLI.md) | `ipb` commands, benchmark YAML, output layout, and all configuration keys |
 | [FORMAT.md](FORMAT.md) | Legacy v0.1 canonical sequence schema (still readable through `load_sequence`) |
 | [DATASETS.md](DATASETS.md) | Dataset catalog, ground truth, licensing, and integration status |
+| [DATASETS_V1.md](DATASETS_V1.md) | IPB v1 data release: what was converted, split policy, checks, and how to convert it yourself |
+| [datasets/](datasets/) | Per-dataset cards: raw fields, verified conventions, physical self-checks, conversion results |
 | [PAPERS.md](PAPERS.md) | Representative literature and release status |
 | [TOOLS.md](TOOLS.md) | Capture, conversion, and evaluation tools |
 | [REPOSITORY_LAYOUT.md](REPOSITORY_LAYOUT.md) | Directory ownership and component admission rules |

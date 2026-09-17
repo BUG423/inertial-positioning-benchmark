@@ -1,6 +1,6 @@
 # PedLocData 数据集卡片
 
-> 转换器：[`converters/pedlocdata.py`](../../src/inertial_benchmark/data/converters/pedlocdata.py)（`pedlocdata@1.0.0`）｜共享自检工具：[`_rig_utils.py`](../../src/inertial_benchmark/data/converters/_rig_utils.py)
+> 转换器：[`converters/pedlocdata.py`](../../src/inertial_benchmark/data/converters/pedlocdata.py)（`pedlocdata@1.1.0`）｜共享自检工具：[`_rig_utils.py`](../../src/inertial_benchmark/data/converters/_rig_utils.py)
 > 数据版本：Zenodo 18149105（2025-11-17）｜最近核验：2026-09-17｜格式规范：[DESIGN.md 第 2 节](../DESIGN.md)
 
 ## 1. 概览
@@ -63,6 +63,10 @@ IPB 的 `sequence_id` 加上文件前缀：`yt_<name>` / `demo_<name>`。附加�
 
 ## 5. 官方划分、泄漏审计与分组划分
 
+> **默认划分**：本转换器声明 `OFFICIAL_SPLITS_LEAK = True`（`pedlocdata@1.1.0` 起），统一流水线把 5.3 节的
+> 分组划分写为默认 `train/val/test`（及 `test_yt`/`test_demo`），官方划分写为 `official_*.txt`，只用于与文献对照
+> （见 DESIGN 2.4 与第 10 节）。**默认 `train` 与 `official_test` 共享序列，两套划分不得混用。**
+
 ### 5.1 官方划分（`official_splits`，原样返回）
 
 | 划分 | 切片数 | 接收 | 拒收 | 接收时长 (h) |
@@ -121,7 +125,8 @@ IPB 的 `sequence_id` 加上文件前缀：`yt_<name>` / `demo_<name>`。附加�
 
   test 覆盖 F2、F3、B3 三个楼层；YT 部分为 `test_yt`（230 条，9.25 h），Demo 部分为 `test_demo`（6 条，0.41 h）。
   局限：楼层（环境）在各划分之间共享；Demo 同一天的不同会话可能分属不同划分。
-- 使用建议：报告 PedLocData 结果时，同时给出官方划分与 `grouped_splits` 的结果，并注明前者存在泄漏。
+- 使用建议：默认（分组）划分是 IPB 的评测口径；需要与文献对照时使用 `official_*.txt`，并注明其存在泄漏。
+  两套划分的训练/测试序列相互交叉，不能混用。
 
 ## 6. 物理自检（全量 2161 条）
 
@@ -274,7 +279,8 @@ pyq 4/124、hdf 3/61、sxq 1/76、ysq 1/58；其余受试者与 Demo 系列无�
 
 ## 8. 已知问题
 
-1. **官方划分泄漏**（第 5.2 节），建议同时报告 `grouped_splits` 结果。
+1. **官方划分泄漏**（第 5.2 节）：IPB 默认使用分组划分，官方划分降级保存为 `official_*.txt`；
+   与文献对照时必须注明泄漏。
 2. 真值来源未公开；参考姿态在 5–10 s 尺度上的一致性较差，约 11% 的切片被拒收。
 3. 零偏/磁力计/运动四元数字段是全零占位。
 4. 切片之间被作者删除的时间段原因不明；切片被当作独立序列处理，不能拼接回整条录制。
@@ -294,3 +300,53 @@ for raw in pl.iter_raw_sequences("/path/to/PedLocData", only=official["test"]):
 
 全量 2161 条的解析与自检在 48 进程下约需 1–2 分钟。真实数据抽样测试：
 `PYTHONPATH=src python -m pytest tests/data/test_raw_pedlocdata.py`（环境变量 `IPB_RAW_PEDLOCDATA` 可覆盖路径）。
+
+
+## 10. 转换结果（IPB v1）
+
+输出：`/workspace/webCodex/datasets/ipb/pedlocdata`｜转换器 `pedlocdata@1.1.0`｜转换时间 2026-09-17｜
+指纹 `79b8e288ac4be804…`
+
+接收 1924 / 拒收 237（全部为第 7 节的参考姿态不一致），共 89.14 h、257.58 km。
+**默认划分为分组划分**（`OFFICIAL_SPLITS_LEAK = True`），官方划分保留为 `official_*.txt`：
+
+| 划分 | 序列 | 时长 (h) | 距离 (km) | 组 |
+|---|---:|---:|---:|---:|
+| `train` | 1315 | 60.23 | 171.16 | 27 |
+| `val` | 399 | 20.63 | 64.94 | 7 |
+| `test` | 210 | 8.28 | 21.48 | 6 |
+| `test_yt` | 204 | 7.87 | 20.12 | 4 |
+| `test_demo` | 6 | 0.41 | 1.36 | 2 |
+| `official_train` | 1340 | 61.39 | 177.93 | 40 |
+| `official_val` | 390 | 18.16 | 50.50 | 34 |
+| `official_test` | 194 | 9.59 | 29.15 | 30 |
+| `official_test_yt` | 188 | 9.09 | 27.37 | 25 |
+| `official_test_demo` | 6 | 0.50 | 1.79 | 5 |
+
+`ipb check data=pedlocdata full=true hash=true`：**通过**（0 错误，3 警告）。默认划分无任何序列或组重叠；
+三条警告是官方划分的已声明泄漏：`official_train/official_val` 共 34 组、`official_train/official_test` 共 30 组、
+`official_val/official_test` 共 27 组。**默认 `train` 与 `official_test` 共享序列，两套划分不得混用**。
+无重复内容、无未分配序列。
+
+### 一致性抽检（5 条随机序列）
+
+> 抽检方法：用固定种子（`numpy.random.default_rng(0)`）从 `dataset.json` 的序列中随机抽 5 条，
+> 比较**转换器解析结果**（原生时钟、未重采样，已含该转换器声明的单位/坐标系/时延修正）与
+> **200 Hz 输出**：路径长度按 METRICS 的 1 s 分辨率折线计算（原始侧取每个刻度最近的原生样本，
+> 不插值、不跨缺口），窗口取 200 Hz 结果实际覆盖的时间区间；重力对齐加速度均值为
+> `mean(R(q) · f)`（原始侧用 SLERP 把参考姿态插到 IMU 时刻）；位置 RMS 是把 200 Hz 结果插回
+> 原生位姿时刻后的水平误差。
+
+
+| 序列 | 时长 (s) | 路径长度 原始 → 200 Hz (m) | Δ | 平均速度 (m/s) | 重力对齐加速度均值 (m/s²) | Δ\|acc\| | 位置 RMS (cm) |
+|---|---:|---|---:|---:|---|---:|---:|
+| `yt_hdf_F2_server_31_5` | 65.55 | 14.06 → 14.06 | +0.018% | 0.215 | [−0.151, −0.076, 9.839] | 0.0000 | 0.00 |
+| `yt_qyq_F1_server_13_5` | 199.76 | 209.82 → 209.82 | +0.000% | 1.050 | [−0.010, −0.001, 9.862] | 0.0009 | 0.03 |
+| `yt_szt_B3_server_18_2` | 104.99 | 89.83 → 89.83 | −0.003% | 0.856 | [0.088, 0.072, 9.876] | 0.0001 | 0.01 |
+| `yt_wx_B3_server_18_0` | 80.44 | 67.21 → 67.21 | −0.004% | 0.835 | [0.085, −0.053, 9.801] | 0.0013 | 0.01 |
+| `yt_ysq_F3_server_2_5` | 141.19 | 67.02 → 67.02 | +0.002% | 0.475 | [−0.014, 0.051, 9.865] | 0.0007 | 0.01 |
+
+原始时间戳的实测间隔恒为 5.000114 ms（Unix 秒上累加 0.005 的浮点舍入，约 +23 ppm），
+因此 `source_sample_rate_hz` 记为 199.995 Hz；这只影响时间标签，不影响采样内容。
+早期实现因时间比较容差过小会让 300 s 切片少一个样本，现已修正（DESIGN 2.3 的 1 µs 容差），
+抽检中样本数与 ⌊时长×200⌋+1 完全一致。
