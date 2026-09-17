@@ -390,6 +390,19 @@ class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推�
 **诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE，
 且 `fitness` 在配置解析时就按“越小越好的验证指标”校验（拼错立即报错，不会等到第一轮结束）。
 
+**可复现优先于吞吐（缺省取值的理由）**：`deterministic: true` 保持开启（逐位可复现是第 0 节的第 4 条
+原则），而 `amp` 缺省为 **`false`**。理由是实测：A100 上 `ronin_resnet18`、`window=200`、batch 128 的
+训练步吞吐在 `deterministic=true, amp=true` 下只有 2 670 窗口/s，是四种组合里最慢的一种，
+关掉 amp 即 6 722 窗口/s（端到端复核 RIDI 一轮 57.3 s → 28.4 s）；确定性 cuDNN 算法在半精度路径上
+尤其慢，两个开关叠加互相抵消。完整四组数字与取舍见 `docs/CLI.md` §4.1。模型配方里显式写
+`amp: false` 的算法（官方不用 AMP）不受此缺省变化影响。
+
+**train/eval 失配诊断**：训练结束时在若干条 val 序列上用 `train()` 与 `eval()` 两种模式各算一次
+窗口损失，比值写入 `metrics.json` 的 `train_eval_gap`，`ratio > 2` 告警——比值远大于 1 说明报出的
+指标不是这组权重真实的能力（dropout/BN 失配）。诊断在模型副本上做，不改权重、BN 统计与随机数状态；
+batch 的键与训练完全一致（走 `SequenceView.windows`，含逐帧/多步目标的 `mask` 与 `extra`）；
+序列级模型没有 `train()/eval()` 语义差异，跳过并记下原因。
+
 ## 7. 开发纪律
 
 1. **洁净室**：新代码从零编写。实现者**不得打开** `/workspace/webCodex/Begin` 与 `/workspace/webCodex/open-inertial-benchmark` 下的源码
