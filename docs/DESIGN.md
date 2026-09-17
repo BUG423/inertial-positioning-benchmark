@@ -158,6 +158,10 @@ runs/<mode>/<name>/
 - **官方划分优先**（RoNIN seen/unseen、TLIO lists、RIDI publish lists、IMUNet lists、RNIN 目录、IDOL known/unknown、OxIOD 场景 Train/Test、PedLocData train/valid/test）。
 - 官方没有 val 时，从 train 中按 `group_id`（受试者/会话/楼栋）分组抽取约 10%，固定种子 `0`，方法写入 `dataset.json`。
 - `ipb check` 必须报告 train/val/test 之间的 `group_id` 与 `sequence_id` 重叠。
+- **泄漏优先于“官方”**：若审计表明官方划分存在录制/会话级泄漏（同一段录音的相邻切片跨划分，
+  例如 PedLocData），转换器声明 `OFFICIAL_SPLITS_LEAK = True` 并提供 `grouped_splits(source)`；
+  统一流水线把分组划分写为默认的 `train/val/test.txt`，官方划分以 `official_{train,val,test}.txt`
+  保留（仅用于与文献对照，报告时必须注明泄漏）。
 
 ### 2.5 v0.1 兼容
 
