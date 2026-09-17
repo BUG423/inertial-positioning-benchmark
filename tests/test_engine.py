@@ -286,6 +286,33 @@ def test_view_config_from_model_spec(zero_model):
     assert res.pos_pred.shape[1] == 3
 
 
+def test_oracle_ate_exposes_the_gap_floor(zero_model):
+    """多秒 valid 缺口 + 参考位置跳变时，ate_oracle 必须把协议误差下限暴露出来。
+
+    真实数据中（RIDI huayi_bag2 有 4.42 s 缺口）oracle ATE 甚至超过模型 ATE，
+    因此 ate_oracle 是默认报表列，缺口序列的 ate 不能单独解读。
+    """
+    from inertial_benchmark.metrics import MAIN_METRICS
+
+    assert "ate_oracle" in MAIN_METRICS
+    predictor = Predictor(get_cfg({"model": zero_model, "device": "cpu", "eval_stride": 10}))
+    clean = predictor.predict_sequence(make_sequence(duration=40.0, seed=7)).compute_metrics()
+    assert clean["ate_oracle"] < 0.05
+
+    seq = make_sequence(duration=40.0, seed=7)
+    gap = slice(3000, 4000)  # 5 s 缺口，缺口后参考位置整体平移 5 m（跟踪重定位）
+    seq.valid_pose[gap] = False
+    seq.valid_imu[gap] = False
+    seq.position[4000:] += np.array([5.0, 0.0, 0.0])
+    res = predictor.predict_sequence(seq)
+    m = res.compute_metrics()
+    assert not res.window_valid.all()
+    assert m["ate_oracle"] > 2.0 and math.isfinite(m["ate_oracle"])
+    assert all(math.isfinite(m[k]) for k in ("ate", "rte", "pde", "plr", "vel_rmse"))
+    assert "ate_oracle" in RunResult([res], cfg={}).metrics
+    assert "ate_oracle=" in RunResult([res], cfg={}).summary()
+
+
 def test_validation_loss_receives_model_input():
     """验证时的 batch 必须与训练一致（含 ``imu``），否则用到输入的损失只能在训练中工作。"""
 

@@ -49,7 +49,11 @@ METRIC_INFO = {
     "params": ("Params", "", True),
     "flops": ("FLOPs", "", True),
 }
-MAIN_METRICS = ("ate", "rte", "d_rte_10m", "pde", "plr", "vel_rmse", "dir_err_mean")
+# 默认报表列。``ate_oracle`` 是同一协议下的误差下限（用窗口目标本身积分），必须和 ``ate`` 一起看：
+# 有多秒 valid 缺口的序列上它可以超过模型的 ATE（真实数据实例：RIDI huayi_bag2，
+# oracle 5.37 m 对模型 3.31 m），此时 ATE 度量的是缺口而不是模型。
+MAIN_METRICS = ("ate", "ate_oracle", "rte", "d_rte_10m", "pde", "plr", "vel_rmse",
+                "dir_err_mean")
 
 
 def display_name(key: str) -> str:

@@ -80,6 +80,11 @@ PDE = ‖p̂_e − p_e‖ / L_ref × 100      (%)
 | `oracle_ratio` | `L_1s(p̃) / L_dense(p)` |
 | `ate_oracle` | oracle 轨迹的 ATE（协议本身能达到的下限参考） |
 
+`ate_oracle` 属于默认报表列（`MAIN_METRICS`），必须与 `ate` 一起解读。含多秒 `valid` 缺口的序列上，
+缺口内的窗口速度是插值来的，而参考位置在缺口两端可能不连续，于是 oracle 轨迹自身就偏离参考，
+`ate_oracle` 可以超过模型的 `ate`（真实数据实例：RIDI `huayi_bag2` 有 4.42 s 的 IMU/位姿缺口，
+oracle ATE 5.37 m，而模型 ATE 3.31 m）。这类序列上的 `ate`/`pde` 度量的是缺口而非模型，报告时应单独列出。
+
 恒等式 `plr_dense = oracle_ratio × plr_oracle` 精确成立（测试锁定）。`oracle_ratio < 1` 反映窗口平均速度
 与 1 s 采样对路径的平滑程度（协议效应），`plr_oracle` 反映模型效应。参考长度为 0 时对应比值为 `NaN`。
 
