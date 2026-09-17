@@ -4,18 +4,33 @@ build-backend = "hatchling.build"
 
 [project]
 name = "inertial-positioning-benchmark"
-version = "0.1.0"
-description = "Unified data interface for inertial positioning benchmarks"
+dynamic = ["version"]
+description = "IPB: unified data format, training framework and evaluation protocol for inertial positioning"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["h5py>=3.8", "numpy>=1.23"]
+dependencies = ["h5py>=3.8", "numpy>=1.23", "scipy>=1.9", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
+train = ["torch>=2.0", "pandas>=1.5", "matplotlib>=3.6"]
 test = ["pytest>=7"]
+
+[project.scripts]
+ipb = "inertial_benchmark.cli:entrypoint"
+
+[tool.hatch.version]
+path = "src/inertial_benchmark/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/inertial_benchmark"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: end-to-end smoke tests (deselect with -m 'not slow')"]
 
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]

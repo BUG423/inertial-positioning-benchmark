@@ -58,7 +58,9 @@ class CanonicalSequence:
         """从 HDF5 文件读取一条统一序列，并默认立即校验。"""
 
         with h5py.File(path, "r") as handle:
-            optional = lambda name: np.asarray(handle[name]) if name in handle else None
+            def optional(name: str) -> Optional[np.ndarray]:
+                return np.asarray(handle[name]) if name in handle else None
+
             sequence = cls(
                 timestamp=np.asarray(handle["timestamp"], dtype=np.float64),
                 gyroscope=np.asarray(handle["imu/gyroscope"]),
