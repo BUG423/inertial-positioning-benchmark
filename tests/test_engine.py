@@ -17,9 +17,15 @@ from inertial_benchmark.engine import trainer as trainer_module  # noqa: E402
 from inertial_benchmark.engine.predictor import (  # noqa: E402
     fill_invalid_windows,
     integrate,
+    merge_outputs,
     reconstruct,
 )
-from inertial_benchmark.nn import MODELS, BaseModel, register_model  # noqa: E402
+from inertial_benchmark.nn import (  # noqa: E402
+    MODELS,
+    BaseModel,
+    SequenceModel,
+    register_model,
+)
 from inertial_benchmark.utils import LOGGER, yaml_load  # noqa: E402
 from inertial_benchmark.utils.torch_utils import (  # noqa: E402
     EarlyStopping,
@@ -331,6 +337,168 @@ def test_early_stopping_and_schedulers():
     np.testing.assert_allclose(lrs, [0.25, 0.5, 0.75, 1.0])
     plateau = build_scheduler(torch.optim.SGD(params, lr=1.0), get_cfg({"scheduler": "plateau"}))
     assert isinstance(plateau, torch.optim.lr_scheduler.ReduceLROnPlateau)
+
+
+def test_merge_outputs_strategies():
+    times = np.array([0.0, 0.5, 0.5, 1.0])
+    values = np.array([[1.0], [2.0], [6.0], [3.0]])
+    distance = np.array([0.0, 0.4, 0.1, 0.0])
+    valid = np.ones(4, bool)
+    t, mean, ok = merge_outputs(times, values, valid, distance, "mean", resolution=0.5)
+    np.testing.assert_allclose(t, [0.0, 0.5, 1.0])
+    np.testing.assert_allclose(mean[:, 0], [1.0, 4.0, 3.0])  # 同一时刻取平均
+    assert ok.all()
+    _, center, _ = merge_outputs(times, values, valid, distance, "center", resolution=0.5)
+    np.testing.assert_allclose(center[:, 0], [1.0, 6.0, 3.0])  # 取最靠窗口中心的那个
+    # 无效输出不参与平均；某一时刻全部无效时保留数值但标记为无效
+    valid = np.array([True, False, True, False])
+    _, mean2, ok2 = merge_outputs(times, values, valid, distance, "mean", resolution=0.5)
+    np.testing.assert_allclose(mean2[:, 0], [1.0, 6.0, 3.0])
+    np.testing.assert_array_equal(ok2, [True, True, False])
+    with pytest.raises(ValueError, match="overlap"):
+        merge_outputs(times, values, valid, distance, "first")
+
+
+@pytest.fixture()
+def layout_model():
+    @register_model("test_layout_model")
+    class Layout(BaseModel):
+        """输出恒为零、但形状随 ``output_shape`` 变化的模型（用于检验协议映射）。"""
+
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.output_shape))
+
+        def forward(self, imu):
+            self.check_input(imu)
+            return {"vel": self.bias.expand(imu.shape[0], *self.bias.shape)}
+
+    yield {"name": "layout", "arch": "test_layout_model"}
+    MODELS.pop("test_layout_model")
+
+
+@pytest.mark.parametrize("overrides,tol", [
+    ({"target": "avg_velocity"}, 0.05),
+    ({"target": "frame_velocity"}, 0.05),
+    # 窗口末端瞬时速度在 eval_stride 上采样较粗（合成信号含 1.8 Hz 起伏），容许更大误差
+    ({"target": "velocity_at_end"}, 0.3),
+    ({"target": "multi_displacement", "output_steps": 10, "window": 101}, 0.05),
+    ({"target": "frame_velocity", "overlap": "center"}, 0.05),
+    ({"target": "multi_displacement", "output_steps": 5, "window": 101, "overlap": "center"},
+     0.05),
+])
+def test_multi_output_protocol_reconstructs_the_reference(layout_model, overrides, tol):
+    """每个输出映射到正确的时间戳：用窗口目标积分（oracle）必须几乎复现参考轨迹。"""
+    seq = make_sequence(duration=25.0, seed=6)
+    cfg = get_cfg({"model": layout_model, "device": "cpu", "window": 100, "dims": 3,
+                   "eval_stride": 10, "metric_dims": 3, **overrides})
+    res = Predictor(cfg).predict_sequence(seq)
+    metrics = res.compute_metrics(dims=3)
+    assert metrics["ate_oracle"] < tol, metrics["ate_oracle"]
+    assert len(res.t_window) == len(res.vel_pred) == len(res.vel_target)
+    assert np.all(np.diff(res.t_window) > 0)  # 合并后时间轴严格递增
+    np.testing.assert_allclose(res.vel_pred, 0.0)  # 零输出模型
+    np.testing.assert_allclose(res.pos_pred, np.tile(seq.position[0], (len(seq), 1)), atol=1e-9)
+
+
+def test_frame_velocity_overlap_strategies_agree(layout_model):
+    """逐帧速度的目标与窗口无关，因此 mean 与 center 合并结果必须一致。"""
+    seq = make_sequence(duration=15.0, seed=7)
+    base = {"model": layout_model, "device": "cpu", "window": 100, "dims": 3,
+            "target": "frame_velocity", "eval_stride": 10, "metric_dims": 3}
+    a = Predictor(get_cfg({**base, "overlap": "mean"})).predict_sequence(seq)
+    b = Predictor(get_cfg({**base, "overlap": "center"})).predict_sequence(seq)
+    np.testing.assert_allclose(a.t_window, b.t_window)
+    np.testing.assert_allclose(a.vel_target, b.vel_target, atol=1e-6)
+    # 逐帧布局的时间轴就是样本时间轴（步长 1 个样本）
+    np.testing.assert_allclose(a.t_window, seq.timestamp[: len(a.t_window)], atol=1e-9)
+
+
+def test_history_and_extra_inputs_reach_the_model():
+    @register_model("test_history_extra_model")
+    class HistoryExtra(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.gain = torch.nn.Parameter(torch.ones(1))
+            self.seen: dict = {}
+
+        def forward(self, imu, extra):
+            self.check_input(imu)
+            self.seen = {k: tuple(v.shape) for k, v in extra.items()}
+            # 特权输入：直接把参考初速度当作预测
+            return {"vel": extra["init_velocity"] * self.gain}
+
+    try:
+        seq = make_sequence(duration=15.0, seed=8)
+        cfg = get_cfg({"model": {"name": "hx", "arch": "test_history_extra_model"},
+                       "device": "cpu", "window": 100, "dims": 3, "metric_dims": 3,
+                       "history": 3, "history_stride": 50, "eval_stride": 10,
+                       "extra_inputs": ["init_velocity", "orientation"]})
+        predictor = Predictor(cfg)
+        res = predictor.predict_sequence(seq)
+        assert predictor.model.seen["init_velocity"][1:] == (3,)
+        assert predictor.model.seen["orientation"][1:] == (3, 100, 4)
+        assert res.starts[0] == 100  # 历史子窗口不越过序列开头
+        metrics = res.compute_metrics(dims=3)
+        assert metrics["ate"] < 2.0  # 用真值初速度预测，轨迹接近参考
+    finally:
+        MODELS.pop("test_history_extra_model")
+
+
+def test_privileged_inputs_are_marked_in_results(dataset, tmp_path):
+    @register_model("test_privileged_model")
+    class Privileged(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.gain = torch.nn.Parameter(torch.ones(1))
+
+        def forward(self, imu, extra):
+            return {"vel": extra["init_velocity"] * self.gain}
+
+    try:
+        model = NIO({"name": "priv", "arch": "test_privileged_model",
+                     "input": {"window": 100, "extra_inputs": ["init_velocity"]}},
+                    device="cpu", workers=0, efficiency=False, plots=False)
+        result = model.val(data=str(dataset), split="test", project=str(tmp_path), name="priv")
+        meta = json.loads((tmp_path / "val" / "priv" / "metrics.json").read_text())
+        assert meta["privileged_inputs"] == ["init_velocity"]
+        assert result.privileged_inputs == ["init_velocity"]
+    finally:
+        MODELS.pop("test_privileged_model")
+
+
+def test_sequence_model_uses_the_same_trajectory_pipeline():
+    @register_model("test_oracle_sequence_model")
+    class OracleSequence(SequenceModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.gain = torch.nn.Parameter(torch.ones(1))
+            self.calibrated = 0
+
+        def calibrate(self, views):
+            self.calibrated = len(views)
+            return {"scale": 1.0, "sequences": len(views)}
+
+        def predict_sequence(self, seq, view):
+            starts = view.starts(10, require_valid=False)
+            return view.target_times(starts), view.targets(starts), {"note": np.zeros(len(starts))}
+
+    try:
+        seq = make_sequence(duration=20.0, seed=9)
+        cfg = get_cfg({"model": {"name": "oracle_seq", "arch": "test_oracle_sequence_model"},
+                       "device": "cpu", "window": 100, "dims": 3, "metric_dims": 3,
+                       "eval_stride": 10})
+        res = Predictor(cfg).predict_sequence(seq)
+        metrics = res.compute_metrics(dims=3)
+        assert metrics["ate"] < 0.05 and metrics["ate"] == pytest.approx(metrics["ate_oracle"])
+        assert res.outputs["note"].shape == res.starts.shape
+        # 时间戳必须落在窗口网格上
+        model = Predictor(cfg).model
+        model.predict_sequence = lambda seq, view: (np.array([0.0]), np.zeros((1, 3)))
+        with pytest.raises(ValueError, match="window grid"):
+            Predictor(cfg, model=model).predict_sequence(seq)
+    finally:
+        MODELS.pop("test_oracle_sequence_model")
 
 
 def test_predictions_are_only_filled_where_the_input_is_invalid():

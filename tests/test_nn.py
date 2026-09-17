@@ -16,9 +16,14 @@ from inertial_benchmark.nn import (  # noqa: E402
     build_model,
     gaussian_nll,
     list_models,
+    mse,
     register_model,
 )
-from inertial_benchmark.nn.losses import MIN_LOGSTD, MSEThenNLL  # noqa: E402
+from inertial_benchmark.nn.losses import (  # noqa: E402
+    MIN_LOGSTD,
+    MSEThenNLL,
+    expand_mask,
+)
 from inertial_benchmark.nn.modules import ResNet1DBackbone  # noqa: E402
 
 # 官方 RoNIN 仓库（Sachini/ronin@805b7f0）get_model() 在 window=200 下的参数量，
@@ -153,6 +158,67 @@ def test_gaussian_nll_value_and_clamp():
     assert value.item() == pytest.approx(clamped)
     value.backward()
     assert torch.all(tiny.grad == 0)  # 裁剪区间外无梯度（与 TLIO 相同）
+
+
+def test_losses_support_per_frame_and_multi_step_targets_with_masks():
+    """逐帧/多步目标：损失按掩码跳过无效的帧/步（DESIGN 第 3 节）。"""
+    pred = torch.tensor([[[1.0, 0.0], [0.0, 0.0], [5.0, 0.0]]])  # (B=1, R=3, D=2)
+    target = torch.zeros(1, 3, 2)
+    assert mse(pred, target).item() == pytest.approx((1.0 + 25.0) / 6)
+    mask = torch.tensor([[True, True, False]])
+    assert mse(pred, target, mask).item() == pytest.approx(1.0 / 4)  # 第 3 帧不计入
+    # 全部无效：损失为 0 但保留计算图（优化器不会拿不到梯度）
+    grad_pred = pred.clone().requires_grad_(True)
+    zero = mse(grad_pred, target, torch.zeros(1, 3, dtype=torch.bool))
+    assert zero.item() == 0.0
+    zero.backward()
+    assert torch.all(grad_pred.grad == 0)
+    # 高斯 NLL 与调度损失同样接受掩码
+    logstd = torch.zeros(1, 3, 2)
+    nll = build_loss("gaussian_nll")({"vel": pred, "logstd": logstd}, target, 0, mask)[0]
+    assert nll.item() == pytest.approx(0.5 * (1.0 / 4))
+    scheduled, items = build_loss("mse_then_nll", switch_epoch=2)(
+        {"vel": pred, "logstd": logstd}, target, 0, mask)
+    assert scheduled.item() == pytest.approx(0.25) and set(items) == {"mse"}
+    assert expand_mask(mask, pred).shape == pred.shape
+    assert expand_mask(None, pred) is None
+
+
+def test_base_model_passes_the_mask_through_the_loss_batch():
+    @register_model("test_mask_model")
+    class Masked(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.output_shape))
+
+        def forward(self, imu):
+            return {"vel": self.bias.expand(imu.shape[0], *self.bias.shape)}
+
+    try:
+        cfg = get_cfg({"model": {"name": "masked", "arch": "test_mask_model"},
+                       "window": 4, "target": "frame_velocity", "rate": 4.0})
+        model = build_model(cfg)
+        assert model.input_spec.output_shape == (4, 2)
+        imu = torch.zeros(2, 6, 4)
+        out = model(imu)
+        target = torch.ones(2, 4, 2)
+        mask = torch.tensor([[True, True, False, False], [True, False, False, False]])
+        loss, _ = model.loss(out, {"target": target, "imu": imu, "mask": mask})
+        assert loss.item() == pytest.approx(1.0)
+        with pytest.raises(ValueError, match="expected input"):
+            model.check_input(torch.zeros(2, 6, 5))
+    finally:
+        MODELS.pop("test_mask_model")
+
+
+def test_input_spec_declares_layouts_and_extra_inputs():
+    spec = InputSpec(window=100, history=3, history_stride=50, dims=3,
+                     target="multi_displacement", output_steps=5,
+                     extra_inputs=("orientation", "init_velocity"))
+    assert spec.input_shape == (3, 6, 100) and spec.output_shape == (5, 3)
+    assert spec.input_span == 200 and spec.privileged_inputs == ("init_velocity",)
+    assert InputSpec.from_dict(spec.to_dict()) == spec
+    assert InputSpec(window=50).input_shape == (6, 50)
 
 
 def test_mse_then_nll_schedule():

@@ -20,11 +20,31 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 import numpy as np
 
 from ..utils import LOGGER
-from ..utils.geometry import rotate_z
+from ..utils.geometry import quat_from_yaw, quat_multiply, rotate_z
+
+
+def _align_span(values: np.ndarray, shape: tuple) -> np.ndarray:
+    """把 ``(3, span)`` 的机体系量对齐到输入布局 ``(..., 3, T)``。
+
+    无历史时 ``span == T`` 直接返回；有历史时按 ``(H, T)`` 切出各子窗口的片段
+    （子窗口起点间隔由 ``span``、``T``、``H`` 反解，与视图一致）。
+    """
+    window, span = shape[-1], values.shape[-1]
+    if len(shape) == 2 or span == window:
+        return values[..., -window:]
+    subs = shape[0]
+    stride = (span - window) // max(subs - 1, 1)
+    idx = np.arange(subs)[:, None] * stride + np.arange(window)[None, :]
+    return values[:, idx].transpose(1, 0, 2)
 
 
 class Augmentation:
-    """增强基类：``sample`` 含 ``imu (6,T)``、``target (D,)`` 与 ``body_to_frame`` 回调。"""
+    """增强基类。
+
+    ``sample`` 含 ``imu``（``(6,T)``，声明 ``history`` 时为 ``(H,6,T)``）、``target``
+    （``(D,)`` 或 ``(R,D)``）、``mask``、``extra``（额外输入）与 ``body_to_frame`` 回调。
+    实现一律用 ``...`` 索引通道维，以同时支持有/无历史两种布局。
+    """
 
     name = "base"
     stage = 0  # 0 = 传感器级，1 = 坐标级
@@ -38,7 +58,7 @@ class Augmentation:
 
 
 class RandomYaw(Augmentation):
-    """在重力对齐系下绕 z 轴同步旋转 IMU（陀螺与加计）与目标。"""
+    """在重力对齐系下绕 z 轴同步旋转 IMU（陀螺与加计）、目标与姿态类额外输入。"""
 
     name = "random_yaw"
     stage = 1
@@ -49,10 +69,19 @@ class RandomYaw(Augmentation):
     def __call__(self, sample: dict, rng: np.random.Generator) -> dict:
         angle = rng.uniform(-self.max_angle, self.max_angle)
         imu = sample["imu"]
-        imu[0:3] = rotate_z(imu[0:3].T, angle).T
-        imu[3:6] = rotate_z(imu[3:6].T, angle).T
+        imu[..., 0:3, :] = np.moveaxis(rotate_z(np.moveaxis(imu[..., 0:3, :], -1, -2), angle),
+                                       -1, -2)
+        imu[..., 3:6, :] = np.moveaxis(rotate_z(np.moveaxis(imu[..., 3:6, :], -1, -2), angle),
+                                       -1, -2)
         target = sample["target"]
-        target[:] = rotate_z(target[None], angle)[0]
+        target[...] = rotate_z(target, angle)
+        extra = sample.get("extra") or {}
+        if "orientation" in extra:  # 姿态左乘 q_z(angle)
+            extra["orientation"][...] = quat_multiply(quat_from_yaw(angle),
+                                                      extra["orientation"].astype(np.float64))
+        if "init_velocity" in extra:
+            extra["init_velocity"][...] = rotate_z(extra["init_velocity"], angle)
+        # gravity 沿世界 z 轴（或机体系中不随偏航变化），无需旋转
         return sample
 
 
@@ -68,10 +97,12 @@ class Bias(Augmentation):
     def __call__(self, sample: dict, rng: np.random.Generator) -> dict:
         to_frame: Callable = sample["body_to_frame"]
         imu = sample["imu"]
-        if self.gyro > 0:
-            imu[0:3] += to_frame(rng.normal(0.0, self.gyro, 3)).T.astype(imu.dtype)
-        if self.acc > 0:
-            imu[3:6] += to_frame(rng.normal(0.0, self.acc, 3)).T.astype(imu.dtype)
+        for channels, sigma in ((slice(0, 3), self.gyro), (slice(3, 6), self.acc)):
+            if sigma <= 0:
+                continue
+            # (span, 3) → (3, span)，再按输入布局切出各子窗口对应的片段
+            bias = to_frame(rng.normal(0.0, sigma, 3)).T.astype(imu.dtype)
+            imu[..., channels, :] += _align_span(bias, imu.shape)
         return sample
 
 
@@ -86,11 +117,11 @@ class Noise(Augmentation):
 
     def __call__(self, sample: dict, rng: np.random.Generator) -> dict:
         imu = sample["imu"]
-        t = imu.shape[1]
+        shape = imu.shape[:-2] + (3, imu.shape[-1])
         if self.gyro > 0:
-            imu[0:3] += rng.normal(0.0, self.gyro, (3, t)).astype(imu.dtype)
+            imu[..., 0:3, :] += rng.normal(0.0, self.gyro, shape).astype(imu.dtype)
         if self.acc > 0:
-            imu[3:6] += rng.normal(0.0, self.acc, (3, t)).astype(imu.dtype)
+            imu[..., 3:6, :] += rng.normal(0.0, self.acc, shape).astype(imu.dtype)
         return sample
 
 

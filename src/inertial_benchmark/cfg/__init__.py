@@ -15,7 +15,8 @@ from ..utils import CFG_DIR, DEFAULT_CFG_PATH, IterableSimpleNamespace, yaml_loa
 PathLike = Union[str, Path]
 
 # 定义模型输入/输出规格的键：模型 YAML 的 `input` 只允许这些键；使用 checkpoint 时必须与训练时一致
-INPUT_KEYS = ("window", "frame", "orientation", "remove_gravity", "target", "dims", "rate")
+INPUT_KEYS = ("window", "frame", "orientation", "remove_gravity", "target", "dims", "rate",
+              "output_steps", "overlap", "history", "history_stride", "extra_inputs")
 # 评测协议键：决定指标怎么算，**只能**来自 default.yaml / benchmark 配置 / 用户显式覆盖，
 # 不得来自模型 YAML 或 checkpoint 的 model_cfg（否则模型可以自己挑一套好看的评测协议）
 EVAL_PROTOCOL_KEYS = ("eval_stride", "metric_dims", "rte_delta", "t_rte", "d_rte", "min_speed")
@@ -32,7 +33,9 @@ CHOICES = {
     "scheduler": ("none", "cosine", "step", "plateau"),
     "frame": ("gravity_world", "body", "gravity_yaw_local"),
     "orientation": ("reference", "device"),
-    "target": ("avg_velocity", "displacement", "velocity_at_end"),
+    "target": ("avg_velocity", "displacement", "velocity_at_end", "frame_velocity",
+               "multi_displacement"),
+    "overlap": ("center", "mean"),
     "dims": (2, 3),
     "metric_dims": (2, 3),
     "recipe": ("official", "unified"),
@@ -199,8 +202,23 @@ def check_cfg(cfg: dict, defaults: Mapping[str, Any]) -> dict:
             raise ConfigError(f"{key} must be >= 1, got {out[key]}")
     if out.get("frame") == "body" and out.get("dims") != 3:
         raise ConfigError("frame=body requires dims=3 (targets are expressed in the device frame)")
+    for key in ("output_steps", "history", "history_stride"):
+        if key in out and out[key] is not None and out[key] < 0:
+            raise ConfigError(f"{key} must be >= 0, got {out[key]}")
+    _check_view(out, defaults)
     _check_fitness(out, defaults)
     return out
+
+
+def _check_view(out: dict, defaults: Mapping[str, Any]) -> None:
+    """用 ``ViewConfig`` 复核视图/输出布局的组合（窗口、目标、历史、额外输入）。"""
+    from ..data.views import ViewConfig
+
+    merged = {**defaults, **out}
+    try:
+        ViewConfig.from_cfg(merged)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
 
 
 def _check_fitness(out: dict, defaults: Mapping[str, Any]) -> None:

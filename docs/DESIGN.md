@@ -180,12 +180,57 @@ runs/<mode>/<name>/
 | `frame` | `gravity_world`（用姿态旋转到重力对齐世界系）/ `body` / `gravity_yaw_local`（按窗口末端航向去除后的重力对齐系） | `gravity_world` |
 | `orientation` | `reference` / `device`（输入旋转使用哪个姿态） | `reference` |
 | `remove_gravity` | bool | false |
-| `target` | `avg_velocity`（窗口首末位移/时长）/ `displacement` / `velocity_at_end` | `avg_velocity` |
+| `target` | `avg_velocity`（窗口首末位移/时长）/ `displacement` / `velocity_at_end` / `frame_velocity` / `multi_displacement` | `avg_velocity` |
 | `dims` | 2（水平）/ 3 | 2 |
+| `output_steps` | `multi_displacement` 的步数 `H`（窗口等分为 `H` 段） | 0（不适用） |
+| `overlap` | 重叠预测的合并策略 `center` / `mean` | `mean` |
+| `history` | 历史子窗口个数 `H_in`（0 = 不使用历史） | 0 |
+| `history_stride` | 子窗口起点间隔（样本），`history > 1` 时必须 ≥ 1 | 0 |
+| `extra_inputs` | 额外输入列表：`orientation` / `gravity` / `init_velocity` | `[]` |
 | `augment` | 列表，例如 `[random_yaw, time_shift]` | 模型配置决定 |
 
 模型输入通道顺序**固定为 `[gyro_xyz, acc_xyz]`**，形状 `(B, 6, T)`。模型若需要其他顺序或额外通道，
 必须在自己的模型代码内部完成，并有单元测试。
+
+### 3.1 逐帧 / 多步目标与输出布局
+
+`InputSpec` 声明**输出布局**与**各输出的时间偏移**，Predictor 据此把每个输出放到正确的时间戳上：
+
+| `output_layout` | 触发条件 | 输出形状 | 第 `r` 行的含义 | 时间偏移 `output_offsets[r]` |
+|---|---|---|---|---|
+| `window` | `avg_velocity` / `displacement` / `velocity_at_end` | `(B, D)` | 整个窗口 | 窗口中心（`velocity_at_end` 为末端） |
+| `frame` | `frame_velocity` | `(B, T, D)` | 窗口内第 `r` 帧的平均速度 | 该帧本身 `r·dt` |
+| `steps` | `multi_displacement` | `(B, H, D)` | 窗口第 `r` 段的位移 | 该段中心 |
+
+- `frame_velocity`：第 `i` 帧的目标为该帧的平均速度——有 `pose/velocity` 时直接取，否则用前后各一个
+  样本的中心差分（序列端点退化为单边差分），与 `velocity_at_end` 的定义一致；
+- `multi_displacement`：窗口 `[s, s+T)` 按 `output_steps` **等分**（边界 `round(linspace(0, T−1, H+1))`），
+  第 `h` 段的目标是 `p[s+hi_h] − p[s+lo_h]`；换算为速度时各段除以自己的时间跨度 `(hi_h−lo_h)·dt`
+  （`output_scales`）。RNIN 式“10 步位移”即 `output_steps=10`；
+- 时间偏移一律是**半个采样间隔的整数倍**，重叠预测才能精确对齐合并；
+- 损失支持逐帧/多步：batch 中的 `mask`（`(B, R)`）给出逐输出的目标有效性，无效的帧/步不计入损失；
+  某个样本全部无效时损失为 0 但保留计算图。
+
+### 3.2 历史上下文
+
+`history` / `history_stride` 声明历史子窗口：输入形状变为 `(B, H_in, 6, T)`，第 `h` 个子窗口为
+`[start − (H_in−1−h)·history_stride, … + T)`，**最后一个子窗口就是主窗口**（目标与时间戳都只由主窗口决定）。
+窗口起点从 `history_offset = (H_in−1)·history_stride` 开始，有效性按**整个输入跨度**
+`input_span = history_offset + T` 判断，因此训练与推理都保证子窗口在时间上连续、不跨越无效区。
+
+### 3.3 额外输入与特权输入
+
+`extra_inputs` 声明模型除 `[gyro, acc]` 之外需要的输入；声明后模型签名为 `forward(imu, extra)`，
+`extra` 为 `{名称: 张量}`，形状与输入布局一致（有历史时带 `H_in` 维）：
+
+| 名称 | 内容 | 形状 | 特权 |
+|---|---|---|---|
+| `orientation` | 逐样本姿态（视图坐标系，`gravity_yaw_local` 下已去掉窗口末端航向） | `(B[, H_in], T, 4)` | 否 |
+| `gravity` | 逐样本重力向量（视图坐标系，模长 9.81） | `(B[, H_in], T, 3)` | 否 |
+| `init_velocity` | **参考真值**在输入跨度首样本处的速度（视图坐标系） | `(B, D)` | **是** |
+
+**特权输入必须显式标记**：`metrics.json` 写 `privileged_inputs`，`ipb report` 把使用特权输入的方法
+单列一张表，不与纯 IMU 方法混排（LaTeX 主表只含纯 IMU 方法）。
 
 补充约定（实现时澄清）：
 
@@ -210,10 +255,27 @@ runs/<mode>/<name>/
 
 ```python
 class BaseModel(nn.Module):
-    input_spec:  InputSpec   # window, frame, channels, dims, target, rate=200
-    def forward(self, imu: Tensor) -> dict:      # {"vel": (B,D), 可选 "logstd"/"cov": (B,D[,D]), 可选 "aux": ...}
+    input_spec:  InputSpec   # window, frame, channels, dims, target, rate=200, 输出布局与额外输入
+    def forward(self, imu: Tensor, extra: dict = ...) -> dict   # {"vel": input_spec.output_shape, 可选 "logstd"/"cov", "aux": ...}
     def loss(self, out: dict, batch: dict, epoch: int) -> tuple[Tensor, dict]   # 默认 MSE；可覆盖
+
+
+class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推、滤波类）
+    def predict_sequence(self, seq, view) -> tuple   # (times, velocities[, extras])
+    def calibrate(self, views) -> dict               # 只在 train 划分上拟合标定标量
 ```
+
+- `forward` 接收 `(B, 6, T)`（声明 `history` 时为 `(B, H_in, 6, T)`），输出形状由
+  `input_spec.output_shape` 给出；声明 `extra_inputs` 的模型签名为 `forward(imu, extra)`。
+- `loss(out, batch, epoch)` 的 `batch` 在训练与验证中结构一致：至少含 `target`、`imu`，
+  另有 `mask`（逐输出的目标有效掩码）与可选的 `extra`。
+- **序列级 / 有状态模型**（不能逐窗口独立运行的方法：PDR、有状态递推、滤波、测试时训练）实现
+  `SequenceModel`：`predict_sequence(seq, view) -> (times, velocities[, extras])`，其中 `times`
+  必须落在视图的窗口网格（`view.target_times(view.starts(eval_stride))`）上、`velocities` 为**视图
+  坐标系**中的窗口速度，从而与逐窗口模型共用第 5 节的轨迹重建与第 6 节的全部指标。
+  需要标定的方法实现 `calibrate(views)`：Trainer 检测到序列级模型时不跑梯度循环，只用 **train 划分**
+  的视图调用一次 `calibrate`，标定量写入 `model_cfg["calibration"]`（随 checkpoint 与结果发布），
+  之后走同一套验证与选模。
 
 - 通过 `@register_model("name")` 注册，`cfg/models/<name>.yaml` 给出结构参数与训练配方。
   仓库外的模型/增强可放在插件模块中（`@register_model` / `@register_augmentation`），由环境变量
@@ -225,8 +287,17 @@ class BaseModel(nn.Module):
 
 ## 5. 推理与轨迹重建
 
-1. 以 `eval_stride` 滑窗，得到每个窗口的速度 `v_k`，时间戳赋给**窗口中心**（`velocity_at_end` 目标对应窗口末端时刻，
-   时间戳相应赋给窗口末端；`displacement` 目标先除以窗口跨度 `(T−1)·dt` 换算为速度）；
+1. 以 `eval_stride` 滑窗，把**每个输出**按 `InputSpec.output_offsets` 放到自己的时间戳上、按
+   `output_scales` 换算为速度（窗口级目标的时间戳即窗口中心，`velocity_at_end` 为窗口末端，
+   `displacement` 除以窗口跨度 `(T−1)·dt`；逐帧目标对应各帧，多步位移对应各段中心）。
+   逐帧/多步布局在滑窗下会让同一时刻出现多个预测，按 `overlap` 合并：
+   - `mean`（**默认**）：同一时刻的全部**有效**输出取算术平均。理由：这些预测来自同一模型、同一时刻、
+     不同上下文窗口，误差近似独立同分布，平均降低方差且不引入偏置；而且它对 `eval_stride` 的取值最
+     不敏感（换步长时结果稳定），跨模型比较更公平。
+   - `center`：只保留“窗口中心距该时刻最近”的输出，即最少依赖窗口边界外推的那个；适合因果/单向结构
+     或边界效应明显的模型。
+   两种策略都优先使用有效输出；某一时刻全部无效时先合并、再标记为无效（交给第 5 条填补）。
+   序列级模型（`SequenceModel`）直接给出同一网格上的速度，后续步骤完全相同；
 2. 在序列首尾半个窗口内保持首/末速度（常值外推），使所有模型覆盖**同一时间轴**；
 3. 对分段线性速度做梯形积分得到逐帧轨迹，起点锚定参考轨迹首个有效位置；不做任何对齐；
 4. 同时保存窗口级 `vel_pred / vel_target / (logstd)`，以及“oracle 轨迹”（用窗口目标本身积分），用于分离协议效应与模型效应；
@@ -238,7 +309,7 @@ class BaseModel(nn.Module):
    字段不存在则视为全部有效；`orientation=reference` 时为 `valid/pose`；`frame=body` 且不去重力时不需要姿态）。
    这样“位姿有缺口、IMU 正常”的窗口不再被插值掉，**模型穿越位姿缺口的漂移会被真实评测**；
    轨迹指标只在 `valid/pose` 为 True 的样本上计算，锚点为首个有效参考位置；窗口级速度指标仍要求两者同时有效；
-6. 序列短于一个窗口时无法推理，记为跳过并写入结果，不参与聚合。
+6. 序列短于一个输入跨度（`history_offset + window`）时无法推理，记为跳过并写入结果，不参与聚合。
 
 旧实现的已知错误（时间戳赋给窗口起点造成半窗错位、末尾一个窗口时长不被覆盖）在此明确禁止。
 

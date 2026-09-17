@@ -85,7 +85,8 @@ class SequenceResult:
     window_valid_input: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
     window_valid_target: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
     logstd: Optional[np.ndarray] = None
-    # 模型的其他逐窗口输出（键 → (K, ...)），保持模型输出的视图坐标系，未做无效窗口插值
+    # 模型的其他逐窗口输出（键 → (K, ...)），保持模型输出的视图坐标系与**逐窗口**布局
+    # （不做重叠合并，也不做无效窗口插值）；``logstd`` 同理
     outputs: dict = field(default_factory=dict)
     frame: str = "gravity_world"
     rate: float = 200.0
@@ -220,6 +221,14 @@ class RunResult:
     def __getitem__(self, key: str) -> float:
         return self.metrics[key]
 
+    @property
+    def privileged_inputs(self) -> list:
+        """本次评测使用的特权输入（来自参考真值），报表中必须单列。"""
+        from ..data.views import PRIVILEGED_INPUTS
+
+        used = self.cfg.get("extra_inputs") or ()
+        return [name for name in used if name in PRIVILEGED_INPUTS]
+
     def to_dict(self) -> dict:
         from ..cfg import protocol_from_cfg
 
@@ -236,6 +245,8 @@ class RunResult:
             "dataset_fingerprint": (self.env.get("dataset") or {}).get("fingerprint"),
             "git": (self.env.get("git") or {}).get("commit"),
             "protocol": protocol_from_cfg(cfg),
+            # 特权输入（如来自参考真值的初速度）必须显式标记，报表中单列、不与纯 IMU 方法混排
+            "privileged_inputs": self.privileged_inputs,
             "num_sequences": len(self.evaluated),
             "num_skipped": len(self.sequences) - len(self.evaluated),
             "skipped": {s.sequence_id: s.skipped for s in self.sequences if s.skipped},

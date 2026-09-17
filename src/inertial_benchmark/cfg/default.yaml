@@ -47,10 +47,15 @@ eval_stride: 10        # 验证/推理步长
 frame: gravity_world   # gravity_world / body / gravity_yaw_local
 orientation: reference # reference / device
 remove_gravity: false
-target: avg_velocity   # avg_velocity / displacement / velocity_at_end
+target: avg_velocity   # avg_velocity / displacement / velocity_at_end / frame_velocity / multi_displacement
 dims: 2                # 2（水平）/ 3
 augment: [random_yaw, time_shift]
 rate: 200.0            # 统一采样率（Hz），与 IPB v1 数据一致
+output_steps: 0        # multi_displacement 的步数 H（窗口等分为 H 段），其余目标不适用
+overlap: mean          # 重叠预测的合并策略：mean（同一时刻取平均）/ center（取最靠窗口中心的）
+history: 0             # 历史子窗口个数 H（0 = 不使用历史，输入为 (C,T)；>0 时输入为 (H,C,T)）
+history_stride: 0      # 子窗口起点间隔（样本），history>1 时必须 >= 1
+extra_inputs: []       # 额外输入：orientation / gravity / init_velocity（init_velocity 为特权输入）
 
 # ---------------------------------------------------------------- 评测（DESIGN 第 5–6 节）
 metric_dims: 2         # 轨迹与速度指标使用的维度

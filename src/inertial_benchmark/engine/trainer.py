@@ -20,6 +20,7 @@ from ..cfg import ConfigError, get_cfg, protocol_from_cfg
 from ..data.build import build_dataloader, build_dataset
 from ..data.manifest import resolve_dataset
 from ..metrics import METRIC_INFO
+from ..nn.base import SequenceModel
 from ..utils import LOGGER, add_file_handler, json_save, to_builtin, yaml_save
 from ..utils.callbacks import add_callback, default_callbacks, run_callbacks
 from ..utils.checks import collect_env
@@ -181,6 +182,8 @@ class Trainer:
     def train_one_epoch(self, epoch: int) -> dict:
         a = self.args
         model = self.model
+        if isinstance(de_parallel(model), SequenceModel):
+            return self.calibrate_once(epoch)
         model.train()
         self.seed_epoch(epoch)
         self.train_set.set_epoch(epoch)
@@ -191,10 +194,14 @@ class Trainer:
             run_callbacks(self.callbacks, "on_train_batch_start", self)
             x = batch["imu"].to(self.device, non_blocking=True)
             y = batch["target"].to(self.device, non_blocking=True)
+            mask = batch["mask"].to(self.device, non_blocking=True)
+            extra = {k: v.to(self.device, non_blocking=True)
+                     for k, v in batch.get("extra", {}).items()}
             with torch.autocast(self.device.type, enabled=self.amp):
-                out = model(x)
+                out = model(x, extra) if extra else model(x)
             out = {k: v.float() if torch.is_tensor(v) else v for k, v in out.items()}
-            loss, items = de_parallel(model).loss(out, {"target": y, "imu": x}, epoch)
+            loss, items = de_parallel(model).loss(
+                out, {"target": y, "imu": x, "mask": mask, "extra": extra}, epoch)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at epoch {epoch}: {loss.item()}")
             self.optimizer.zero_grad(set_to_none=True)
@@ -214,6 +221,26 @@ class Trainer:
         out.update({f"train/{k}": v / max(count, 1) for k, v in items_sum.items()
                     if f"train/{k}" != "train/loss"})
         return out
+
+    def calibrate_once(self, epoch: int) -> dict:
+        """序列级模型没有梯度训练：只在 **train 划分**上拟合一次标定标量。
+
+        标定量写入 ``model_cfg["calibration"]``（随 checkpoint 与 ``metrics.json`` 发布），
+        之后与其他模型走同一套验证、选模与结果写出。
+        """
+        model = de_parallel(self.model)
+        if epoch > self.start_epoch:
+            return {"train/loss": math.nan}
+        views = [self.train_set.sequence_view(k)
+                 for k in range(len(self.train_set.sequence_ids))]
+        stats = model.calibrate(views) or {}
+        model.model_cfg["calibration"] = to_builtin(stats)
+        LOGGER.info(f"calibrate: {model.model_cfg.get('name')} on {self.spec.name}/train "
+                    f"({len(views)} sequences): {stats}")
+        row = {"train/loss": math.nan}
+        row.update({f"train/{k}": float(v) for k, v in stats.items()
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)})
+        return row
 
     def validate(self, epoch: int) -> dict:
         result = self.validator(model=self.model, sources=self.val_views, device=self.device,
