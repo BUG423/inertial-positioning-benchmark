@@ -56,11 +56,16 @@ def test_model_args_override_and_loss():
     model = build_model(cfg)
     assert model.model_cfg["args"]["fc_dim"] == 64
     assert model.loss_name == "mse_then_nll" and model.loss_kwargs == {"switch_epoch": 3}
-    out = model(torch.randn(4, 6, 200))
-    loss, items = model.loss(out, {"target": torch.zeros(4, 2)}, epoch=0)
+    imu = torch.randn(4, 6, 200)
+    out = model(imu)
+    batch = {"target": torch.zeros(4, 2), "imu": imu}
+    loss, items = model.loss(out, batch, epoch=0)
     assert loss.ndim == 0 and "mse" in items
     with pytest.raises(KeyError, match="logstd"):
-        model.loss(out, {"target": torch.zeros(4, 2)}, epoch=5)
+        model.loss(out, batch, epoch=5)
+    # 训练与验证必须传同样的键（至少 target 与 imu）
+    with pytest.raises(KeyError, match="loss batch is missing"):
+        model.loss(out, {"target": torch.zeros(4, 2)}, epoch=0)
     # 训练时的损失写入模型配置，从 checkpoint 重建时保持一致
     assert model.model_cfg["loss"] == "mse_then_nll"
     rebuilt = build_model(get_cfg({"model": "ronin_resnet18"}), model_cfg=model.model_cfg)
@@ -91,8 +96,9 @@ def test_registry():
     try:
         model = build_model(get_cfg({"model": {"name": "tiny", "arch": "tiny_test_model",
                                                "args": {"hidden": 4}}, "window": 10}))
-        out = model(torch.randn(2, 6, 10))
-        loss, items = model.loss(out, {"target": torch.zeros(2, 2)})
+        imu = torch.randn(2, 6, 10)
+        out = model(imu)
+        loss, items = model.loss(out, {"target": torch.zeros(2, 2), "imu": imu})
         assert set(items) == {"nll", "mse"} and torch.isfinite(loss)
     finally:
         MODELS.pop("tiny_test_model")

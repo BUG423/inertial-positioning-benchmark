@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import os
 import random
@@ -160,7 +161,11 @@ _CKPT_CACHE: dict = {}
 
 
 def load_checkpoint(path: PathLike, map_location: Any = "cpu") -> dict:
-    """读取 checkpoint（只含张量与基本类型，``weights_only=True``）；按路径与修改时间缓存。"""
+    """读取 checkpoint（只含张量与基本类型，``weights_only=True``）；按路径与修改时间缓存。
+
+    返回的始终是**深拷贝**：优化器 ``load_state_dict`` 只在 dtype/device 不匹配时才复制张量，
+    否则会与缓存共享存储，随后 ``exp_avg.mul_()`` 之类的原地更新就会污染缓存里的 checkpoint。
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"checkpoint not found: {path}")
@@ -168,7 +173,7 @@ def load_checkpoint(path: PathLike, map_location: Any = "cpu") -> dict:
     if key not in _CKPT_CACHE:
         _CKPT_CACHE.clear()
         _CKPT_CACHE[key] = torch.load(path, map_location=map_location, weights_only=True)
-    return _CKPT_CACHE[key]
+    return copy.deepcopy(_CKPT_CACHE[key])
 
 
 def save_checkpoint(path: PathLike, ckpt: dict) -> None:

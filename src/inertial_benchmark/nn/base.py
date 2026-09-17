@@ -34,12 +34,27 @@ class InputSpec(ViewConfig):
         return len(self.channels)
 
 
+# 损失接口的 batch 结构：训练与验证都必须提供这些键（其余键可选，例如 mask / extra）
+LOSS_BATCH_KEYS = ("target", "imu")
+
+
+def check_loss_batch(batch: Mapping[str, Any]) -> None:
+    """校验损失 batch 的结构，避免训练与验证传入不同的键。"""
+    missing = [k for k in LOSS_BATCH_KEYS if k not in batch]
+    if missing:
+        raise KeyError(f"loss batch is missing {missing}; training and validation must pass the "
+                       f"same keys (at least {list(LOSS_BATCH_KEYS)})")
+
+
 class BaseModel(nn.Module):
     """所有模型的基类。
 
     ``forward(imu)`` 接收 ``(B, 6, T)``，返回 dict：必含 ``vel (B, dims)``，可含 ``logstd``、
     ``cov``、``aux`` 等。``loss(out, batch, epoch)`` 默认按 ``loss_name`` 计算，可在子类覆盖。
     推理时 ``vel``/``logstd`` 之外首维为批大小的张量也会保存到预测文件（见 ``saved_outputs``）。
+
+    ``batch`` 的结构在训练与验证中**一致**：至少含 ``target`` 与 ``imu``（``LOSS_BATCH_KEYS``），
+    需要时另有 ``mask``（逐帧/多步目标的有效掩码）与 ``extra``（额外输入，见 DESIGN 第 3 节）。
     """
 
     default_loss = "mse"
@@ -62,7 +77,8 @@ class BaseModel(nn.Module):
         self.loss_kwargs = dict(kwargs)
 
     def loss(self, out: dict, batch: dict, epoch: int = 0) -> tuple:
-        """返回 ``(标量损失, {名称: 分离后的张量})``。"""
+        """返回 ``(标量损失, {名称: 分离后的张量})``；``batch`` 必须含 ``LOSS_BATCH_KEYS``。"""
+        check_loss_batch(batch)
         return build_loss(self.loss_name, **self.loss_kwargs)(out, batch["target"], epoch)
 
     def check_input(self, imu: torch.Tensor) -> None:

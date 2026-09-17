@@ -1,7 +1,21 @@
+import importlib
+
 import numpy as np
 import pytest
 
 from inertial_benchmark import CanonicalSequence, SequenceValidationError, WindowDataset
+
+
+def test_legacy_v01_stays_importable_but_warns():
+    """v0.1 旧接口移入 data.legacy 子模块：仍可导入，但会发出 DeprecationWarning。"""
+    from inertial_benchmark.data import legacy
+
+    with pytest.warns(DeprecationWarning, match="deprecated"):
+        importlib.reload(legacy)
+    assert legacy.CanonicalSequence is CanonicalSequence
+    assert legacy.WindowDataset is WindowDataset
+    assert importlib.import_module("inertial_benchmark.data.legacy.v01").CanonicalSequence \
+        is CanonicalSequence
 
 
 def make_sequence(n: int = 11) -> CanonicalSequence:

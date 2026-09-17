@@ -460,6 +460,30 @@ def test_best_checkpoint_is_written_before_last(dataset, tmp_path, monkeypatch):
     assert last["stopper"]["best_epoch"] == best["epoch"]
 
 
+def test_load_checkpoint_returns_independent_copies(dataset, tmp_path):
+    """缓存不能与调用方共享存储：优化器状态是原地更新的。"""
+    Trainer(overrides={**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+                       "name": "cache", "save_predictions": False, "plots": False}).train()
+    last = tmp_path / "train" / "cache" / "weights" / "last.pt"
+    first, second = load_checkpoint(last), load_checkpoint(last)
+    key = next(iter(first["model"]))
+    assert first is not second and first["model"][key] is not second["model"][key]
+    first["model"][key].add_(1.0)
+    assert not torch.equal(first["model"][key], second["model"][key])
+    assert torch.equal(load_checkpoint(last)["model"][key], second["model"][key])
+    # 优化器状态经 load_state_dict 后原地更新，不得污染缓存
+    state = load_checkpoint(last)["optimizer"]
+    tensors = [v for s in state["state"].values() for v in s.values() if torch.is_tensor(v)]
+    if tensors:
+        before = [t.clone() for t in tensors]
+        for t in tensors:
+            t.mul_(2.0)
+        after = load_checkpoint(last)["optimizer"]
+        again = [v for s in after["state"].values() for v in s.values() if torch.is_tensor(v)]
+        for expected, actual in zip(before, again):
+            assert torch.equal(expected, actual)
+
+
 def test_sgd_without_momentum_disables_nesterov():
     model = torch.nn.Linear(3, 2)
     assert not build_optimizer(model, "sgd", 0.1, momentum=0.0).param_groups[0]["nesterov"]

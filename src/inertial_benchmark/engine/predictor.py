@@ -133,7 +133,8 @@ class Predictor:
                 target = torch.from_numpy(view.targets(s[v])).to(self.device)
                 sub = {k: t.index_select(0, idx) for k, t in out.items()
                        if t.ndim >= 1 and t.shape[0] == len(s)}
-                loss, _ = model.loss(sub, {"target": target}, epoch)
+                # batch 结构与训练时一致（至少 target 与 imu），见 nn.base.LOSS_BATCH_KEYS
+                loss, _ = model.loss(sub, {"target": target, "imu": x.index_select(0, idx)}, epoch)
                 loss_sum += float(loss) * int(v.sum())
                 loss_n += int(v.sum())
         model.train(was_training)
