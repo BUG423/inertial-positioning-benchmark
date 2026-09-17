@@ -31,8 +31,7 @@ src/inertial_benchmark/
 │   ├── views.py           # 任务视图：坐标变换、目标构造（无 torch 依赖）
 │   ├── augment.py         # 数据增强（随机偏航、时间抖动、偏置/噪声注入…）
 │   ├── dataset.py         # torch Dataset / 缓存 / 采样器
-│   ├── build.py           # build_dataset / build_dataloader
-│   └── legacy/            # v0.1 旧接口（CanonicalSequence 等），导入即 DeprecationWarning
+│   └── build.py           # build_dataset / build_dataloader
 ├── nn/
 │   ├── modules/           # 通用积木：1D ResNet、TCN、LSTM、Transformer 块等
 │   ├── heads.py           # 速度头、高斯头（协方差）、极坐标头（速度大小+方向）
