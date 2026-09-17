@@ -353,6 +353,19 @@ ipb train data=ridi fitness=ate fitness_stat=median   # 逐序列 ATE 的中位�
 - `results.csv` 的**列集合固定**，不随这两个键变化：每轮只写一列 `fitness`（本轮用于选模的标量），
   其含义由 `args.yaml` 里记录的 `fitness` / `fitness_stat` 决定——这样跨 run 汇总不会错位。
 
+### 4.2 `train_eval_gap`：train/eval 失配诊断
+
+dropout 与 BatchNorm 让同一组权重在 `train()` 与 `eval()` 下行为不同。训练结束时框架在 val 的一条
+序列上用两种模式各算一次窗口损失，把 `{loss_eval, loss_train, ratio}` 写进 `metrics.json` 的
+`train_eval_gap`；`ratio > 2` 时给出告警。诊断在模型副本上进行，不改动权重、BN 统计与随机数状态。
+
+`ratio` 明显大于 1 意味着**报出的指标不是这组权重真实的能力**。实测例子：`ronin_resnet18` 在
+`recipe=unified` 下训练 4 轮后，RoNIN val 窗口损失 eval 模式 0.155、train 模式 0.020（比值 7.7），
+速度幅值只有训练模式的 1/3（`speed_ratio` 0.35 对 0.94），于是 `plr` 掉到 0.32–0.35、ATE 虚高到 15 m。
+根因是 RoNIN 头部的 `Dropout(0.5) → Linear → ReLU`：训练时 dropout 噪声让 ReLU 更容易激活，
+关掉 dropout 后同一层的输出被系统性压低（逐项排除：把 BN 单独切回 train 模式、或重估 BN running
+统计都不改善，只有 dropout 开着才恢复）。`plr` / `speed_ratio` 远离 1 是同一问题的下游表现。
+
 ### 4.4 `train_windows_budget`：等窗口预算
 
 固定 epoch 数在规模差一个数量级的数据集之间不是等算力预算。实测每轮训练窗口数
@@ -390,19 +403,6 @@ ipb train model=ronin_resnet18 data=rnin   train_windows_budget=3.2e+7   # → 6
   不适用等窗口预算：框架记录一条 info 并保留配方里的 `epochs`。
 - `patience`（早停）照常生效：预算给出的是**上界**，实际轮数以 `results.csv` 为准。
 - YAML 里写科学计数法要带指数符号（`3.2e+7`）；PyYAML 会把 `3.2e7` 当字符串。
-
-### 4.2 `train_eval_gap`：train/eval 失配诊断
-
-dropout 与 BatchNorm 让同一组权重在 `train()` 与 `eval()` 下行为不同。训练结束时框架在 val 的一条
-序列上用两种模式各算一次窗口损失，把 `{loss_eval, loss_train, ratio}` 写进 `metrics.json` 的
-`train_eval_gap`；`ratio > 2` 时给出告警。诊断在模型副本上进行，不改动权重、BN 统计与随机数状态。
-
-`ratio` 明显大于 1 意味着**报出的指标不是这组权重真实的能力**。实测例子：`ronin_resnet18` 在
-`recipe=unified` 下训练 4 轮后，RoNIN val 窗口损失 eval 模式 0.155、train 模式 0.020（比值 7.7），
-速度幅值只有训练模式的 1/3（`speed_ratio` 0.35 对 0.94），于是 `plr` 掉到 0.32–0.35、ATE 虚高到 15 m。
-根因是 RoNIN 头部的 `Dropout(0.5) → Linear → ReLU`：训练时 dropout 噪声让 ReLU 更容易激活，
-关掉 dropout 后同一层的输出被系统性压低（逐项排除：把 BN 单独切回 train 模式、或重估 BN running
-统计都不改善，只有 dropout 开着才恢复）。`plr` / `speed_ratio` 远离 1 是同一问题的下游表现。
 
 ## 5. Python 等价写法
 
