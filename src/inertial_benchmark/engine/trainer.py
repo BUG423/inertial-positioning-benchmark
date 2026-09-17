@@ -320,6 +320,52 @@ class Trainer:
         rows.append(row)
         self._write_rows(rows)
 
+    def train_eval_gap(self, windows: int = 1024, repeats: int = 4) -> dict:
+        """val 窗口上 ``eval()`` 与 ``train()`` 两种模式的窗口损失比，用于发现 train/eval 失配。
+
+        dropout 与 BatchNorm 让同一权重在两种模式下行为不同。理想情况下两个损失相当；
+        比值远大于 1 说明**报出的指标不是这组权重真实的能力**，而是 train/eval 失配的产物。
+        真实案例：``ronin_resnet18`` 的 ``Dropout(0.5) → Linear → ReLU`` 头在统一配方下训练
+        若干轮后，eval 模式的速度幅值只有训练模式的三分之一（损失 0.155 对 0.020），
+        轨迹指标因此严重虚高。
+
+        在模型副本上计算，不改动权重、BN 统计与随机数状态。
+        """
+        import copy
+
+        view = next((s for s in self.val_sources if hasattr(s, "imu_windows")), None)
+        if view is None:  # 惰性 val：临时构建第一条序列的视图
+            view = self.val_set.sequence_view(0) if self.val_set.sequence_ids else None
+        if view is None:
+            return {}
+        starts = view.starts(int(self.args.eval_stride))[:int(windows)]
+        if len(starts) == 0:
+            return {}
+        work = copy.deepcopy(de_parallel(self.model))
+        x = torch.from_numpy(view.imu_windows(starts)).to(self.device)
+        y = torch.from_numpy(view.targets(starts)).to(self.device)
+        losses = {}
+        with torch.no_grad():
+            for mode in ("eval", "train"):
+                work.train(mode == "train")
+                values = []
+                for _ in range(int(repeats) if mode == "train" else 1):
+                    with torch.autocast(self.device.type, enabled=self.amp):
+                        out = work(x)
+                    out = {k: v.float() for k, v in out.items() if torch.is_tensor(v)}
+                    values.append(float(work.loss(out, {"target": y, "imu": x}, self.epoch)[0]))
+                losses[mode] = sum(values) / len(values)
+        gap = {"loss_eval": losses["eval"], "loss_train": losses["train"],
+               "ratio": losses["eval"] / losses["train"] if losses["train"] > 0 else math.inf,
+               "num_windows": int(len(starts)), "sequence_id": view.sequence_id}
+        if gap["ratio"] > 2.0:
+            LOGGER.warning(
+                f"train/eval mismatch: val window loss is {gap['ratio']:.1f}x higher in eval() "
+                f"than in train() mode ({gap['loss_eval']:.4f} vs {gap['loss_train']:.4f}). "
+                "Reported metrics understate these weights; check the model's dropout/BatchNorm "
+                "and the speed_ratio / plr metrics.")
+        return gap
+
     def final_eval(self, epoch: int) -> None:
         """用 best 权重在 val 上做最终评测并写出 ``metrics.json`` 等文件（不触碰 test）。"""
         if not self.best.exists():
@@ -336,6 +382,10 @@ class Trainer:
         result.cfg = self.args.to_dict()
         payload = result.to_dict()
         payload.update(mode="train", best_epoch=int(ckpt["epoch"]), last_epoch=epoch)
+        try:
+            payload["train_eval_gap"] = self.train_eval_gap()
+        except Exception as exc:  # noqa: BLE001 - 诊断失败不影响训练结果
+            LOGGER.warning(f"train/eval gap check failed: {exc}")
         result.save(self.save_dir, predictions=bool(self.args.save_predictions),
                     plots=bool(self.args.plots), max_plots=int(self.args.max_plots))
         json_save(self.save_dir / "metrics.json", payload)

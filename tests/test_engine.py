@@ -286,6 +286,43 @@ def test_view_config_from_model_spec(zero_model):
     assert res.pos_pred.shape[1] == 3
 
 
+def test_train_eval_gap_is_recorded_and_warns(dataset, tmp_path, caplog):
+    """train/eval 失配诊断：正常模型比值≈1，故意在 eval 模式缩小输出的模型必须触发告警。
+
+    真实案例是 ronin_resnet18 在统一配方下 eval 模式速度只有训练模式的三分之一。
+    """
+    over = {**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+            "save_predictions": False}
+    trainer = Trainer(overrides={**over, "name": "gap_ok"})
+    trainer.train()
+    gap = json.loads((tmp_path / "train" / "gap_ok" / "metrics.json").read_text())
+    assert 0.2 < gap["train_eval_gap"]["ratio"] < 5.0
+    assert gap["train_eval_gap"]["num_windows"] > 0
+
+    @register_model("test_shrinking_model")
+    class Shrinking(BaseModel):
+        """eval 模式输出被平移（模拟 dropout/BN 在两种模式下行为不同的头）。"""
+
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.scale = torch.nn.Parameter(torch.ones(input_spec.dims))
+
+        def forward(self, imu):
+            vel = self.scale.expand(imu.shape[0], -1)
+            return {"vel": vel if self.training else vel + 3.0}
+
+    try:
+        bad = Trainer(overrides={**over, "name": "gap_bad", "model_args": {},
+                                 "model": {"name": "shrink", "arch": "test_shrinking_model"}})
+        bad.train()
+        with caplog.at_level("WARNING"):
+            g = bad.train_eval_gap()
+        assert g["ratio"] > 2.0
+        assert any("train/eval mismatch" in r.getMessage() for r in caplog.records)
+    finally:
+        MODELS.pop("test_shrinking_model")
+
+
 def test_oracle_ate_exposes_the_gap_floor(zero_model):
     """多秒 valid 缺口 + 参考位置跳变时，ate_oracle 必须把协议误差下限暴露出来。
 
