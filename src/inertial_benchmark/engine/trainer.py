@@ -122,8 +122,10 @@ class Trainer:
             self.train_set, int(a.batch), shuffle=True, workers=int(a.workers), seed=int(a.seed),
             drop_last=True, pin_memory=self.device.type == "cuda")
         self.val_set = build_dataset(a, "val", training=False, spec=self.spec)
-        self.val_views = [self.val_set.sequence_view(k)
-                          for k in range(len(self.val_set.sequence_ids))]
+        # cache=true 预先构建并保留视图（快）；cache=false 只保留路径，验证时逐条读取（省内存）
+        self.val_sources = ([self.val_set.sequence_view(k)
+                             for k in range(len(self.val_set.sequence_ids))]
+                            if self.val_set.views else [lz.path for lz in self.val_set.lazy])
 
         self.model = load_model(a, self.device)
         self.sequence_model = isinstance(de_parallel(self.model), SequenceModel)
@@ -245,7 +247,7 @@ class Trainer:
         return row
 
     def validate(self, epoch: int) -> dict:
-        result = self.validator(model=self.model, sources=self.val_views, device=self.device,
+        result = self.validator(model=self.model, sources=self.val_sources, device=self.device,
                                 epoch=epoch, dataset=self.spec, split="val")
         self.val_result = result
         return result.metrics
@@ -273,7 +275,7 @@ class Trainer:
             epochs = self.start_epoch + 1
             LOGGER.info("sequence model: calibrating once instead of running gradient epochs")
         LOGGER.info(f"train: {self.spec.name}, {len(self.train_set)} windows, "
-                    f"{len(self.val_views)} val sequences, epochs {self.start_epoch}->{epochs}, "
+                    f"{len(self.val_sources)} val sequences, epochs {self.start_epoch}->{epochs}, "
                     f"save_dir={self.save_dir}")
         run_callbacks(self.callbacks, "on_train_start", self)
         t_start = time.time()
@@ -388,6 +390,77 @@ class Trainer:
         rows.append(row)
         self._write_rows(rows)
 
+    def train_eval_gap(self, windows: int = 1024, repeats: int = 4) -> dict:
+        """val 窗口上 ``eval()`` 与 ``train()`` 两种模式的窗口损失比，用于发现 train/eval 失配。
+
+        dropout 与 BatchNorm 让同一权重在两种模式下行为不同。理想情况下两个损失相当；
+        比值远大于 1 说明**报出的指标不是这组权重真实的能力**，而是 train/eval 失配的产物。
+        真实案例：``ronin_resnet18`` 的 ``Dropout(0.5) → Linear → ReLU`` 头在统一配方下训练
+        若干轮后，eval 模式的速度幅值只有训练模式的三分之一（损失 0.155 对 0.020），
+        轨迹指标因此严重虚高。
+
+        逐帧/多步目标与额外输入一并走 :meth:`SequenceView.windows`，因此 batch 的键与
+        Trainer 完全一致（``target``/``imu``/``mask``/``extra``）。序列级模型
+        （:class:`~inertial_benchmark.nn.base.SequenceModel`）没有逐窗口前向、也没有
+        ``train()``/``eval()`` 的语义差异，直接跳过（记下原因，不报错）。
+
+        在模型副本上计算，不改动权重、BN 统计与随机数状态。
+        """
+        import copy
+
+        if self.sequence_model:
+            return {"skipped": "sequence model has no train()/eval() distinction"}
+        n_seq = len(self.val_set.sequence_ids)
+        if n_seq == 0:
+            return {}
+        # 跨若干条 val 序列均匀取窗口，避免结论依赖单条序列
+        views, used = [], min(4, n_seq)
+        for k in range(used):
+            v = self.val_sources[k]
+            views.append(v if hasattr(v, "imu_windows") else self.val_set.sequence_view(k))
+        per_view = max(int(windows) // used, 1)
+        parts: list = []
+        for v in views:
+            starts = v.starts(int(self.args.eval_stride))
+            if len(starts) == 0:
+                continue
+            starts = starts[np.linspace(0, len(starts) - 1, min(per_view, len(starts))).astype(int)]
+            parts.append(v.windows(starts))
+        if not parts:
+            return {}
+        work = copy.deepcopy(de_parallel(self.model))
+
+        def stack(key: str) -> torch.Tensor:
+            return torch.from_numpy(np.concatenate([p[key] for p in parts])).to(self.device)
+
+        x, y, mask = stack("imu"), stack("target"), stack("mask")
+        names = sorted({k for p in parts for k in p.get("extra", {})})
+        extra = {name: torch.from_numpy(
+            np.concatenate([p["extra"][name] for p in parts])).to(self.device) for name in names}
+        batch = {"target": y, "imu": x, "mask": mask, "extra": extra}
+        losses = {}
+        with torch.no_grad():
+            for mode in ("eval", "train"):
+                work.train(mode == "train")
+                values = []
+                for _ in range(int(repeats) if mode == "train" else 1):
+                    with torch.autocast(self.device.type, enabled=self.amp):
+                        out = work(x, extra) if extra else work(x)
+                    out = {k: v.float() for k, v in out.items() if torch.is_tensor(v)}
+                    values.append(float(work.loss(out, batch, self.epoch)[0]))
+                losses[mode] = sum(values) / len(values)
+        gap = {"loss_eval": losses["eval"], "loss_train": losses["train"],
+               "ratio": losses["eval"] / losses["train"] if losses["train"] > 0 else math.inf,
+               "num_windows": int(len(x)),
+               "sequences": [v.sequence_id for v in views]}
+        if gap["ratio"] > 2.0:
+            LOGGER.warning(
+                f"train/eval mismatch: val window loss is {gap['ratio']:.1f}x higher in eval() "
+                f"than in train() mode ({gap['loss_eval']:.4f} vs {gap['loss_train']:.4f}). "
+                "Reported metrics understate these weights; check the model's dropout/BatchNorm "
+                "and the speed_ratio / plr metrics.")
+        return gap
+
     def final_eval(self, epoch: int) -> None:
         """用 best 权重在 val 上做最终评测并写出 ``metrics.json`` 等文件（不触碰 test）。"""
         if not self.best.exists():
@@ -404,6 +477,10 @@ class Trainer:
         result.cfg = self.args.to_dict()
         payload = result.to_dict()
         payload.update(mode="train", best_epoch=int(ckpt["epoch"]), last_epoch=epoch)
+        try:
+            payload["train_eval_gap"] = self.train_eval_gap()
+        except Exception as exc:  # noqa: BLE001 - 诊断失败不影响训练结果
+            LOGGER.warning(f"train/eval gap check failed: {exc}")
         result.save(self.save_dir, predictions=bool(self.args.save_predictions),
                     plots=bool(self.args.plots), max_plots=int(self.args.max_plots))
         json_save(self.save_dir / "metrics.json", payload)

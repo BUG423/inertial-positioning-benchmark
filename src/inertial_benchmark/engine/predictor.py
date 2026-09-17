@@ -184,7 +184,9 @@ class Predictor:
                 mask = torch.from_numpy(view.target_mask(s[v])).to(self.device)
                 sub = {k: t.index_select(0, idx) for k, t in out.items()
                        if t.ndim >= 1 and t.shape[0] == len(s)}
-                # batch 结构与训练时一致（至少 target 与 imu），见 nn.base.LOSS_BATCH_KEYS
+                # batch 的键与 Trainer 完全一致（``target``/``imu``/``mask``，见
+                # nn.base.LOSS_BATCH_KEYS）：否则用到 ``batch["imu"]`` 或 ``batch["mask"]``
+                # 的损失只能在训练中工作，验证时会 KeyError
                 loss, _ = model.loss(sub, {"target": target, "imu": x.index_select(0, idx),
                                            "mask": mask}, epoch)
                 loss_sum += float(loss) * int(v.sum())

@@ -90,7 +90,8 @@ ipb train resume=true name=exp                                          # 断点
 ```
 
 训练只使用 `train` 与 `val` 划分；每 `val_interval` 轮在 val 上计算全部指标，按 `fitness`（缺省 `ate`，越小越好）保存 `best.pt`。
-结束后用 best 权重在 val 上评测一次并写出 `metrics.json`。
+结束后用 best 权重在 val 上评测一次并写出 `metrics.json`，其中 `train_eval_gap` 记录同一权重在
+`train()` 与 `eval()` 两种模式下的 val 窗口损失比（见第 4.2 节）。
 
 ### `ipb val` — 评测
 
@@ -185,7 +186,8 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 ├── log.txt
 ├── weights/{best,last}.pt     # 训练：模型配置、输入规格、完整 cfg、epoch、优化器/调度器状态（best 去掉优化器）、git 提交
 ├── results.csv                # 训练：每轮 train/loss、val/*、lr、fitness、耗时
-├── metrics.json               # 聚合指标（mean/median/std/count）、protocol、privileged_inputs、calibration、效率指标
+├── metrics.json               # 聚合指标（mean/median/std/count）、protocol、privileged_inputs、calibration、
+│                              # 效率指标、train_eval_gap（train/eval 模式的窗口损失比，见第 4.2 节）
 ├── sequences.csv              # 逐序列指标
 ├── predictions/<seq>.npz      # 逐帧预测/参考/oracle 轨迹，窗口级 vel_pred/vel_target/(logstd)，其他模型输出 out_<键>
 └── plots/*.png                # 轨迹叠加、误差 CDF、误差随时间、箱线图、长度比、训练曲线
@@ -223,11 +225,11 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `loss_switch_epoch` | `10` | mse_then_nll / nll_detach_then_nll 切换到完整 NLL 的轮次（0 起） |
 | `patience` | `30` | 早停：fitness 连续多少个 epoch 无改善即停止，0 表示关闭 |
 | `seed` | `0` |  |
-| `deterministic` | `true` |  |
+| `deterministic` | `true` | 固定算法以逐位复现；与 `amp=true` 同时开启时小 batch 上很慢，见下 |
 | `device` | `（空）` | 空 = 自动（优先 CUDA）；cpu / 0 / cuda:0 |
 | `workers` | `4` |  |
-| `amp` | `true` | 自动混合精度，仅 CUDA 生效 |
-| `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5 |
+| `amp` | `true` | 自动混合精度，仅 CUDA 生效；小模型 + 小 batch 上可能反而变慢，见下 |
+| `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5（train 与 val 划分都生效） |
 | `val_interval` | `1` | 每多少个 epoch 验证一次（最后一轮总会验证） |
 | `fitness` | `ate` | 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse … |
 | `save_period` | `0` | 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭 |
@@ -263,6 +265,36 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `name` | `（空）` | 运行名，缺省 exp，已存在时自动递增 |
 | `exist_ok` | `false` |  |
 | `verbose` | `true` |  |
+
+### 4.1 `amp` 与 `deterministic` 的吞吐代价
+
+`deterministic=true` 会调用 `torch.use_deterministic_algorithms`，迫使 cuDNN 选择确定性卷积算法；
+该路径在半精度下尤其慢，与 `amp=true` 叠加后小 batch 上出现明显反效果。A100 80GB（与他人共享）上
+`ronin_resnet18`、`window=200` 的训练步吞吐实测（窗口/s，`tools` 无关的纯前反向微基准）：
+
+| `deterministic` | `amp` | batch 128 | batch 512 |
+|---|---|---:|---:|
+| true（默认） | true（默认） | **2 670** | 16 232 |
+| true | false | 6 722 | 15 242 |
+| false | true | 5 927 | 20 337 |
+| false | false | 6 958 | 17 921 |
+
+端到端复核（RIDI，96 084 窗口/轮，batch 128，workers 8）：`amp=true` 57.3 s/轮，`amp=false` 28.4 s/轮。
+即默认组合比 `amp=false` 慢约 2 倍。跑大矩阵时建议 `amp=false`（保留逐位复现）或 `deterministic=false`
+（保留混合精度）；两者都不改变配方超参数。`batch` 属于配方，不应为了速度单独调大。
+
+### 4.2 `train_eval_gap`：train/eval 失配诊断
+
+dropout 与 BatchNorm 让同一组权重在 `train()` 与 `eval()` 下行为不同。训练结束时框架在 val 的一条
+序列上用两种模式各算一次窗口损失，把 `{loss_eval, loss_train, ratio}` 写进 `metrics.json` 的
+`train_eval_gap`；`ratio > 2` 时给出告警。诊断在模型副本上进行，不改动权重、BN 统计与随机数状态。
+
+`ratio` 明显大于 1 意味着**报出的指标不是这组权重真实的能力**。实测例子：`ronin_resnet18` 在
+`recipe=unified` 下训练 4 轮后，RoNIN val 窗口损失 eval 模式 0.155、train 模式 0.020（比值 7.7），
+速度幅值只有训练模式的 1/3（`speed_ratio` 0.35 对 0.94），于是 `plr` 掉到 0.32–0.35、ATE 虚高到 15 m。
+根因是 RoNIN 头部的 `Dropout(0.5) → Linear → ReLU`：训练时 dropout 噪声让 ReLU 更容易激活，
+关掉 dropout 后同一层的输出被系统性压低（逐项排除：把 BN 单独切回 train 模式、或重估 BN running
+统计都不改善，只有 dropout 开着才恢复）。`plr` / `speed_ratio` 远离 1 是同一问题的下游表现。
 
 ## 5. Python 等价写法
 

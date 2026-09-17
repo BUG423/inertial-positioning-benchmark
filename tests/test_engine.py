@@ -24,8 +24,10 @@ from inertial_benchmark.nn import (  # noqa: E402
     MODELS,
     BaseModel,
     SequenceModel,
+    check_loss_batch,
     register_model,
 )
+from inertial_benchmark.nn.losses import masked_output_mean  # noqa: E402
 from inertial_benchmark.utils import LOGGER, yaml_load  # noqa: E402
 from inertial_benchmark.utils.torch_utils import (  # noqa: E402
     EarlyStopping,
@@ -666,3 +668,153 @@ def test_view_config_from_model_spec(zero_model):
     assert predictor.view_cfg == ViewConfig(frame="gravity_yaw_local", dims=3)
     res = predictor.predict_sequence(make_sequence(duration=5.0))
     assert res.pos_pred.shape[1] == 3
+
+
+def test_train_eval_gap_is_recorded_and_warns(dataset, tmp_path, caplog):
+    """train/eval 失配诊断：正常模型比值≈1，故意在 eval 模式缩小输出的模型必须触发告警。
+
+    真实案例是 ronin_resnet18 在统一配方下 eval 模式速度只有训练模式的三分之一。
+    """
+    over = {**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+            "save_predictions": False}
+    trainer = Trainer(overrides={**over, "name": "gap_ok"})
+    trainer.train()
+    gap = json.loads((tmp_path / "train" / "gap_ok" / "metrics.json").read_text())
+    assert 0.2 < gap["train_eval_gap"]["ratio"] < 5.0
+    assert gap["train_eval_gap"]["num_windows"] > 0
+
+    @register_model("test_shrinking_model")
+    class Shrinking(BaseModel):
+        """eval 模式输出被平移（模拟 dropout/BN 在两种模式下行为不同的头）。"""
+
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.scale = torch.nn.Parameter(torch.ones(input_spec.dims))
+
+        def forward(self, imu):
+            vel = self.scale.expand(imu.shape[0], -1)
+            return {"vel": vel if self.training else vel + 3.0}
+
+    try:
+        bad = Trainer(overrides={**over, "name": "gap_bad", "model_args": {},
+                                 "model": {"name": "shrink", "arch": "test_shrinking_model"}})
+        bad.train()
+        with caplog.at_level("WARNING"):
+            g = bad.train_eval_gap()
+        assert g["ratio"] > 2.0
+        assert any("train/eval mismatch" in r.getMessage() for r in caplog.records)
+    finally:
+        MODELS.pop("test_shrinking_model")
+
+
+def test_train_eval_gap_handles_per_frame_targets(dataset, tmp_path):
+    """逐帧目标（``(B,T,D)`` 输出）下诊断也必须工作：batch 走 ``SequenceView.windows``，带 mask。"""
+
+    @register_model("test_frame_gap_model")
+    class Frames(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.output_shape))
+
+        def forward(self, imu):
+            vel = self.bias.expand(imu.shape[0], *self.bias.shape)
+            return {"vel": vel if self.training else vel + 0.05}
+
+    try:
+        trainer = Trainer(overrides={**TINY, "data": str(dataset), "epochs": 1,
+                                     "project": str(tmp_path), "name": "frame_gap",
+                                     "save_predictions": False, "model_args": {},
+                                     "target": "frame_velocity", "rate": 200.0,
+                                     "model": {"name": "frames",
+                                               "arch": "test_frame_gap_model"}})
+        trainer.train()
+        assert trainer.model.input_spec.output_shape == (100, 2)
+        gap = trainer.train_eval_gap(windows=64, repeats=1)
+        assert gap["num_windows"] > 0 and math.isfinite(gap["ratio"]) and gap["ratio"] > 0
+        assert len(gap["sequences"]) >= 1
+    finally:
+        MODELS.pop("test_frame_gap_model")
+
+
+def test_oracle_ate_exposes_the_gap_floor(zero_model):
+    """多秒 valid 缺口 + 参考位置跳变时，ate_oracle 必须把协议误差下限暴露出来。
+
+    真实数据中（RIDI huayi_bag2 有 4.42 s 缺口）oracle ATE 甚至超过模型 ATE，
+    因此 ate_oracle 是默认报表列，缺口序列的 ate 不能单独解读。
+    """
+    from inertial_benchmark.metrics import MAIN_METRICS
+
+    assert "ate_oracle" in MAIN_METRICS
+    predictor = Predictor(get_cfg({"model": zero_model, "device": "cpu", "eval_stride": 10}))
+    clean = predictor.predict_sequence(make_sequence(duration=40.0, seed=7)).compute_metrics()
+    assert clean["ate_oracle"] < 0.05
+
+    seq = make_sequence(duration=40.0, seed=7)
+    gap = slice(3000, 4000)  # 5 s 缺口，缺口后参考位置整体平移 5 m（跟踪重定位）
+    seq.valid_pose[gap] = False
+    seq.valid_imu[gap] = False
+    seq.position[4000:] += np.array([5.0, 0.0, 0.0])
+    res = predictor.predict_sequence(seq)
+    m = res.compute_metrics()
+    assert not res.window_valid.all()
+    assert m["ate_oracle"] > 2.0 and math.isfinite(m["ate_oracle"])
+    assert all(math.isfinite(m[k]) for k in ("ate", "rte", "pde", "plr", "vel_rmse"))
+    assert "ate_oracle" in RunResult([res], cfg={}).metrics
+    assert "ate_oracle=" in RunResult([res], cfg={}).summary()
+
+
+def test_validation_loss_receives_model_input(dataset, tmp_path):
+    """验证时的 batch 必须与训练一致（含 ``imu`` 与 ``mask``），否则用到它们的损失只能在训练中工作。
+
+    ``LOSS_BATCH_KEYS`` 只断言键存在；这里用一个显式依赖 ``batch["imu"]``/``batch["mask"]``
+    的损失，把 Predictor 的验证路径与 Trainer 的训练路径都跑一遍。
+    """
+
+    @register_model("test_input_loss_model")
+    class InputLoss(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.dims))
+
+        def forward(self, imu):
+            return {"vel": self.bias.expand(imu.shape[0], -1)}
+
+        def loss(self, out, batch, epoch=0):
+            # 显式依赖模型输入与掩码：Trainer 与 Predictor 都必须提供这两个键
+            check_loss_batch(batch)
+            scale = batch["imu"].abs().mean()
+            valid = batch["mask"].to(out["vel"].dtype)
+            value = masked_output_mean(((out["vel"] - batch["target"]) ** 2).sum(dim=-1),
+                                       valid) + 0.0 * scale
+            return value, {"mse": value.detach()}
+
+    try:
+        cfg = get_cfg({"model": {"name": "input_loss", "arch": "test_input_loss_model"},
+                       "device": "cpu"})
+        res = Predictor(cfg).predict_sequence(make_sequence(duration=8.0), collect_loss=True)
+        assert res.loss is not None and math.isfinite(res.loss) and res.loss > 0
+        # 训练路径也必须能跑（同一组键）
+        trainer = Trainer(overrides={**TINY, "data": str(dataset), "epochs": 1,
+                                     "project": str(tmp_path), "name": "input_loss",
+                                     "save_predictions": False, "model_args": {},
+                                     "model": {"name": "input_loss",
+                                               "arch": "test_input_loss_model"}})
+        assert math.isfinite(trainer.train()["ate"])
+    finally:
+        MODELS.pop("test_input_loss_model")
+
+
+def test_trainer_lazy_val_does_not_cache_sequences(dataset, tmp_path):
+    """``cache=false`` 时 val 划分也必须惰性读取（只保留路径），否则该开关名不副实。"""
+    over = {**TINY, "data": str(dataset), "epochs": 1, "project": str(tmp_path),
+            "name": "lazy", "cache": False, "save_predictions": False}
+    trainer = Trainer(overrides=over)
+    metrics = trainer.train()
+    assert trainer.val_set.views == [] and trainer.val_set.lazy
+    assert trainer.val_sources and all(isinstance(s, Path) for s in trainer.val_sources)
+    assert math.isfinite(metrics["ate"])
+    cached = Trainer(overrides={**over, "name": "cached", "cache": True})
+    cached_metrics = cached.train()
+    assert all(isinstance(s, SequenceView) for s in cached.val_sources)
+    # 惰性与缓存路径必须给出完全相同的指标
+    assert cached_metrics["ate"] == pytest.approx(metrics["ate"], rel=1e-9)

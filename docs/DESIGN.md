@@ -293,10 +293,13 @@ class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推�
 
 - `forward` 接收 `(B, 6, T)`（声明 `history` 时为 `(B, H_in, 6, T)`），输出形状由
   `input_spec.output_shape` 给出；声明 `extra_inputs` 的模型签名为 `forward(imu, extra)`。
-- `loss(out, batch, epoch)` 的 `batch` 在训练与验证中结构一致：至少含 `target`、`imu`，
-  另有 `mask`（逐输出的目标有效掩码）与可选的 `extra`。缺省实现把它们转发给
-  `fn(out, target, epoch, mask)`：所有损失（含模型包用 `@register_loss("name")` 注册的专用损失，
-  由模型 YAML 的 `loss`/`loss_kwargs` 引用）都按这个四参数签名实现并处理 `mask`。
+- `loss(out, batch, epoch)` 的 `batch` 在训练与验证中**键完全相同**：至少含 `target`（视图坐标系
+  目标，形状为 `input_spec.output_shape`）与 `imu`（模型输入，与 `forward` 收到的张量逐元素相同），
+  另有 `mask`（逐输出的目标有效掩码）与可选的 `extra`。用到输入或掩码的损失因此在训练与验证两条
+  路径上行为一致（`nn.base.LOSS_BATCH_KEYS` 是这一契约的断言点，Predictor 的验证路径与 Trainer
+  传同一组键）。缺省实现把它们转发给 `fn(out, target, epoch, mask)`：所有损失（含模型包用
+  `@register_loss("name")` 注册的专用损失，由模型 YAML 的 `loss`/`loss_kwargs` 引用）都按这个
+  四参数签名实现并处理 `mask`。
 - **序列级 / 有状态模型**（不能逐窗口独立运行的方法：PDR、有状态递推、滤波、测试时训练）实现
   `SequenceModel`：`predict_sequence(seq, view) -> (times, velocities[, extras])`，其中 `times`
   必须落在视图的窗口网格（`view.target_times(view.starts(eval_stride))`）上、`velocities` 为**视图

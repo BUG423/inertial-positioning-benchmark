@@ -339,6 +339,8 @@ def test_baseline_train_val_writes_the_calibration(name, tmp_path):
     model.train(data=str(data), project=str(tmp_path), name=name, epochs=4)
     meta = json.loads((tmp_path / "train" / name / "metrics.json").read_text())
     assert meta["calibration"]["heading_resultant"] >= 0.0
+    # 序列级模型没有 train()/eval() 语义差异：失配诊断跳过而不是报错
+    assert "sequence model" in meta["train_eval_gap"]["skipped"]
     rows = (tmp_path / "train" / name / "results.csv").read_text().strip().splitlines()
     assert len(rows) == 2  # 只标定一次，不跑 4 轮梯度训练
     # checkpoint 里带着标定量：独立 val 直接复用
