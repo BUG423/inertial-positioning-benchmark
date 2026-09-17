@@ -1,0 +1,233 @@
+# IPB 命令行 / CLI
+
+> 实现见 `src/inertial_benchmark/cli.py`；设计背景见 [DESIGN.md](DESIGN.md)，指标定义见 [METRICS.md](METRICS.md)。
+
+安装后（`pip install -e ".[train]"`）提供 `ipb` 命令，也可用 `python -m inertial_benchmark` 调用。
+
+```bash
+ipb <command> key=value [key=value ...]
+```
+
+## 1. 参数写法
+
+- 一律 `key=value`，与 Python API 的关键字参数同名（`ipb train epochs=2` ⇔ `NIO(...).train(epochs=2)`）；`--key=value` 亦可。
+- 取值解析：`true/false` → 布尔；`none/null` 或空 → 空值；整数与浮点（含 `1e-3`）→ 数字；
+  以 `[` 或 `{` 开头 → YAML 列表/字典（`augment=[random_yaw,time_shift]`、`model_args={dropout: 0.1}`）；其余为字符串。
+  含空格的列表需加引号：`"t_rte=[1, 10]"`。
+- 训练/评测相关的键必须出现在 `default.yaml` 中，否则报错并给出相近键名（例如 `epoch` → `epochs`）；类型不符也会报错。
+- 合并顺序：`default.yaml` < 模型 YAML 的 `input` < 模型 YAML 的 `recipes[recipe]` < 命令行。
+  使用 checkpoint 时，模型输入规格（`window/frame/orientation/remove_gravity/target/dims/rate`）来自 checkpoint，不可改写。
+
+环境变量：`IPB_DATASETS`（转换后数据根目录，缺省 `~/datasets/ipb`）、`IPB_VERBOSE=0`（静默）、
+`CUDA_VISIBLE_DEVICES`（可见 GPU；`device=0` 指可见列表中的第一张）、`OMP_NUM_THREADS`（CPU 线程，缺省最多 8）。
+
+退出码：`0` 成功；`1` 检查未通过或无序列被接收；`2` 参数/配置/文件错误。
+
+## 2. 命令
+
+### `ipb convert` — 原始数据 → IPB v1
+
+```bash
+ipb convert dataset=ronin source=/raw/ronin                         # 输出到 $IPB_DATASETS/ronin
+ipb convert dataset=ridi source=/raw/ridi output=/data/ipb/ridi workers=8
+ipb convert dataset=ronin source=/raw/ronin only=[a000_1,a001_3] overwrite=false
+```
+
+| 键 | 缺省 | 说明 |
+|---|---|---|
+| `dataset` | 必需 | 转换器名（`data/converters/<dataset>.py`），也是数据集名 |
+| `source` | 必需 | 原始数据目录 |
+| `output` | `$IPB_DATASETS/<dataset>` | 输出目录 |
+| `only` | 全部 | 只转换这些 `sequence_id`（列表或逗号分隔） |
+| `workers` | `min(8, 核数/2)` | 并行进程数 |
+| `overwrite` | `true` | `false` 时跳过已成功转换的序列 |
+| `converter` | 按 `dataset` | 转换器模块名或 `.py` 文件路径（测试/私有数据用） |
+| `compression` | `gzip` | `gzip`（字节可复现）/ `lzf` / `none` |
+| `gap_threshold` | `0.05` | 缺口阈值（秒），见 DESIGN 2.3 |
+| `min_duration` | `2.0` | 短于该时长（秒）的序列拒收 |
+| `val_fraction`, `seed` | `0.1`, `0` | 官方无 val 时按 `group_id` 抽取的比例与种子 |
+
+输出 `sequences/*.h5`、`splits/*.txt`、`dataset.json`（统计、sha256、指纹）、`conversion_report.json`（接收/拒绝原因与警告）。
+
+### `ipb check` — 校验已转换数据集
+
+```bash
+ipb check data=ronin                       # 清单、文件、划分泄漏
+ipb check data=ronin full=true hash=true save=check_ronin.json
+```
+
+`full=true` 逐条读取并执行完整校验（含重力检查）；`hash=true` 重算 sha256；`save` 写出 JSON 报告。
+报告 train/val/test 之间的 `sequence_id` 与 `group_id` 重叠（`test_seen` 与 train 共享受试者属预期，仅告警）。
+
+### `ipb train` — 训练
+
+```bash
+ipb train model=ronin_resnet18 data=ronin epochs=40 device=0
+ipb train model=ronin_resnet18 data=ronin recipe=official device=0 name=ronin_official
+ipb train model=runs/train/exp/weights/best.pt data=ridi epochs=10     # 以 checkpoint 为 pretrained 微调
+ipb train resume=true name=exp                                          # 断点续训（或 resume=path/to/last.pt）
+```
+
+训练只使用 `train` 与 `val` 划分；每 `val_interval` 轮在 val 上计算全部指标，按 `fitness`（缺省 `ate`，越小越好）保存 `best.pt`。
+结束后用 best 权重在 val 上评测一次并写出 `metrics.json`。
+
+### `ipb val` — 评测
+
+```bash
+ipb val model=runs/train/exp/weights/best.pt data=ronin split=test_unseen device=0
+```
+
+`split` 为逻辑划分名（经数据集 YAML 的 `splits` 映射）或 `splits/<file>.txt` 的文件名。
+test 及其官方子集只应在最终评测时运行。
+
+### `ipb predict` — 推理
+
+```bash
+ipb predict model=best.pt source=/data/ipb/ronin/sequences/a000_1.h5
+ipb predict model=best.pt source=/data/ipb/ronin save=false
+```
+
+`source` 为单个 `.h5`（v1 或 v0.1）或目录；`save=true`（缺省）时写出 `predictions/<seq>.npz` 与轨迹图。
+
+### `ipb benchmark` — 模型 × 数据集 × 种子矩阵
+
+```bash
+ipb benchmark cfg=benchmarks/main.yaml dry_run=true     # 只打印计划
+ipb benchmark cfg=benchmarks/main.yaml device=0          # 其余 key=value 覆盖所有运行
+```
+
+```yaml
+name: main
+project: runs/benchmark            # 输出 <project>/<name>/<label>/<dataset>/seed<k>/{train,<split>}/
+models:
+  - ronin_resnet18                   # 名称 / 模型 YAML / checkpoint（checkpoint 不再训练）
+  - {label: ronin_official, model: ronin_resnet18, overrides: {recipe: official, epochs: 100}}
+datasets: [ronin, ridi, {data: /data/ipb/oxiod, overrides: {batch: 256}}]
+seeds: [0, 1, 2]
+splits:                            # 缺省为数据集 YAML 的 test_splits
+overrides: {epochs: 100, device: 0}
+report: true                       # 结束后汇总到 <project>/<name>/report
+```
+
+完成标志为 `train/metrics.json` 与 `<split>/metrics.json`：重复运行会跳过已完成项；训练中断（有 `last.pt` 无 `metrics.json`）会自动续训；
+数据集缺少某个测试子集时跳过并告警。进度写入 `<project>/<name>/benchmark.json`。
+
+### `ipb report` — 汇总
+
+```bash
+ipb report runs=runs/benchmark/main out=reports/main
+ipb report runs=runs/val metrics=[ate,rte,pde,plr] plots=false
+```
+
+递归查找所有评测目录（含 `metrics.json` 与 `sequences.csv`，训练目录除外），输出
+`per_sequence.csv`、`summary.csv`（均值/中位数/标准差/分组 bootstrap CI/种子间标准差）、`summary.md`、`summary.tex`、
+`wilcoxon.csv`（同一数据集划分上的模型两两配对检验）、`report.json` 与箱线图、误差 CDF、长度比散点、参数量–精度帕累托图。
+统计定义见 [METRICS.md](METRICS.md) 第 5 节。
+
+### `ipb info` / `ipb cfg` / `ipb version`
+
+```bash
+ipb info                                  # 已有模型配置、数据集配置、转换器与数据根目录
+ipb info model=ronin_resnet18             # 结构参数、输入规格、参数量、FLOPs、论文与仓库
+ipb info data=ronin                       # 数据集路径、划分映射、转换统计与指纹
+ipb cfg model=ronin_resnet18 recipe=official   # 打印合并后的完整配置
+```
+
+## 3. 输出目录
+
+```text
+runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp，已存在时 exp2、exp3…（exist_ok=true 则复用）
+├── args.yaml                  # 完整解析后的配置
+├── env.json                   # git 提交与是否有未提交修改、依赖版本、GPU、数据集指纹与 dataset.json 哈希
+├── log.txt
+├── weights/{best,last}.pt     # 训练：模型配置、输入规格、完整 cfg、epoch、优化器/调度器状态（best 去掉优化器）、git 提交
+├── results.csv                # 训练：每轮 train/loss、val/*、lr、fitness、耗时
+├── metrics.json               # 聚合指标（mean/median/std/count）、协议参数、效率指标
+├── sequences.csv              # 逐序列指标
+├── predictions/<seq>.npz      # 逐帧预测/参考/oracle 轨迹，窗口级 vel_pred/vel_target/(logstd)
+└── plots/*.png                # 轨迹叠加、误差 CDF、误差随时间、箱线图、长度比、训练曲线
+```
+
+## 4. 全部配置键（`default.yaml`）
+
+| 键 | 缺省 | 说明 |
+|---|---|---|
+| **任务** | | |
+| `mode` | `train` | train / val / predict / benchmark |
+| `model` | `ronin_resnet18` | 模型名（cfg/models/<name>.yaml）、模型 YAML 或 checkpoint (.pt) |
+| `model_args` | `{}` | 覆盖模型 YAML 中 args 的结构参数 |
+| `data` | `（空）` | 数据集名（cfg/datasets/<name>.yaml）、数据集 YAML 或已转换目录 |
+| `split` | `val` | val / predict 使用的划分（逻辑名或 splits/<file>.txt 的文件名） |
+| `source` | `（空）` | predict 的输入：序列 .h5 文件或目录 |
+| `recipe` | `unified` | 训练配方：official（论文/官方仓库）/ unified（benchmark 统一预算） |
+| `pretrained` | `（空）` | 仅加载模型权重的 checkpoint |
+| `resume` | `false` | true（续训 <project>/train/<name>/weights/last.pt）或 last.pt 路径 |
+| **训练** | | |
+| `epochs` | `100` |  |
+| `batch` | `128` |  |
+| `lr` | `0.001` |  |
+| `optimizer` | `adamw` | sgd / adam / adamw |
+| `momentum` | `0.9` | sgd 动量；adam/adamw 的 beta1 |
+| `weight_decay` | `0.0001` |  |
+| `scheduler` | `cosine` | none / cosine / step / plateau |
+| `lr_final` | `0.01` | cosine 调度的最终学习率 = lr × lr_final |
+| `step_size` | `30` | step 调度周期（epoch） |
+| `gamma` | `0.1` | step / plateau 的衰减系数 |
+| `plateau_patience` | `10` | plateau 调度的耐心（验证次数） |
+| `warmup_epochs` | `0` | 线性预热轮数 |
+| `grad_clip` | `0.0` | 梯度范数裁剪阈值，0 表示关闭 |
+| `loss` | `（空）` | 覆盖模型默认损失：mse / gaussian_nll / mse_then_nll |
+| `loss_switch_epoch` | `10` | mse_then_nll 从 MSE 切换到 NLL 的轮次 |
+| `patience` | `30` | 早停：fitness 连续多少个 epoch 无改善即停止，0 表示关闭 |
+| `seed` | `0` |  |
+| `deterministic` | `true` |  |
+| `device` | `（空）` | 空 = 自动（优先 CUDA）；cpu / 0 / cuda:0 |
+| `workers` | `4` |  |
+| `amp` | `true` | 自动混合精度，仅 CUDA 生效 |
+| `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5 |
+| `val_interval` | `1` | 每多少个 epoch 验证一次（最后一轮总会验证） |
+| `fitness` | `ate` | 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse … |
+| `save_period` | `0` | 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭 |
+| `val_batch` | `512` | 推理批大小 |
+| **任务视图（DESIGN 第 3 节）** | | |
+| `window` | `200` | 窗口样本数（200 Hz） |
+| `stride` | `10` | 训练滑窗步长 |
+| `eval_stride` | `10` | 验证/推理步长 |
+| `frame` | `gravity_world` | gravity_world / body / gravity_yaw_local |
+| `orientation` | `reference` | reference / device |
+| `remove_gravity` | `false` |  |
+| `target` | `avg_velocity` | avg_velocity / displacement / velocity_at_end |
+| `dims` | `2` | 2（水平）/ 3 |
+| `augment` | `[random_yaw, time_shift]` |  |
+| `rate` | `200.0` | 统一采样率（Hz），与 IPB v1 数据一致 |
+| **评测（DESIGN 第 5–6 节）** | | |
+| `metric_dims` | `2` | 轨迹与速度指标使用的维度 |
+| `rte_delta` | `60.0` | RTE 的时间窗（秒） |
+| `t_rte` | `[1.0, 10.0]` | T-RTE 的时间窗（秒） |
+| `d_rte` | `[10.0]` | D-RTE 的距离（米） |
+| `min_speed` | `0.2` | 方向误差与沿/横向误差的速度阈值（m/s） |
+| `save_predictions` | `true` | 保存 predictions/<seq>.npz |
+| `plots` | `true` |  |
+| `max_plots` | `12` | 最多绘制的单序列轨迹图数量 |
+| `efficiency` | `true` | 记录参数量 / FLOPs / 单窗口延迟 |
+| **输出** | | |
+| `project` | `runs` | 输出根目录：<project>/<mode>/<name>/ |
+| `name` | `（空）` | 运行名，缺省 exp，已存在时自动递增 |
+| `exist_ok` | `false` |  |
+| `verbose` | `true` |  |
+
+## 5. Python 等价写法
+
+```python
+from inertial_benchmark import NIO
+
+model = NIO("ronin_resnet18")
+model.train(data="ronin", epochs=40, device=0)          # ipb train ...
+result = model.val(data="ronin", split="test")          # ipb val ...（返回 RunResult）
+traj = model.predict("seq.h5")                          # ipb predict ...（返回 Trajectory）
+model.info(); model.benchmark()                         # 参数量 / FLOPs / 延迟
+
+from inertial_benchmark.data.convert import convert_dataset
+from inertial_benchmark.engine.benchmark import run_benchmark
+from inertial_benchmark.utils.reports import build_report
+```
