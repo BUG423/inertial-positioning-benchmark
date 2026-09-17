@@ -96,7 +96,8 @@ class InertialDataset(Dataset):
         self.epoch = 0
         self.require_valid = require_valid
         time_shift, self.augs = build_augmentations(augment if training else None, view.frame)
-        self.max_shift = time_shift.resolve(self.stride) if time_shift else 0
+        self.shift_range = time_shift.resolve_range(self.stride) if time_shift else (0, 0)
+        self.max_shift = self.shift_range[1]
 
         self.views: list = []
         self.lazy: list = []
@@ -141,9 +142,10 @@ class InertialDataset(Dataset):
         return len(self.views[k]) if self.views else self.lazy[k].n
 
     def _shift(self, k: int, start: int, rng: np.random.Generator) -> int:
-        if self.max_shift <= 0:
+        lo, hi = self.shift_range
+        if lo == hi == 0:
             return start
-        cand = start + int(rng.integers(-self.max_shift, self.max_shift + 1))
+        cand = start + int(rng.integers(lo, hi + 1))
         cand = min(max(cand, 0), self._length(k) - self.view.window)
         if self.require_valid and not window_valid_mask(self.valid_masks[k], np.array([cand]),
                                                         self.view.window)[0]:
@@ -197,4 +199,5 @@ class InertialDataset(Dataset):
     def __repr__(self) -> str:
         mode = "cached" if self.views else "lazy"
         return (f"InertialDataset({len(self.sequence_ids)} sequences, {len(self)} windows, "
-                f"stride={self.stride}, {mode}, augment={self.augs}, shift={self.max_shift})")
+                f"stride={self.stride}, {mode}, augment={self.augs}, "
+                f"shift={list(self.shift_range)})")

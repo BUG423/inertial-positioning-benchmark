@@ -4,7 +4,15 @@ import numpy as np
 import pytest
 from synthetic import Motion, make_sequence
 
-from inertial_benchmark.data.augment import Bias, Noise, RandomYaw, build_augmentations
+from inertial_benchmark.data.augment import (
+    Bias,
+    BiasShift,
+    GravityPerturb,
+    Noise,
+    RandomYaw,
+    TimeShift,
+    build_augmentations,
+)
 from inertial_benchmark.data.views import (
     SequenceView,
     ViewConfig,
@@ -182,3 +190,41 @@ def test_build_augmentations_order_and_errors():
     assert augs == []
     with pytest.raises(ValueError, match="unknown augmentation"):
         build_augmentations(["mixup"])
+
+
+def test_bias_shift_and_gravity_perturb(seq):
+    view = SequenceView(seq, ViewConfig(dims=3, frame="gravity_yaw_local"))
+    base = view.imu_windows(np.array([200]))[0]
+    target = view.targets(np.array([200]))[0]
+    sample = {"imu": base.copy(), "target": target.copy()}
+    BiasShift(gyro=0.05, acc=0.2)(sample, np.random.default_rng(3))
+    diff = sample["imu"] - base
+    # 整窗常值、逐轴独立、在范围内
+    np.testing.assert_allclose(diff, np.repeat(diff[:, :1], base.shape[1], axis=1), atol=1e-6)
+    assert np.all(np.abs(diff[:3, 0]) <= 0.05) and np.all(np.abs(diff[3:, 0]) <= 0.2)
+    assert np.unique(np.round(diff[:, 0], 6)).size == 6
+
+    sample = {"imu": base.copy(), "target": target.copy()}
+    GravityPerturb(max_deg=5.0)(sample, np.random.default_rng(4))
+    np.testing.assert_array_equal(sample["target"], target)  # 目标不旋转
+    for sl in (slice(0, 3), slice(3, 6)):
+        np.testing.assert_allclose(np.linalg.norm(sample["imu"][sl], axis=0),
+                                   np.linalg.norm(base[sl], axis=0), rtol=1e-5)
+    # 绕水平轴的旋转：重力方向（加计均值）与 z 轴的夹角变化不超过 5°
+    g0 = base[3:].mean(axis=1)
+    g1 = sample["imu"][3:].mean(axis=1)
+    cos = g0 @ g1 / (np.linalg.norm(g0) * np.linalg.norm(g1))
+    assert 0 < np.degrees(np.arccos(min(cos, 1.0))) <= 5.0 + 1e-3
+    _, augs = build_augmentations([{"gravity_perturb": {"max_deg": 5}}, "random_yaw",
+                                   {"bias_shift": {"acc": 0.1}}])
+    assert [a.name for a in augs] == ["bias_shift", "gravity_perturb", "random_yaw"]
+    _, augs = build_augmentations(["gravity_perturb"], frame="body")
+    assert augs == []
+
+
+def test_time_shift_range():
+    assert TimeShift().resolve_range(10) == (-5, 5)
+    assert TimeShift(max_shift=9, min_shift=0).resolve_range(10) == (0, 9)
+    assert TimeShift(max_shift=-3).resolve_range(10) == (0, 0)
+    with pytest.raises(ValueError, match="min_shift"):
+        TimeShift(max_shift=1, min_shift=2).resolve_range(10)
