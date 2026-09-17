@@ -186,8 +186,8 @@ def make_raw_sequence(
         if jitter:
             t = t + rng.uniform(-jitter, jitter, len(t)) / rate
         keep = np.ones(len(t), bool)
-        for a, b in gaps:
-            keep &= ~((t - start >= a) & (t - start < b))
+        for a, b in gaps:  # 缺口以位姿起点 t0 为时间原点
+            keep &= ~((t - t0 >= a) & (t - t0 < b))
         return t[keep]
 
     ti = clock(imu_rate, imu_gaps, t0 - 0.3)  # IMU 比位姿略早开始，考验重叠区计算
