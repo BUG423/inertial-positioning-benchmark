@@ -92,9 +92,12 @@ ipb predict model=best.pt source=/data/ipb/ronin save=false
 ### `ipb benchmark` — 模型 × 数据集 × 种子矩阵
 
 ```bash
-ipb benchmark cfg=benchmarks/main.yaml dry_run=true     # 只打印计划
-ipb benchmark cfg=benchmarks/main.yaml device=0          # 其余 key=value 覆盖所有运行
+ipb benchmark cfg=main dry_run=true                      # 内置 cfg/benchmarks/main.yaml，只打印计划
+ipb benchmark cfg=benchmarks/my.yaml device=0            # 自定义 YAML；其余 key=value 覆盖所有运行
 ```
+
+`cfg` 为 YAML 路径；路径不存在时按文件名在 `cfg/benchmarks/` 中查找（`cfg=main` 即内置主基准：
+`ronin_resnet18` × 八个核心数据集 × 种子 0/1/2）。
 
 ```yaml
 name: main

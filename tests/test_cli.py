@@ -54,6 +54,18 @@ def test_cfg_and_info(capsys):
     assert yaml.safe_load(capsys.readouterr().out)["parameters"] == 4_634_882
 
 
+def test_builtin_benchmark_plan(tmp_path, monkeypatch):
+    from inertial_benchmark.engine.benchmark import load_plan
+
+    monkeypatch.chdir(tmp_path)
+    plan = load_plan("main")
+    assert len(plan) == 8 * 3 and plan[0].label == "ronin_resnet18"
+    assert plan[0].run_dir == Path("runs/benchmark/main/ronin_resnet18/ronin/seed0")
+    assert entrypoint(["benchmark", "cfg=main", "dry_run=true"]) == 0
+    assert not (tmp_path / "runs").exists()
+    assert entrypoint(["benchmark", "cfg=missing_plan"]) == 2
+
+
 def test_module_entry_point():
     out = subprocess.run([sys.executable, "-m", "inertial_benchmark", "version"],
                          capture_output=True, text=True, check=True,

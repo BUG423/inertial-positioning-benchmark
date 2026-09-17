@@ -1,0 +1,13 @@
+# IPB v1 主基准：参考基线 × 八个核心数据集 × 3 个种子（统一配方）。
+# 用法：ipb benchmark cfg=main device=0；输出 runs/benchmark/main/<model>/<dataset>/seed<k>/
+name: main
+project: runs/benchmark
+models:
+  - ronin_resnet18
+datasets: [ronin, ridi, oxiod, tlio, idol, rnin, imunet, pedlocdata]
+seeds: [0, 1, 2]
+splits:                 # 缺省使用各数据集 YAML 的 test_splits
+overrides:
+  recipe: unified
+  epochs: 100
+report: true

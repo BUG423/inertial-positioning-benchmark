@@ -26,7 +26,7 @@ from typing import Any, Mapping, Optional, Union
 
 from ..cfg import INPUT_KEYS, ConfigError, get_cfg, is_checkpoint
 from ..data.manifest import resolve_dataset
-from ..utils import LOGGER, json_save, yaml_load
+from ..utils import CFG_DIR, LOGGER, json_save, yaml_load
 
 PathLike = Union[str, Path]
 # 评测时不需要的训练专用键
@@ -61,8 +61,22 @@ def _entry(item: Any, key: str) -> tuple:
     return Path(str(item)).stem, item, {}
 
 
+def resolve_benchmark_cfg(cfg: Union[PathLike, Mapping]) -> Union[Path, Mapping]:
+    """YAML 路径；不存在时依次尝试 ``cfg/benchmarks/<name>.yaml``（``cfg=main`` 的简写）。"""
+    if isinstance(cfg, Mapping):
+        return cfg
+    path = Path(cfg)
+    if path.exists():
+        return path
+    candidate = CFG_DIR / "benchmarks" / f"{path.stem}.yaml"
+    if candidate.exists():
+        return candidate
+    raise FileNotFoundError(f"benchmark config {cfg} not found (also looked for {candidate})")
+
+
 def load_plan(cfg: Union[PathLike, Mapping], overrides: Optional[dict] = None) -> list:
     """解析基准 YAML，返回 :class:`BenchmarkItem` 列表（模型 × 数据集 × 种子）。"""
+    cfg = resolve_benchmark_cfg(cfg)
     spec = dict(yaml_load(cfg)) if not isinstance(cfg, Mapping) else dict(cfg)
     unknown = set(spec) - {"name", "project", "models", "datasets", "seeds", "splits",
                            "overrides", "report"}
@@ -133,6 +147,7 @@ def run_item(item: BenchmarkItem) -> dict:
 def run_benchmark(cfg: Union[PathLike, Mapping], overrides: Optional[dict] = None,
                   dry_run: bool = False, report: Optional[bool] = None) -> list:
     """执行完整矩阵；返回每项的状态，并写出 ``<root>/benchmark.json``。"""
+    cfg = resolve_benchmark_cfg(cfg)
     items = load_plan(cfg, overrides)
     root = items[0].root
     spec = dict(yaml_load(cfg)) if not isinstance(cfg, Mapping) else dict(cfg)
