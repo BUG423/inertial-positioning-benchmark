@@ -8,7 +8,13 @@ import sys
 import zipfile
 from pathlib import Path
 
-from inertial_benchmark import CanonicalSequence
+import pytest
+
+from inertial_benchmark import CanonicalSequence, load_sequence
+
+# Android 工具的转换脚本使用 zip(strict=...)，需要 Python 3.10+（工具自身的 CI 使用 3.12）
+pytestmark = pytest.mark.skipif(sys.version_info < (3, 10),
+                                reason="tools/inertial-positioning-lab requires Python 3.10+")
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER_PATH = ROOT / "tools/inertial-positioning-lab/tools/convert_dataset.py"
@@ -16,7 +22,8 @@ SPEC = importlib.util.spec_from_file_location("inertial_lab_converter", CONVERTE
 assert SPEC is not None and SPEC.loader is not None
 CONVERTER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = CONVERTER
-SPEC.loader.exec_module(CONVERTER)
+if sys.version_info >= (3, 10):
+    SPEC.loader.exec_module(CONVERTER)
 
 
 def test_android_archive_is_accepted_by_benchmark_loader(tmp_path):
@@ -70,3 +77,10 @@ def test_android_archive_is_accepted_by_benchmark_loader(tmp_path):
     assert sequence.attributes["world_frame"] == "arcore_local_x_right_y_forward_z_up"
     assert sequence.attributes["position_source"] == "ARCore visual-inertial odometry"
     assert sequence.valid_position is not None and sequence.valid_position.all()
+
+    # IPB v1 读取器在内存中把 v0.1 文件升级为 200 Hz 的 v1 序列，保留原世界系声明
+    upgraded = load_sequence(converted)
+    assert upgraded.attrs["legacy_schema_version"] == "0.1"
+    assert upgraded.attrs["world_frame"] == "arcore_local_x_right_y_forward_z_up"
+    assert upgraded.sample_rate == 200.0 and len(upgraded) == 3
+    assert upgraded.valid_pose.all()

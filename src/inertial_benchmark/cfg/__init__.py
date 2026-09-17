@@ -79,12 +79,16 @@ def load_model_cfg(model: Union[str, Path, Mapping, None]) -> dict:
         elif (CFG_DIR / "models" / f"{text}.yaml").exists():
             cfg = yaml_load(CFG_DIR / "models" / f"{text}.yaml")
         else:
-            from ..nn.registry import MODELS, import_models
+            try:
+                from ..nn.registry import MODELS, import_models
 
-            import_models()
-            if text not in MODELS:
+                import_models()
+                registered = sorted(MODELS)
+            except ImportError:  # 未安装 torch 时无法查询注册表
+                registered = []
+            if text not in registered:
                 raise ConfigError(f"unknown model {text!r}; YAML configs: {model_yaml_names()}, "
-                                  f"registered: {sorted(MODELS)}")
+                                  f"registered: {registered}")
             cfg = {"name": text}
     cfg.setdefault("name", Path(str(model)).stem if not isinstance(model, Mapping) else "model")
     cfg.setdefault("arch", cfg["name"])
