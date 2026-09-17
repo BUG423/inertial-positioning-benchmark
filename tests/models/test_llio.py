@@ -1,7 +1,8 @@
 """LLIO 移植测试：参数量锁定、patch 展平顺序、ResMLP 子层性质、抽取层与端到端。"""
 
 import pytest
-from model_testing import (
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,

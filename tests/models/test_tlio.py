@@ -4,7 +4,9 @@ import math
 
 import numpy as np
 import pytest
-from model_testing import (
+from synthetic import make_sequence
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,
@@ -12,7 +14,6 @@ from model_testing import (
     run_end_to_end,
     shape_multiset,
 )
-from synthetic import make_sequence
 
 torch = pytest.importorskip("torch")
 

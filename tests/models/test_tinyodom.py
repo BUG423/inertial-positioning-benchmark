@@ -1,7 +1,8 @@
 """TinyOdom 移植测试：参数量锁定（Keras 形状换算）、因果性与感受野、池化轴、通道置换与端到端。"""
 
 import pytest
-from model_testing import (
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,

@@ -3,7 +3,8 @@
 import math
 
 import pytest
-from model_testing import (
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,

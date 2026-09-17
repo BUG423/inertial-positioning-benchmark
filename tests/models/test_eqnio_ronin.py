@@ -1,7 +1,8 @@
 """EqNIO（RoNIN 骨干）移植测试：参数量锁定与 O(2) 等变性（含陀螺赝矢量的负向测试）。"""
 
 import pytest
-from model_testing import (
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,

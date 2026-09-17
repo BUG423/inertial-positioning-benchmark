@@ -1,7 +1,8 @@
 """IMUNet 及其 4 个移动端基线的移植测试：参数量锁定、噪声层语义、结构性质与端到端。"""
 
 import pytest
-from model_testing import (
+
+from .model_testing import (
     assert_backprop,
     assert_deterministic_eval,
     load_fixture,
