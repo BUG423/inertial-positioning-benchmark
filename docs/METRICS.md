@@ -135,7 +135,16 @@ MultiheadAttention `= 4·L·E² + L²·E`。不同后端约定略有差异（Res
   双侧检验（`scipy.stats.wilcoxon`，`zero_method="wilcox"`），报告 `n`、统计量、p 值与差值中位数。
   配对少于 5 对时不给出 p 值。
 
+- **评测协议一致性**：汇总前核对各 run 的 `metrics.json` → `protocol` 块，评测协议键
+  （`eval_stride`、`metric_dims`、`rte_delta`、`t_rte`、`d_rte`、`min_speed`）必须完全一致，
+  否则报错（见 [DESIGN.md](DESIGN.md) 第 6 节）。
+- **特权输入单列**：使用特权输入（`metrics.json` 的 `privileged_inputs`，例如来自参考真值的
+  `init_velocity`）的方法在 `summary.csv` 中带 `privileged` 列、在 `summary.md` 里单独一张表，
+  LaTeX 主表只含纯 IMU 方法——两者不可直接比较。
+
 ## 6. 诚实协议
 
-训练期间只在 `val` 上计算上述指标并据此选模型（`fitness`，默认 `ate`，越小越好）；
+训练期间只在 `val` 上计算上述指标并据此选模型（`fitness`，默认 `ate`，越小越好，配置解析时即校验）；
 `test` 及其官方子集只在最终评测（`ipb val split=test` 或 `ipb benchmark`）中运行。
+序列级/标定型方法（`pdr`、`mean_speed_heading`）的标定标量只在 `train` 划分上拟合，
+结果写入 `metrics.json` 的 `calibration` 块随结果一起发布。

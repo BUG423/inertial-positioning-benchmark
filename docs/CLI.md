@@ -126,6 +126,21 @@ report: true                       # 结束后汇总到 <project>/<name>/report
 完成标志为 `train/metrics.json` 与 `<split>/metrics.json`：重复运行会跳过已完成项；训练中断（有 `last.pt` 无 `metrics.json`）会自动续训；
 数据集缺少某个测试子集时跳过并告警。进度写入 `<project>/<name>/benchmark.json`。
 
+加入经典基线作为下界参照（`pdr` / `mean_speed_heading`，见 [ALGORITHMS.md](ALGORITHMS.md) §3）：
+
+```yaml
+models:
+  - {label: pdr, model: pdr, overrides: {orientation: reference}}          # “理想姿态 PDR”
+  - {label: pdr_device, model: pdr}                                         # 需要 imu/orientation
+  - {label: mean_speed_heading, model: mean_speed_heading,
+     overrides: {orientation: reference}}
+```
+
+前提：`pdr` / `mean_speed_heading` 的前向轴按序列根属性 `body_frame` 查表，目前内置
+`android_device` / `ios_device`；其他机体系必须显式配置
+（`model_args={body_axes: {<body_frame>: [[fx,fy,fz],[ax,ay,az]]}}`），否则该数据集会报错。
+`orientation=device` 只能用于提供了 `imu/orientation` 的数据集。
+
 ### `ipb report` — 汇总
 
 ```bash
@@ -160,7 +175,7 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 ├── log.txt
 ├── weights/{best,last}.pt     # 训练：模型配置、输入规格、完整 cfg、epoch、优化器/调度器状态（best 去掉优化器）、git 提交
 ├── results.csv                # 训练：每轮 train/loss、val/*、lr、fitness、耗时
-├── metrics.json               # 聚合指标（mean/median/std/count）、协议参数、效率指标
+├── metrics.json               # 聚合指标（mean/median/std/count）、protocol、privileged_inputs、calibration、效率指标
 ├── sequences.csv              # 逐序列指标
 ├── predictions/<seq>.npz      # 逐帧预测/参考/oracle 轨迹，窗口级 vel_pred/vel_target/(logstd)，其他模型输出 out_<键>
 └── plots/*.png                # 轨迹叠加、误差 CDF、误差随时间、箱线图、长度比、训练曲线
@@ -214,8 +229,13 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `frame` | `gravity_world` | gravity_world / body / gravity_yaw_local |
 | `orientation` | `reference` | reference / device |
 | `remove_gravity` | `false` |  |
-| `target` | `avg_velocity` | avg_velocity / displacement / velocity_at_end |
+| `target` | `avg_velocity` | avg_velocity / displacement / velocity_at_end / frame_velocity（逐帧） / multi_displacement（多步） |
 | `dims` | `2` | 2（水平）/ 3 |
+| `output_steps` | `0` | `multi_displacement` 的步数 H（窗口等分为 H 段） |
+| `overlap` | `mean` | 重叠预测的合并策略：mean（同一时刻取平均）/ center（取最靠窗口中心的） |
+| `history` | `0` | 历史子窗口个数 H_in（0 = 不使用历史，输入 `(C,T)`；>0 时输入 `(H_in,C,T)`） |
+| `history_stride` | `0` | 子窗口起点间隔（样本），`history > 1` 时必须 ≥ 1 |
+| `extra_inputs` | `[]` | 额外输入：orientation / gravity / init_velocity（**特权输入**，结果中标记并单列） |
 | `augment` | `[random_yaw, time_shift]` |  |
 | `rate` | `200.0` | 统一采样率（Hz），与 IPB v1 数据一致 |
 | **评测（DESIGN 第 5–6 节）** | | |
