@@ -5,8 +5,17 @@
     from inertial_benchmark.data.convert import convert_dataset
     convert_dataset("ronin", "/raw/ronin", "/data/ipb/ronin", workers=8)
 
-转换器除 ``base.py`` 规定的成员外，可选提供 ``list_sequences(source) -> list[str]``，
-用于多进程时枚举全部序列；未提供时用官方划分的并集。
+转换器除 ``base.py`` 规定的成员外，可选提供（见 ``converters/base.py``）：
+
+* ``list_sequences(source) -> list[str]``：多进程时枚举全部序列；未提供时用各划分的并集；
+* ``extra_splits(source) -> dict[str, list[str]]``（与可选的 ``EXTRA_SPLIT_NOTES``）：
+  不在官方划分中的序列的附加子集（例如 ``test_unseen_subject``），原样写出，绝不并入 train；
+* ``OFFICIAL_SPLITS_LEAK = True`` + ``grouped_splits(source)``（与可选的
+  ``OFFICIAL_SPLITS_LEAK_REASON``）：官方划分存在泄漏时，默认 ``train/val/test`` 取分组划分，
+  官方划分另存为 ``official_*.txt``（DESIGN 2.4）。
+
+已转换但不属于任何默认划分的序列不会被静默丢弃或并入 train：它们保留在 ``sequences/`` 中，
+并列在 ``dataset.json`` 与 ``conversion_report.json`` 的 ``unassigned`` 里，``ipb check`` 会告警。
 """
 
 from __future__ import annotations
@@ -15,6 +24,7 @@ import datetime as _dt
 import math
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from types import ModuleType
 from typing import Collection, Iterable, Optional, Union
@@ -23,7 +33,7 @@ import numpy as np
 
 from .. import __version__
 from ..utils import LOGGER, datasets_dir, json_load, json_save
-from .converters import converter_ref, load_converter, resolve_converter_ref
+from .converters import ConverterError, converter_ref, load_converter, resolve_converter_ref
 from .converters.base import RawSequence
 from .format import (
     ACCELEROMETER_TYPE,
@@ -35,9 +45,23 @@ from .format import (
     save_sequence,
     validate,
 )
-from .manifest import MANIFEST, REPORT, fingerprint, sha256_file
-from .resample import DEFAULT_GAP_THRESHOLD, DEFAULT_RATE, resample_streams
-from .splits import check_leakage, resolve_splits, write_split
+from .manifest import (
+    MANIFEST,
+    REPORT,
+    find_duplicates,
+    fingerprint,
+    imu_content_hash,
+    sha256_file,
+)
+from .resample import (
+    DEFAULT_EDGE_MIN_RUN,
+    DEFAULT_GAP_THRESHOLD,
+    DEFAULT_RATE,
+    resample_streams,
+    trim_result,
+    valid_extent,
+)
+from .splits import OFFICIAL_PREFIX, check_leakage, resolve_splits, split_family, write_split
 
 PathLike = Union[str, Path]
 
@@ -64,7 +88,15 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
         record.update(status="rejected", reason=f"resampling failed: {exc}")
         return None, record
 
-    duration = float(res.timestamp[-1])
+    rate = float(opts["rate"])
+    edge_min_run = float(opts.get("edge_min_run", DEFAULT_EDGE_MIN_RUN))
+    start, stop = valid_extent(res.valid_imu & res.valid_pose, rate, edge_min_run)
+    trimmed = None
+    if (start, stop) != (0, len(res.timestamp)):
+        trimmed = {"start_s": start / rate, "end_s": (len(res.timestamp) - stop) / rate}
+        res = trim_result(res, start, stop)
+
+    duration = float(res.timestamp[-1]) if len(res.timestamp) else 0.0
     if duration < opts["min_duration"]:
         record.update(status="rejected",
                       reason=f"overlap {duration:.2f}s shorter than {opts['min_duration']}s")
@@ -84,6 +116,11 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
     if dropped["imu"] or dropped["pose"]:
         notes.append(f"dropped duplicate/non-monotonic timestamps: imu={dropped['imu']}, "
                      f"pose={dropped['pose']}")
+    if trimmed:
+        notes.append(f"trimmed {trimmed['start_s']:.3f} s at the start and "
+                     f"{trimmed['end_s']:.3f} s at the end: samples without valid IMU+pose, and "
+                     f"edge fragments shorter than {edge_min_run:g} s separated by invalid "
+                     "samples (DESIGN 2.3)")
     attrs.update(
         schema_version=SCHEMA_VERSION,
         dataset=dataset,
@@ -131,7 +168,10 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
         subject_id=str(attrs["subject_id"]),
         placement=str(attrs["placement"]),
         source_sample_rate_hz=attrs["source_sample_rate_hz"],
+        imu_sha256=imu_content_hash(seq.gyroscope, seq.accelerometer),
     )
+    if trimmed:
+        record["trimmed_s"] = [round(trimmed["start_s"], 6), round(trimmed["end_s"], 6)]
     return seq, record
 
 
@@ -155,26 +195,109 @@ def _process(raw: RawSequence, meta: dict, output: Path, opts: dict) -> dict:
     return record
 
 
-def _worker(ref: tuple, source: str, sequence_id: str, meta: dict, output: str,
-            opts: dict) -> list:
-    module = resolve_converter_ref(ref)
-    records = []
-    try:
-        for raw in module.iter_raw_sequences(Path(source), only=[sequence_id]):
-            records.append(_process(raw, meta, Path(output), opts))
-    except Exception as exc:  # noqa: BLE001 - 转换器解析异常只影响这一条
-        records.append({"sequence_id": sequence_id, "status": "rejected",
-                        "reason": f"converter raised {type(exc).__name__}: {exc}"})
-    if not records:
-        records.append({"sequence_id": sequence_id, "status": "rejected",
-                        "reason": "converter produced no data for this id"})
+def _rejected(sequence_id: str, reason: str) -> dict:
+    return {"sequence_id": sequence_id, "status": "rejected", "reason": reason}
+
+
+def convert_ids(module: ModuleType, source: Path, ids: Iterable[str], meta: dict, output: Path,
+                opts: dict, on_record=None) -> list:
+    """转换给定的 ``sequence_id``，单条失败不影响其余（串行与子进程共用）。
+
+    转换器的生成器可能在中途抛出异常（损坏文件、内存不足…），此时生成器无法继续：
+    把下一条未产出的序列记为 rejected，再用剩余的 id 重新调用，直到全部有结论。
+    没有抛异常但也没有产出数据的 id 记为 ``converter produced no data for this id``。
+    """
+    records: list = []
+    remaining = list(dict.fromkeys(ids))
+    while remaining:
+        produced, error = set(), None
+        try:
+            for raw in module.iter_raw_sequences(source, only=list(remaining)):
+                record = _process(raw, meta, output, opts)
+                produced.add(record["sequence_id"])
+                records.append(record)
+                if on_record:
+                    on_record(record)
+        except Exception as exc:  # noqa: BLE001 - 解析异常只影响这一条与生成器的继续
+            error = exc
+        pending = [i for i in remaining if i not in produced]
+        if error is None:
+            for sequence_id in pending:
+                records.append(_rejected(sequence_id, "converter produced no data for this id"))
+                if on_record:
+                    on_record(records[-1])
+            remaining = []
+        else:
+            # 无法确定生成器停在哪一条时，按剩余顺序的第一条归因，保证每轮都有进展
+            sequence_id = pending[0] if pending else remaining[0]
+            records.append(_rejected(sequence_id,
+                                     f"converter raised {type(error).__name__}: {error}"))
+            if on_record:
+                on_record(records[-1])
+            remaining = [i for i in pending if i != sequence_id]
     return records
 
 
-def _list_ids(module: ModuleType, source: Path, official: dict) -> list:
+def _worker(ref: tuple, source: str, sequence_id: str, meta: dict, output: str,
+            opts: dict) -> list:
+    module = resolve_converter_ref(ref)
+    return convert_ids(module, Path(source), [sequence_id], meta, Path(output), opts)
+
+
+def _list_ids(module: ModuleType, source: Path, *split_sets: dict) -> list:
+    """要转换的 ``sequence_id``：优先用转换器的 ``list_sequences``，否则取各划分的并集。"""
     if hasattr(module, "list_sequences"):
         return list(module.list_sequences(source))
-    return sorted({i for ids in official.values() for i in ids})
+    LOGGER.warning(f"converter {getattr(module, 'NAME', module.__name__)} has no "
+                   "list_sequences(): only sequences listed in a split will be converted")
+    return sorted({i for splits in split_sets if splits for ids in splits.values() for i in ids})
+
+
+def split_sources(module: ModuleType, source: Path) -> dict:
+    """收集转换器给出的划分来源：``official``、``grouped``（泄漏时）、``extra`` 与 ``policy``。
+
+    约定（DESIGN 2.4）：``OFFICIAL_SPLITS_LEAK = True`` 时必须提供 ``grouped_splits(source)``；
+    ``extra_splits(source)`` 的子集名不得与官方/分组划分重名，也不得包含官方划分中的序列。
+    """
+    name = getattr(module, "NAME", module.__name__)
+    official = {k: list(v) for k, v in module.official_splits(source).items()}
+    leak = bool(getattr(module, "OFFICIAL_SPLITS_LEAK", False))
+    policy: dict = {"default": "official", "official_splits_leak": leak}
+    grouped = None
+    if leak:
+        if not callable(getattr(module, "grouped_splits", None)):
+            raise ConverterError(f"converter {name} declares OFFICIAL_SPLITS_LEAK but has no "
+                                 "grouped_splits(source)")
+        grouped = {k: list(v) for k, v in module.grouped_splits(source).items()}
+        policy.update(
+            default="grouped",
+            reason=str(getattr(module, "OFFICIAL_SPLITS_LEAK_REASON",
+                               "declared by the converter (OFFICIAL_SPLITS_LEAK = True)")),
+            official_prefix=OFFICIAL_PREFIX,
+            official_splits=sorted(OFFICIAL_PREFIX + k for k in official),
+        )
+    extra = {}
+    if callable(getattr(module, "extra_splits", None)):
+        extra = {k: list(v) for k, v in module.extra_splits(source).items()}
+        base = grouped if grouped is not None else official
+        clash = sorted(set(extra) & set(base))
+        if clash:
+            raise ConverterError(f"converter {name}: extra_splits reuse split names {clash}")
+        listed = {i for ids in official.values() for i in ids}
+        overlap = sorted({i for ids in extra.values() for i in ids} & listed)
+        if overlap:
+            raise ConverterError(f"converter {name}: extra_splits contain {len(overlap)} sequences "
+                                 f"that are in the official splits (e.g. {overlap[0]})")
+        notes = dict(getattr(module, "EXTRA_SPLIT_NOTES", {}) or {})
+        if extra:
+            policy["extra_splits"] = {k: notes.get(k, "extra subset declared by the converter")
+                                      for k in sorted(extra)}
+    for splits in (official, grouped or {}, extra):
+        bad = sorted(k for k in splits if split_family(k))
+        if bad:
+            raise ConverterError(f"converter {name}: split names must not start with "
+                                 f"{OFFICIAL_PREFIX!r}: {bad}")
+    return {"official": official, "grouped": grouped, "extra": extra, "policy": policy}
 
 
 def convert_dataset(
@@ -198,6 +321,9 @@ def convert_dataset(
 
     ``converter`` 默认按 ``name`` 加载 ``converters.<name>``，也可传入模块对象或文件路径
     （测试注入）。``overwrite=False`` 时跳过已有文件的序列（沿用上次报告中的记录）。
+
+    单条序列的解析或写出失败只会让该序列变成 ``rejected``（原因写入转换报告），无论串行还是多进程：
+    清单与转换报告总会写出，每个 ``sequence_id`` 都有一个结论。
     """
     module = load_converter(converter if converter is not None else name)
     source = Path(source).expanduser()
@@ -206,39 +332,60 @@ def convert_dataset(
     conv_id = f"{module.NAME}@{module.VERSION}"
     meta = {"dataset": name, "converter": conv_id, "license": str(module.LICENSE)}
     opts = dict(rate=rate, gap_threshold=gap_threshold, compression=compression,
-                min_duration=min_duration)
+                min_duration=min_duration, edge_min_run=DEFAULT_EDGE_MIN_RUN)
 
-    official = {k: list(v) for k, v in module.official_splits(source).items()}
+    sources = split_sources(module, source)
     previous = _previous_records(output)
-    wanted = set(only) if only else None
-    ids: Optional[list] = None
-    if workers > 1 or not overwrite:
-        ids = _list_ids(module, source, official)
-        if wanted is not None:
-            ids = [i for i in ids if i in wanted]
-        if not overwrite:
-            ids = [i for i in ids if not (previous.get(i, {}).get("status") == "accepted"
-                                          and (output / previous[i]["file"]).exists())]
+    ids = _list_ids(module, source, sources["official"], sources["grouped"], sources["extra"])
+    if only:
+        wanted = set(only)
+        missing = sorted(wanted - set(ids))
+        ids = [i for i in ids if i in wanted]
+        if missing and hasattr(module, "list_sequences"):
+            LOGGER.warning(f"convert {name}: {len(missing)} requested ids are unknown to the "
+                           f"converter: {missing[:5]}")
+        elif missing:  # 无 list_sequences 时不能判断 id 是否存在，交给转换器
+            ids = sorted(wanted)
+    if not overwrite:
+        ids = [i for i in ids if not (previous.get(i, {}).get("status") == "accepted"
+                                      and (output / previous[i]["file"]).exists())]
 
     LOGGER.info(f"convert {name}: {conv_id}, source={source}, output={output}, "
                 f"workers={workers}")
     records: list = []
-    if ids is not None and workers > 1:
+    total = len(ids)
+    counter = {"n": 0}
+
+    def log(record: dict) -> None:
+        counter["n"] += 1
+        _log_record(record, counter["n"], total)
+
+    if workers > 1 and total > 1:
         ref = converter_ref(module)
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_worker, ref, str(source), i, meta, str(output), opts)
-                       for i in ids]
-            for fut in as_completed(futures):
-                for rec in fut.result():
-                    records.append(rec)
-                    _log_record(rec, len(records), len(ids))
+        done: set = set()
+        try:
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(_worker, ref, str(source), i, meta, str(output), opts): i
+                           for i in ids}
+                for fut in as_completed(futures):
+                    sequence_id = futures[fut]
+                    try:
+                        batch = fut.result()
+                    except Exception as exc:  # noqa: BLE001 - 子进程崩溃（含 BrokenProcessPool）
+                        batch = [_rejected(sequence_id,
+                                           f"worker failed: {type(exc).__name__}: {exc}")]
+                    for record in batch:
+                        done.add(record["sequence_id"])
+                        records.append(record)
+                        log(record)
+        except BrokenProcessPool as exc:  # pragma: no cover - 池整体损坏时兜底
+            LOGGER.error(f"convert {name}: worker pool broke ({exc})")
+        for sequence_id in ids:  # 池损坏时仍要给每条 id 一个结论
+            if sequence_id not in done:
+                records.append(_rejected(sequence_id, "worker did not return a record "
+                                                      "(process pool broken?)"))
     else:
-        only_arg = ids if ids is not None else (sorted(wanted) if wanted else None)
-        if only_arg is None or only_arg:
-            for raw in module.iter_raw_sequences(source, only=only_arg):
-                rec = _process(raw, meta, output, opts)
-                records.append(rec)
-                _log_record(rec, len(records), len(only_arg) if only_arg else None)
+        records = convert_ids(module, source, ids, meta, output, opts, on_record=log)
 
     # 合并本次未处理的历史记录（文件仍在时）
     done = {r["sequence_id"] for r in records}
@@ -247,8 +394,10 @@ def convert_dataset(
             continue
         if rec.get("status") != "accepted" or (output / rec.get("file", "")).exists():
             records.append(rec)
-    return write_dataset_files(output, name, meta, official, records, opts,
-                               val_fraction=val_fraction, seed=seed, source=source)
+    return write_dataset_files(output, name, meta, sources["official"], records, opts,
+                               val_fraction=val_fraction, seed=seed, source=source,
+                               grouped=sources["grouped"], extra=sources["extra"],
+                               policy=sources["policy"])
 
 
 def _log_record(rec: dict, k: int, total: Optional[int]) -> None:
@@ -281,17 +430,55 @@ def _stats(entries: Iterable[dict]) -> dict:
     }
 
 
+def _resolve_all(official: dict, grouped: Optional[dict], extra: dict, accepted: dict,
+                 groups: dict, weights: dict, val_fraction: float, seed: int) -> tuple:
+    """按划分策略合并各来源，返回 ``(splits, method, missing)``（官方泄漏族带前缀）。"""
+    kw = dict(fraction=val_fraction, seed=seed, weights=weights)
+    if grouped is None:
+        splits, method, missing = resolve_splits(official, accepted, groups, **kw)
+    else:
+        splits, method, missing = resolve_splits(
+            grouped, accepted, groups, label="grouped (converter grouped_splits)", **kw)
+        off, off_method, off_missing = resolve_splits(
+            official, accepted, groups,
+            label="official (leaks; kept for literature comparison only)", **kw)
+        for key, ids in off.items():
+            splits[OFFICIAL_PREFIX + key] = ids
+            method[OFFICIAL_PREFIX + key] = off_method[key]
+        missing.update({OFFICIAL_PREFIX + k: v for k, v in off_missing.items()})
+    if extra:
+        ext, ext_method, ext_missing = resolve_splits(
+            extra, accepted, groups, label="extra (converter extra_splits; not in official splits)",
+            **{**kw, "fraction": 0.0})
+        ext.pop("val", None)  # extra 子集从不生成 val（也不应含 train）
+        ext_method.pop("val", None)
+        splits.update(ext)
+        method.update(ext_method)
+        missing.update(ext_missing)
+    return splits, method, missing
+
+
 def write_dataset_files(output: Path, name: str, meta: dict, official: dict, records: list,
                         opts: dict, *, val_fraction: float, seed: int,
-                        source: Optional[Path] = None) -> dict:
-    """根据转换记录写出划分文件、``dataset.json`` 与 ``conversion_report.json``。"""
+                        source: Optional[Path] = None, grouped: Optional[dict] = None,
+                        extra: Optional[dict] = None, policy: Optional[dict] = None) -> dict:
+    """根据转换记录写出划分文件、``dataset.json`` 与 ``conversion_report.json``。
+
+    ``grouped`` 非空表示官方划分泄漏：默认划分取 ``grouped``，官方划分以 ``official_`` 前缀写出；
+    ``extra`` 为转换器声明的附加子集（原样写出）。
+    """
+    output = Path(output)
     records = sorted(records, key=lambda r: r["sequence_id"])
     accepted = {r["sequence_id"]: r for r in records if r["status"] == "accepted"}
     rejected = [r for r in records if r["status"] != "accepted"]
     groups = {sid: r["group_id"] for sid, r in accepted.items()}
     weights = {sid: r["duration_s"] for sid, r in accepted.items()}
-    splits, method, missing = resolve_splits(official, accepted, groups, fraction=val_fraction,
-                                             seed=seed, weights=weights)
+    extra = dict(extra or {})
+    if "train" in extra:
+        raise ConverterError("extra_splits must not define 'train'")
+    policy = dict(policy or {"default": "official", "official_splits_leak": grouped is not None})
+    splits, method, missing = _resolve_all(official, grouped, extra, accepted, groups, weights,
+                                           val_fraction, seed)
     split_dir = output / "splits"
     if split_dir.is_dir():
         for old in split_dir.glob("*.txt"):
@@ -300,15 +487,15 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     for split, ids in splits.items():
         write_split(split_dir / f"{split}.txt", ids)
     leakage = check_leakage(splits, groups)
-    assigned = {i for ids in splits.values() for i in ids}
+    if "official" in leakage:
+        policy["official_leaks"] = leakage["official"]["leaks"]
+    assigned = {i for key, ids in splits.items() if not split_family(key) for i in ids}
     unassigned = sorted(set(accepted) - assigned)
+    duplicates = find_duplicates({sid: r.get("imu_sha256") for sid, r in accepted.items()})
 
-    sequences = {
-        sid: {k: r[k] for k in ("file", "sha256", "num_samples", "duration_s", "distance_m",
-                                "group_id", "subject_id", "placement", "valid_fraction",
-                                "source_sample_rate_hz")}
-        for sid, r in accepted.items()
-    }
+    keys = ("file", "sha256", "imu_sha256", "num_samples", "duration_s", "distance_m", "group_id",
+            "subject_id", "placement", "valid_fraction", "source_sample_rate_hz")
+    sequences = {sid: {k: r[k] for k in keys if k in r} for sid, r in accepted.items()}
     by_split = {s: _stats(accepted[i] for i in ids) for s, ids in splits.items()}
     now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
     manifest = {
@@ -322,9 +509,12 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
         "conversion": {"gap_threshold_s": opts["gap_threshold"],
                        "compression": opts["compression"],
                        "min_duration_s": opts["min_duration"],
+                       "edge_min_run_s": opts.get("edge_min_run", DEFAULT_EDGE_MIN_RUN),
                        "resampling": "DESIGN 2.3 (see per-sequence 'resampling' attribute)"},
+        "split_policy": policy,
         "split_method": method,
         "splits": {s: len(ids) for s, ids in splits.items()},
+        "unassigned": unassigned,
         "statistics": {**_stats(accepted.values()), "by_split": by_split},
         "fingerprint": fingerprint({k: v["sha256"] for k, v in sequences.items()}, splits),
         "sequences": sequences,
@@ -340,17 +530,25 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
         "rejected_ids": [r["sequence_id"] for r in rejected],
         "missing_from_splits": missing,
         "unassigned": unassigned,
+        "duplicates": duplicates,
         "leakage": leakage,
         "warnings_total": int(sum(len(r.get("warnings", [])) for r in records)),
         "sequences": records,
     }
     json_save(output / REPORT, report)
-    level = LOGGER.info if leakage["ok"] else LOGGER.warning
+    level = LOGGER.info if leakage["ok"] and not duplicates else LOGGER.warning
     level(f"convert {name}: accepted {len(accepted)}, rejected {len(rejected)}, "
           f"splits {manifest['splits']}, {manifest['statistics']['total_duration_h']:.2f} h"
           + ("" if leakage["ok"] else f", LEAKAGE: {leakage['leaks']}"))
+    if "official" in leakage:
+        LOGGER.info(f"convert {name}: default splits are grouped ({policy.get('reason', '')}); "
+                    f"official splits kept as {OFFICIAL_PREFIX}*.txt, leaks: "
+                    f"{leakage['official']['leaks']}")
+    if duplicates:
+        LOGGER.warning(f"convert {name}: sequences with identical IMU content: {duplicates}")
     if unassigned:
-        LOGGER.warning(f"convert {name}: {len(unassigned)} accepted sequences are in no split")
+        LOGGER.warning(f"convert {name}: {len(unassigned)} accepted sequences are in no split "
+                       f"(listed as 'unassigned' in {MANIFEST}): {unassigned[:5]}")
     return manifest
 
 

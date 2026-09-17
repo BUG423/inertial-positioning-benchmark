@@ -44,7 +44,7 @@ from . import _phone_utils as pu
 from .base import RawSequence
 
 NAME = "oxiod"
-VERSION = "1.0"
+VERSION = "1.1"
 LICENSE = "OxIOD (University of Oxford) academic/non-commercial use; cite Chen et al. 2018, http://deepio.cs.ox.ac.uk/"
 
 G_IOS = 9.80665  # CoreMotion 的 1 G 取标准重力
@@ -206,6 +206,31 @@ def official_splits(source: Path) -> Dict[str, List[str]]:
                     ids = [f"{prefix}_{session}_seq{k}"]
                 splits[key].extend(sid for sid in ids if sid in entries and sid not in splits[key])
     return splits
+
+
+# 没有官方划分的会话 → 附加测试子集（绝不并入 train）
+_EXTRA_SCENES = {"multi users": "test_unseen_subject", "multi devices": "test_unseen_device"}
+EXTRA_SPLIT_NOTES = {
+    "test_unseen_subject": (
+        "multi users (user2-user5): no official split; these subjects never appear in the official "
+        "train/test (user1); handheld/pocket/bag placements"
+    ),
+    "test_unseen_device": (
+        "multi devices (iPhone 5, iPhone 6, Nexus 5): no official split; devices differ from the "
+        "iPhone 7 Plus of the official scenes; subject unknown; Nexus 5 has no device orientation"
+    ),
+}
+
+
+def extra_splits(source: Path) -> Dict[str, List[str]]:
+    """契约可选成员：multi users / multi devices 写成附加测试子集（它们不在任何官方列表中）。"""
+
+    out: Dict[str, List[str]] = {key: [] for key in EXTRA_SPLIT_NOTES}
+    for sid, entry in sorted(_entries(source).items()):
+        key = _EXTRA_SCENES.get(entry["scene"])
+        if key:
+            out[key].append(sid)
+    return out
 
 
 def iter_raw_sequences(

@@ -97,7 +97,9 @@ runs/<mode>/<name>/
 <root>/<dataset>/
 ├── dataset.json           # 数据集级元信息：版本、采样率、来源、许可、转换器版本、划分方法、统计、文件校验和
 ├── sequences/<sequence_id>.h5
-├── splits/{train,val,test}.txt       # 可附加 test_seen.txt / test_unseen.txt 等官方子集
+├── splits/{train,val,test}.txt       # 可附加 test_seen.txt / test_unseen.txt 等官方子集、
+│                                     # 转换器声明的附加测试子集（test_unseen_subject.txt 等）、
+│                                     # 以及泄漏的官方划分 official_*.txt（见 2.4）
 └── conversion_report.json # 每条序列的接收/拒绝原因与警告
 ```
 
@@ -151,7 +153,14 @@ runs/<mode>/<name>/
 4. 否则：先在**名义源频率**上线性均匀化（实测频率与 200 Hz 之比取分母 ≤ 20 的最简分数，例如 99.7 Hz → 100 Hz），
    再用有理数多相滤波（`scipy.signal.resample_poly`，Kaiser 窗，`padtype="line"`，抗混叠/抗镜像）变换到 200 Hz；
    由于 FIR 有非零支撑，缺口/无效区在时间上向两侧各扩展一个滤波半支撑宽度；位置用线性插值，四元数用 SLERP；
-5. 输出前做四元数符号连续化与归一化；`timestamp` 精确写为 `k / 200`。
+5. 输出前做四元数符号连续化与归一化；`timestamp` 精确写为 `k / 200`；
+6. 输出裁剪到首个/末个 IMU 与位姿**同时有效**的样本；首尾被无效区隔开、短于 1 s 的孤立有效片段一并裁掉
+   （例如 IDOL `building3_known_14` 开头 0.12 s 数据之后紧跟 15.8 s 缺口），裁剪量写入 notes 与转换报告；
+   中间的缺口与短片段保持原样（`valid=False`）。
+   理由：序列首尾的无效区与孤立碎片不含可用窗口，却会成为轨迹锚点并让积分跨越长缺口。
+
+时间比较统一使用 1 µs 容差：Unix 秒量级的 float64 时间戳分辨率约 2.4e-7 s，更小的容差会把恰好落在末样本上的
+网格点判为越界（曾导致 PedLocData 300 s 切片少一个样本）。
 
 ### 2.4 划分
 
@@ -161,7 +170,18 @@ runs/<mode>/<name>/
 - **泄漏优先于“官方”**：若审计表明官方划分存在录制/会话级泄漏（同一段录音的相邻切片跨划分，
   例如 PedLocData），转换器声明 `OFFICIAL_SPLITS_LEAK = True` 并提供 `grouped_splits(source)`；
   统一流水线把分组划分写为默认的 `train/val/test.txt`，官方划分以 `official_{train,val,test}.txt`
-  保留（仅用于与文献对照，报告时必须注明泄漏）。
+  保留（仅用于与文献对照，报告时必须注明泄漏）。`dataset.json` 的 `split_policy` 记录默认划分来源、
+  原因（`OFFICIAL_SPLITS_LEAK_REASON`）与检出的官方泄漏；`ipb check` 在两个“族”内分别检查，
+  官方族中主划分之间的任何 `group_id` 重叠都列为（已声明的）泄漏警告，不影响默认族的结论。
+  默认 train 与 `official_test` 共享序列，**不得**混用。
+- **不在官方划分中的序列不并入 train**：转换器用 `extra_splits(source)`（及 `EXTRA_SPLIT_NOTES`）把它们声明为
+  附加测试子集（如 OxIOD 的 `test_unseen_subject` / `test_unseen_device`、RIDI 的 `test_unseen_subject`），
+  按名字原样写出，说明记入 `split_policy.extra_splits`。其余已转换却不属于任何划分的序列保留文件，
+  列入 `dataset.json` 的 `unassigned`，转换与 `ipb check` 均告警——既不静默丢弃，也不静默并入 train。
+- **seen-subject 设定**：官方按序列划分导致受试者跨划分（RoNIN `test_seen`、RIDI、IMUNet、TLIO 设备、RNIN 会话）
+  属于官方设定，`ipb check` 报告为警告而非错误；名字含 `unseen/unknown/novel` 的子集与 train/val 共享组才是错误。
+- **重复内容**：`dataset.json` 为每条序列记录 IMU 数组内容哈希 `imu_sha256`；`ipb check` 把内容相同的不同序列
+  （同一录制被重复发布）列为错误，并注明各自所在划分。
 
 ### 2.5 v0.1 兼容
 
@@ -254,6 +274,7 @@ class BaseModel(nn.Module):
 1. **洁净室**：新代码从零编写。实现者**不得打开** `/workspace/webCodex/Begin` 与 `/workspace/webCodex/open-inertial-benchmark` 下的源码
    （`*.py`、`*.sh`），不得复制其实现；公开算法依据论文与官方仓库独立实现，保持我们自己的代码风格与模块组织。
 2. **测试先行**：每个模块都有确定性单元测试（合成数据）；真实数据测试放在 `tests/data/`，数据缺失时自动跳过。
-3. **依赖**：核心数据层只依赖 numpy/h5py/scipy/pyyaml；torch 为 `train` 可选依赖。
+3. **依赖**：核心数据层只依赖 numpy/h5py/scipy/pyyaml/pandas（pandas 供转换器解析 CSV/feather；
+   RNIN、IDOL 等转换器需要它）；读取 IDOL 的 `.feather` 另需 `idol` 可选依赖（pyarrow）；torch 为 `train` 可选依赖。
 4. **提交**：小步提交，信息用英文祈使句；不提交数据、权重、运行输出。
 5. **不静默修复数据**：任何修正（单位、轴、四元数约定、时间戳）都要写入转换报告。

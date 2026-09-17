@@ -132,3 +132,29 @@ def test_grouped_splits_are_leak_free_and_deterministic(ped_root):
     assert all_ids == sorted(group_of)
     assert sorted(a["test_yt"] + a["test_demo"]) == sorted(a["test"])
     assert a["test"] and a["val"]
+
+
+def test_leak_declaration_drives_the_default_splits(ped_root, tmp_path):
+    """DESIGN 2.4：声明官方划分泄漏后，统一流水线默认使用分组划分，官方划分另存为 official_*。"""
+
+    from inertial_benchmark.data.convert import convert_dataset
+    from inertial_benchmark.data.manifest import check_dataset
+    from inertial_benchmark.data.splits import read_split
+
+    assert pl.OFFICIAL_SPLITS_LEAK is True and "recording" in pl.OFFICIAL_SPLITS_LEAK_REASON
+    out = tmp_path / "pedlocdata"
+    manifest = convert_dataset("pedlocdata", ped_root, out, workers=1)
+    grouped = pl.grouped_splits(ped_root)
+    official = pl.official_splits(ped_root)
+    accepted = set(manifest["sequences"])
+    assert "yt_eee_B3_server_0_0" not in accepted  # 四元数顺序错误的切片被拒收
+    for key in ("train", "val", "test", "test_yt", "test_demo"):
+        assert read_split(out / "splits" / f"{key}.txt") == sorted(set(grouped[key]) & accepted)
+        assert read_split(out / "splits" / f"official_{key}.txt") == sorted(
+            set(official[key]) & accepted)
+    policy = manifest["split_policy"]
+    assert policy["default"] == "grouped" and policy["reason"] == pl.OFFICIAL_SPLITS_LEAK_REASON
+    assert policy["official_leaks"]
+    rep = check_dataset(out, full=True)
+    assert rep["ok"], rep["errors"]
+    assert rep["leakage"]["ok"] and not rep["leakage"]["official"]["ok"]

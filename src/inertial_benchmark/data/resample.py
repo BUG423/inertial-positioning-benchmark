@@ -8,7 +8,12 @@
 3. ``|f_src / rate − 1| ≤ tolerance``（默认 3%）：IMU 在统一网格上直接线性插值；
 4. 否则：先在“名义源频率”上线性均匀化，再用 ``scipy.signal.resample_poly``
    （Kaiser 窗 FIR，抗混叠/抗镜像）变换到目标频率；滤波支撑区内受缺口影响的网格点同样置为无效；
-5. 位置/速度一律线性插值，四元数一律 SLERP，输出前做符号连续化与归一化。
+5. 位置/速度一律线性插值，四元数一律 SLERP，输出前做符号连续化与归一化；
+6. （转换流水线）输出裁剪到首个/末个 IMU 与位姿同时有效的样本，首尾孤立的短有效片段
+   （短于 ``DEFAULT_EDGE_MIN_RUN``、与主体之间隔着无效区）一并裁掉，见 ``valid_extent``。
+
+时间比较使用 ``TIME_TOL``（1 µs）容差：Unix 秒量级的 float64 时间戳分辨率约 2.4e-7 s，
+纳秒级容差会把恰好落在末样本上的网格点误判为越界。
 """
 
 from __future__ import annotations
@@ -25,7 +30,9 @@ from ..utils.geometry import quat_interp, quat_make_continuous, quat_normalize
 DEFAULT_RATE = 200.0
 DEFAULT_GAP_THRESHOLD = 0.05
 DEFAULT_TOLERANCE = 0.03
+DEFAULT_EDGE_MIN_RUN = 1.0  # s，首尾孤立有效片段短于该值时裁掉
 POLY_HALF_LEN = 10  # scipy 默认 FIR 半长系数：half_len = 10 · max(up, down)
+TIME_TOL = 1e-6  # s，时间戳比较容差（远小于任何采样间隔，大于 Unix 秒 float64 的分辨率）
 
 
 def clean_timestamps(t: np.ndarray) -> np.ndarray:
@@ -58,7 +65,7 @@ def uniform_grid(t_start: float, t_end: float, rate: float) -> np.ndarray:
     """``[t_start, t_end]`` 内以 ``rate`` 采样的网格（含起点）。"""
     if t_end < t_start:
         return np.zeros(0)
-    n = int(np.floor((t_end - t_start) * rate + 1e-9)) + 1
+    n = int(np.floor((t_end - t_start + TIME_TOL) * rate)) + 1
     return t_start + np.arange(n, dtype=np.float64) / rate
 
 
@@ -75,7 +82,7 @@ def valid_on_grid(
     out = np.zeros(len(grid), dtype=bool)
     if m == 0:
         return out
-    tol = 1e-9  # 网格由浮点累加生成，允许纳秒级偏差视为“恰好落在源样本上”
+    tol = TIME_TOL  # 网格由浮点运算生成，允许微秒级偏差视为“恰好落在源样本上”
     left = np.searchsorted(t_src, grid + tol, side="right") - 1
     inside = (left >= 0) & (grid <= t_src[-1] + tol)
     li = np.clip(left, 0, m - 1)
@@ -298,6 +305,42 @@ def resample_streams(
         arrays=arrays,
         valid_imu=valid_imu,
         valid_pose=valid_pose,
+        info=info,
+    )
+
+
+def valid_extent(valid: np.ndarray, rate: float = DEFAULT_RATE,
+                 min_run: float = DEFAULT_EDGE_MIN_RUN) -> tuple[int, int]:
+    """返回要保留的样本区间 ``[start, stop)``。
+
+    从第一个长度不短于 ``min_run`` 秒的连续有效片段开始，到最后一个这样的片段结束：
+    首尾的无效样本，以及首尾被无效区隔开的短有效片段都被裁掉；中间的短片段保留。
+    没有任何足够长的片段时只裁掉首尾无效样本；全部无效时不裁剪（交给校验拒收）。
+    """
+    valid = np.asarray(valid, bool)
+    n = len(valid)
+    if not valid.any():
+        return 0, n
+    edges = np.flatnonzero(np.diff(np.concatenate([[0], valid.astype(np.int8), [0]])))
+    runs = list(zip(edges[::2].tolist(), edges[1::2].tolist()))
+    long = [(a, b) for a, b in runs if b - a >= min_run * rate]
+    if not long:
+        return runs[0][0], runs[-1][1]
+    return long[0][0], long[-1][1]
+
+
+def trim_result(res: ResampleResult, start: int, stop: int) -> ResampleResult:
+    """截取 ``[start, stop)``：时间戳重新从 0 开始，``start_time`` 相应后移。"""
+    rate = float(res.info.get("rate_hz", DEFAULT_RATE))
+    n = stop - start
+    info = dict(res.info)
+    info["trimmed_samples"] = {"start": int(start), "end": int(len(res.timestamp) - stop)}
+    return ResampleResult(
+        timestamp=np.arange(n, dtype=np.float64) / rate,
+        start_time=float(res.start_time + start / rate),
+        arrays={k: v[start:stop] for k, v in res.arrays.items()},
+        valid_imu=res.valid_imu[start:stop],
+        valid_pose=res.valid_pose[start:stop],
         info=info,
     )
 

@@ -7,4 +7,6 @@ splits:
   test: test
 test_splits: [test]
 notes: >-
-  原生约 250 Hz，经多相滤波降到 200 Hz；时间戳非均匀；参考来源需区分 Vicon 与 VIO；使用官方目录划分。
+  原生采样率不统一（约 250 Hz 160 条、200–209 Hz 127 条、约 400 Hz 14 条，时间戳非均匀），
+  统一重采样到 200 Hz。参考逐序列不同（attrs reference_type：外部 gt 75 条 / BVIO 226 条）。
+  使用官方目录划分；group_id 为启发式采集会话，官方划分存在会话级重叠（ipb check 报告为警告）。

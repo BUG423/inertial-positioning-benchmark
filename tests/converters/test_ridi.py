@@ -186,6 +186,16 @@ def test_ridi_official_splits_and_duplicates(tmp_path, motion):
     assert splits == {"train": ["dan_bag1", "huayi_lopata1"], "test": []}
     # 不在官方列表中的序列也必须能被枚举（统一流水线据此决定其归属）
     assert ridi.list_sequences(root) == ["dan_bag1", "hao_leg2", "huayi_lopata1"]
+    # 未列出的序列按受试者是否在官方列表中出现写成附加测试子集，绝不进入 train
+    (root / "ruixuan_bag1" / "processed").mkdir(parents=True)
+    (root / "ruixuan_bag1" / "processed" / "data.csv").write_text("")
+    (root / "list_train_publish_v2.txt").write_text(
+        "dan_bag1,bag\nhuayi_lopata1,body\nhao_body1,body\n")
+    extra = ridi.extra_splits(root)
+    assert extra == {"test_unseen_subject": ["ruixuan_bag1"],
+                     "test_unlisted_seen_subject": ["hao_leg2"]}
+    assert set(extra) == set(ridi.EXTRA_SPLIT_NOTES)
+    assert not set(extra["test_unseen_subject"]) & set(ridi.official_splits(root)["train"])
     # 重复/倒序时间戳被剔除并记录
     time_ns = (motion["t"] + 1.0) * 1e9
     time_ns[5] = time_ns[4]

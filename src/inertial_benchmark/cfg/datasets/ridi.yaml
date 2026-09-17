@@ -5,7 +5,9 @@ splits:
   train: train
   val: val
   test: test
-test_splits: [test]
+test_splits: [test, test_unseen_subject, test_unlisted_seen_subject]
 notes: >-
-  约 150 分钟、200 Hz；手持/口袋/包/身体等携带方式；参考来自 Google Tango VIO，不等同于动捕真值。
-  官方只给出 train/test 发布列表，val 由转换流水线按 group_id 抽取。
+  约 202 Hz、单台 Tango 手机（同设备 VIO 参考，不等同于动捕真值）；handheld/pocket(leg)/bag/body。
+  官方只给出 train/test 发布列表（按序列划分，受试者跨划分：seen-subject 设定），val 由流水线按受试者抽取。
+  不在官方列表中的 22 条不并入 train：未见受试者 ruixuan/shali 写为 test_unseen_subject，
+  其余写为 test_unlisted_seen_subject。

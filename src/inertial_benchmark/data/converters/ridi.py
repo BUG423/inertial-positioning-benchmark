@@ -27,7 +27,7 @@ from . import _phone_utils as pu
 from .base import RawSequence
 
 NAME = "ridi"
-VERSION = "1.0"
+VERSION = "1.1"
 LICENSE = "unspecified (RIDI data_publish_v2, public download; cite Yan et al., ECCV 2018)"
 
 _SPLIT_FILES = {"train": "list_train_publish_v2.txt", "test": "list_test_publish_v2.txt"}
@@ -86,6 +86,38 @@ def official_splits(source: Path) -> Dict[str, List[str]]:
         key: [name for name, _ in _read_list(root / fn) if name in available]
         for key, fn in _SPLIT_FILES.items()
     }
+
+
+EXTRA_SPLIT_NOTES = {
+    "test_unseen_subject": (
+        "local sequences outside list_train/list_test_publish_v2 whose subject never appears in "
+        "those lists (ruixuan, shali); superset of list_crosssubject.txt; never merged into train"
+    ),
+    "test_unlisted_seen_subject": (
+        "local sequences outside list_train/list_test_publish_v2 whose subject does appear in "
+        "those lists (dan, hang, hao, huayi); seen-subject setting like the official test; "
+        "never merged into train"
+    ),
+}
+
+
+def extra_splits(source: Path) -> Dict[str, List[str]]:
+    """契约可选成员：不在官方 publish 列表中的本地序列。
+
+    按受试者是否出现在官方列表中分成两个附加测试子集（见 ``EXTRA_SPLIT_NOTES``）。
+    """
+
+    root = _root(source)
+    listed = {name for fn in _SPLIT_FILES.values() for name, _ in _read_list(root / fn)}
+    seen_subjects = {name.split("_")[0] for name in listed}
+    out: Dict[str, List[str]] = {key: [] for key in EXTRA_SPLIT_NOTES}
+    for name in sorted(_discover(source)):
+        if name in listed:
+            continue
+        key = ("test_unlisted_seen_subject" if name.split("_")[0] in seen_subjects
+               else "test_unseen_subject")
+        out[key].append(name)
+    return out
 
 
 def placement_of(name: str, listed: Dict[str, str]) -> str:

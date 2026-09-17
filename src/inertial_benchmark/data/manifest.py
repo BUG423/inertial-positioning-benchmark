@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
+import numpy as np
+
 from ..utils import CFG_DIR, LOGGER, datasets_dir, json_load, yaml_load
-from .splits import MAIN_SPLITS, check_leakage, load_splits, read_split
+from .splits import MAIN_SPLITS, check_leakage, load_splits, read_split, split_family
 
 PathLike = Union[str, Path]
 MANIFEST = "dataset.json"
@@ -22,6 +24,28 @@ def sha256_file(path: PathLike, chunk: int = 1 << 20) -> str:
         for block in iter(lambda: f.read(chunk), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def imu_content_hash(gyroscope: np.ndarray, accelerometer: np.ndarray) -> str:
+    """IMU 数组内容的 sha256（float32 小端字节 + 形状），与文件属性和压缩无关。
+
+    同一段录制被重复发布（例如换了目录名）时，转换结果的 IMU 逐位相同，据此发现重复。
+    """
+    h = hashlib.sha256()
+    for arr in (gyroscope, accelerometer):
+        a = np.ascontiguousarray(arr, dtype="<f4")
+        h.update(repr(a.shape).encode())
+        h.update(a.tobytes())
+    return h.hexdigest()
+
+
+def find_duplicates(hashes: Mapping[str, str]) -> list:
+    """按内容哈希分组，返回包含多条序列的组（每组为排序后的 ``sequence_id`` 列表）。"""
+    by_hash: dict = {}
+    for sid, digest in hashes.items():
+        if digest:
+            by_hash.setdefault(digest, []).append(sid)
+    return sorted(sorted(ids) for ids in by_hash.values() if len(ids) > 1)
 
 
 def fingerprint(sequences: Mapping[str, str], splits: Mapping[str, list]) -> str:
@@ -132,7 +156,14 @@ def check_dataset(
     full: bool = False,
     verify_hash: bool = False,
 ) -> dict:
-    """检查已转换数据集：清单、文件、划分泄漏；``full`` 逐条校验，``verify_hash`` 重算哈希。"""
+    """检查已转换数据集：清单、文件、划分泄漏、重复内容。
+
+    ``full`` 逐条校验并重算 IMU 内容哈希，``verify_hash`` 重算文件 sha256。
+
+    错误（``ok=False``）：文件缺失、默认划分泄漏、IMU 内容重复、逐条校验失败、哈希不符。
+    警告：默认划分之间的 ``group_id`` 重叠（例如 seen-subject 设定）、官方泄漏划分
+    （``official_*``）的泄漏明细、不在任何默认划分中的序列。
+    """
     from .format import load_sequence, validate
 
     spec = resolve_dataset(data)
@@ -141,6 +172,7 @@ def check_dataset(
     if not manifest:
         errors.append(f"{spec.root / MANIFEST} missing")
     entries = manifest.get("sequences", {})
+    policy = manifest.get("split_policy", {})
     splits = load_splits(spec.root)
     if not splits:
         errors.append("no split files under splits/")
@@ -164,7 +196,26 @@ def check_dataset(
         if pair["group_overlap"] and not pair["sequence_overlap"]:
             a, b = pair["splits"]
             warnings.append(f"{a}/{b} share {len(pair['group_overlap'])} group_id values")
+    official = leakage.get("official")
+    if official is not None:
+        if not policy.get("official_splits_leak"):
+            warnings.append("official_* split files exist but dataset.json does not declare "
+                            "official_splits_leak")
+        for m in official["leaks"]:
+            warnings.append(f"official split leakage (declared; official_* files are for "
+                            f"literature comparison only): {m}")
+        if official["ok"]:
+            warnings.append("official splits are declared leaky but share no group_id values")
+    elif policy.get("official_splits_leak"):
+        errors.append("dataset.json declares leaky official splits but no official_*.txt exists")
 
+    assigned = {i for name, ids in splits.items() if not split_family(name) for i in ids}
+    unassigned = sorted((set(entries) & on_disk) - assigned)
+    if unassigned:
+        warnings.append(f"{len(unassigned)} sequences are in no default split "
+                        f"(e.g. {unassigned[0]}); see dataset.json 'unassigned'")
+
+    hashes = {sid: e.get("imu_sha256") for sid, e in entries.items()}
     if verify_hash:
         for sid, e in entries.items():
             path = spec.sequence_path(sid)
@@ -173,12 +224,22 @@ def check_dataset(
     if full:
         for sid in sorted(on_disk):
             try:
-                rep = validate(load_sequence(spec.sequence_path(sid)))
+                seq = load_sequence(spec.sequence_path(sid))
+                rep = validate(seq)
             except Exception as exc:  # noqa: BLE001 - 报告任何读取错误
                 errors.append(f"{sid}: cannot load ({exc})")
                 continue
             errors += [f"{sid}: {e}" for e in rep.errors]
             warnings += [f"{sid}: {w}" for w in rep.warnings]
+            digest = imu_content_hash(seq.gyroscope, seq.accelerometer)
+            if hashes.get(sid) and hashes[sid] != digest:
+                errors.append(f"{sid}: IMU content hash differs from {MANIFEST}")
+            hashes[sid] = digest
+    duplicates = find_duplicates(hashes)
+    for ids in duplicates:
+        where = [f"{i} ({', '.join(n for n, v in splits.items() if i in v) or 'no split'})"
+                 for i in ids]
+        errors.append("duplicate IMU content: " + " == ".join(where))
 
     report = {
         "dataset": spec.name,
@@ -187,9 +248,12 @@ def check_dataset(
         "errors": errors,
         "warnings": warnings,
         "splits": {k: len(v) for k, v in splits.items()},
+        "split_policy": policy,
         "statistics": manifest.get("statistics", {}),
         "fingerprint": manifest.get("fingerprint"),
         "leakage": leakage,
+        "unassigned": unassigned,
+        "duplicates": duplicates,
     }
     level = LOGGER.info if report["ok"] else LOGGER.warning
     level(f"check {spec.name}: {'OK' if report['ok'] else 'FAILED'} "

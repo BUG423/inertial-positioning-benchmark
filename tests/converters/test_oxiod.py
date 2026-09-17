@@ -171,6 +171,17 @@ def test_official_splits_and_placement_table(tmp_path):
         "train": ["handheld_data1_seq1", "handheld_data1_seq2", "pocket_data2_seq1"],
         "test": ["handheld_data5_seq1", "pocket_data2_seq6"],
     }
+    assert oxiod.extra_splits(tmp_path) == {"test_unseen_subject": [], "test_unseen_device": []}
+    for scene, session in (("multi users", "user3"), ("multi devices", "iPhone 5")):
+        d = base / scene / session / "raw"
+        d.mkdir(parents=True)
+        (d / "imu2.csv").write_text("")
+        (d / "vi2.csv").write_text("")
+    assert oxiod.extra_splits(tmp_path) == {
+        "test_unseen_subject": ["multi_users_user3_seq2"],
+        "test_unseen_device": ["multi_devices_iphone5_seq2"],
+    }
+    assert oxiod.official_splits(tmp_path) == splits  # 附加子集不改变官方划分
     assert oxiod.placement_of("multi users", "user5", 4) == ("pocket", "readme")
     assert oxiod.placement_of("multi users", "user3", 6) == ("bag", "readme")
     assert oxiod.placement_of("multi users", "user2", 7) == ("unknown", "gravity_direction")

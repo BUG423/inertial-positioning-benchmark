@@ -7,4 +7,6 @@ splits:
   test: test
 test_splits: [test]
 notes: >-
-  头戴设备、200 Hz；参考轨迹来自离线 VIO/EKF。使用官方 train/val/test 列表。
+  头戴设备（VR 头显）、200 Hz；参考轨迹来自头显上的视觉惯性滤波（MSCKF），不是独立真值；
+  IMU 已被该滤波器的零偏估计补偿（与官方设定一致）。使用官方 train/val/test 列表
+  （随机划分，9 台头显跨划分出现，ipb check 报告为警告）。

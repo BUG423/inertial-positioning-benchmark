@@ -16,7 +16,8 @@
 **划分泄漏**：官方划分按切片随机分配，同一次录制的相邻切片（间隔 10–600 s，位置连续）
 分散在 train/valid/test 中；27 名受试者中 26 人出现在全部三个划分。``official_splits`` 仍按原样返回，
 另提供按受试者（Demo 按录制）分组的无泄漏划分 ``grouped_splits``，审计细节见 ``audit_official_splits``
-与 ``docs/datasets/pedlocdata.md``。
+与 ``docs/datasets/pedlocdata.md``。本模块声明 ``OFFICIAL_SPLITS_LEAK = True``，统一流水线据此把
+``grouped_splits`` 写为默认 ``train/val/test``，官方划分另存为 ``official_*.txt``（DESIGN 2.4）。
 """
 
 from __future__ import annotations
@@ -32,8 +33,16 @@ from . import _rig_utils as rig
 from .base import RawSequence
 
 NAME = "pedlocdata"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 LICENSE = "CC-BY-4.0 (PedLocData, https://zenodo.org/records/18149105)"
+# DESIGN 2.4：官方划分存在录制级泄漏，默认划分改用 grouped_splits，官方划分以 official_* 保留
+OFFICIAL_SPLITS_LEAK = True
+OFFICIAL_SPLITS_LEAK_REASON = (
+    "official train/valid/test assign slices of one recording at random: 329 of 474 YT recordings "
+    "and 10 of 13 Demo recordings span several splits (same subject, device, floor and world "
+    "frame; Demo slices are contiguous), and 26 of 27 subjects appear in all three splits; "
+    "default splits are subject-grouped (YT) / recording-grouped (Demo) from grouped_splits()"
+)
 
 FILES = {"yt": "YT_server_200Hz.h5", "demo": "SimpleDemo.h5"}
 SPLIT_GROUPS = {"train": "train", "valid": "val", "test": "test"}
@@ -294,8 +303,9 @@ def read_slice(node, prefix: str, name: str, split: str, source_file: str, group
     if not pose_valid.all():
         notes.append(f"{int((~pose_valid).sum())} reference rows invalid (non-finite or zero quaternion)")
     notes.append("qua is wxyz device_to_world (= body_to_world); ts is unix seconds; IMU is body-frame specific force")
-    notes.append("official split has session-level leakage (slices of one recording spread over train/valid/test); "
-                 "see grouped_splits() for a subject-grouped alternative")
+    notes.append(f"official split '{split}' has recording-level leakage (slices of one recording "
+                 "spread over train/valid/test); IPB default splits are subject-grouped "
+                 "(grouped_splits), the official split is kept as official_*.txt")
     return RawSequence(
         sequence_id=sequence_id,
         imu_time=time,

@@ -175,8 +175,13 @@ def make_raw_sequence(
     pose_gaps: Seq[tuple] = (),
     duplicates: int = 0,
     with_device: bool = False,
+    pose_offset: float = 0.0,
 ) -> RawSequence:
-    """生成原生时钟上的原始序列（可带时间抖动、缺口与重复时间戳）。"""
+    """生成原生时钟上的原始序列（可带时间抖动、缺口与重复时间戳）。
+
+    ``pose_offset`` 把位姿时钟整体后移（例如转换器做完时延修正后 ``pose_time ≠ imu_time``）；
+    运动本身仍以 ``t0`` 为时间原点，因此统一网格上的真值与 ``Motion`` 在同一时刻一致。
+    """
     motion = Motion(seed)
     rng = np.random.default_rng(seed + 7)
     pose_rate = pose_rate or imu_rate
@@ -191,7 +196,7 @@ def make_raw_sequence(
         return t[keep]
 
     ti = clock(imu_rate, imu_gaps, t0 - 0.3)  # IMU 比位姿略早开始，考验重叠区计算
-    tp = clock(pose_rate, pose_gaps, t0)
+    tp = clock(pose_rate, pose_gaps, t0 + pose_offset)
     if duplicates:
         idx = rng.choice(np.arange(1, len(ti) - 1), size=duplicates, replace=False)
         ti = np.sort(np.concatenate([ti, ti[idx]]))

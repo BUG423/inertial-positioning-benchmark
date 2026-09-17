@@ -19,7 +19,18 @@
 
 ``list_sequences(source: Path) -> list[str]``
     全部可转换的 ``sequence_id``。多进程转换（``workers > 1``）时用它枚举序列；
-    未提供时使用 ``official_splits`` 的并集，不在任何官方划分中的序列将不会被转换。
+    未提供时使用各划分（官方、分组、附加子集）的并集，不在其中的序列将不会被转换。
+``extra_splits(source: Path) -> dict[str, list[str]]`` 与 ``EXTRA_SPLIT_NOTES: dict[str, str]``
+    不在任何官方划分中的序列的附加子集（例如 ``test_unseen_subject``、``test_unseen_device``），
+    原样写成 ``splits/<name>.txt``，说明写入 ``dataset.json`` 的 ``split_policy.extra_splits``。
+    子集名不得与官方划分重名（也不得是 ``train``），不得包含官方划分中的序列。
+    已转换却不在任何划分中的序列不会被并入 train，而是列在 ``dataset.json`` 的 ``unassigned`` 中。
+``OFFICIAL_SPLITS_LEAK: bool``、``OFFICIAL_SPLITS_LEAK_REASON: str``
+与 ``grouped_splits(source) -> dict``
+    官方划分存在录制/会话级泄漏时声明（DESIGN 2.4）：统一流水线把 ``grouped_splits`` 的结果写为默认
+    ``train/val/test``（及 ``test_*`` 子集），官方划分另存为 ``official_<name>.txt``，
+    ``dataset.json`` 的 ``split_policy`` 记录原因与 ``ipb check`` 检出的泄漏。
+    声明泄漏却没有 ``grouped_splits`` 时转换直接报错。
 
 属性约定：``attrs["start_time_unix"]``（可选）为原始 IMU 时钟**第一个样本**对应的
 Unix 时间（秒），统一流水线会换算到重采样网格的起点；未提供且原始时钟本身是 Unix 秒

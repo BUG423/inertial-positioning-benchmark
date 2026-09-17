@@ -7,5 +7,6 @@ splits:
   test: test
 test_splits: [test]
 notes: >-
-  约 200 Hz 手机数据，参考来自 ARCore/Tango；已知部分序列姿态旋转后重力不完全在 z 轴，
-  转换器必须通过重力检查或在报告中拒收。使用官方列表。
+  约 200 Hz 手机数据，参考为同设备 Tango VIO 或 ARCore VIO（相机位姿已换到 Android 机体系）。
+  使用数据包自带的 list_train/list_test（按序列划分，受试者跨划分：seen-subject 设定）；
+  val 由流水线按受试者抽取。小米 11 条（加速度计比例 0.90–0.92）与一条逐字节重复序列被拒收。

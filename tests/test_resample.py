@@ -138,3 +138,39 @@ def test_resample_streams_rejects_non_overlap():
     with pytest.raises(ValueError, match="overlap"):
         resample_streams(t1, np.zeros((len(t1), 3)), np.zeros((len(t1), 3)), t2,
                          np.zeros((len(t2), 3)), q)
+
+
+def test_unix_clock_grid_keeps_last_sample():
+    # float64 Unix 秒的分辨率约 2.4e-7 s：t_end - t_start 可能比 (n-1)/rate 略小
+    t_src = 1761574803.390954 + np.arange(60000) * 0.005
+    t_src[-1] = 1761575103.385954  # PedLocData Demo 的真实首尾时间：差值为 299.99499988...
+    grid = uniform_grid(t_src[0], t_src[-1], 200.0)
+    assert len(grid) == 60000
+    assert valid_on_grid(t_src, grid, gap_threshold=0.05).all()
+
+
+def test_valid_extent():
+    from inertial_benchmark.data.resample import valid_extent
+
+    rate = 200.0
+    v = np.ones(4000, bool)
+    assert valid_extent(v, rate) == (0, 4000)
+    v[:10] = False
+    v[-5:] = False
+    assert valid_extent(v, rate) == (10, 3995)
+    # 开头 0.1 s 的孤立有效片段（后接缺口）被裁掉；中间的短片段保留
+    w = np.ones(4000, bool)
+    w[20:600] = False
+    w[2000:2100] = False
+    w[2150:2300] = False
+    assert valid_extent(w, rate) == (600, 4000)
+    # 末尾 0.5 s 孤立片段
+    w2 = np.ones(4000, bool)
+    w2[3800:3900] = False
+    assert valid_extent(w2, rate) == (0, 3800)
+    # 没有足够长的片段：只裁首尾无效样本
+    u = np.zeros(1000, bool)
+    u[100:150] = True
+    u[400:420] = True
+    assert valid_extent(u, rate) == (100, 420)
+    assert valid_extent(np.zeros(10, bool), rate) == (0, 10)

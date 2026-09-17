@@ -2,10 +2,12 @@
 name: idol
 path: idol
 splits:
-  train: train
-  val: val
-  test: test
+  train: train              # building1/train
+  val: val                  # 官方无 val：由流水线从 train 按受试者分组抽取
+  test: test                # test = test_known ∪ test_unknown（三栋楼）
 test_splits: [test_known, test_unknown]
 notes: >-
-  原生 100 Hz；15 名用户、3 栋建筑；官方测试集分为已知/未知建筑两部分（若转换器未生成对应子集，
-  评测时跳过并告警）。参考来自 LiDAR-Visual-Inertial SLAM。
+  原生 100 Hz，上采样到 200 Hz；15 名受试者、3 栋楼。known/unknown 指受试者是否出现在训练集中
+  （test_known 与 train 共享受试者，属 seen-subject 设定）；building2/3 没有训练子集，对它们而言是未见楼栋。
+  另有 test_known_building1 / test_unknown_building1 对应论文 Table 2。参考来自 Kaarta Stencil
+  LiDAR-视觉-惯性 SLAM（位置已被作者低通平滑）。

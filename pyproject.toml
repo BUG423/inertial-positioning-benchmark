@@ -8,9 +8,10 @@ dynamic = ["version"]
 description = "IPB: unified data format, training framework and evaluation protocol for inertial positioning"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["h5py>=3.8", "numpy>=1.23", "scipy>=1.9", "pyyaml>=6.0"]
+dependencies = ["h5py>=3.8", "numpy>=1.23", "scipy>=1.9", "pyyaml>=6.0", "pandas>=1.5"]
 
 [project.optional-dependencies]
+idol = ["pyarrow>=10"]  # IDOL 的 .feather 文件
 train = ["torch>=2.0", "pandas>=1.5", "matplotlib>=3.6"]
 test = ["pytest>=7"]
 

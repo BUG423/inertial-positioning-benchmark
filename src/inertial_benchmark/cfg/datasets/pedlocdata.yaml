@@ -1,10 +1,13 @@
-# PedLocData
+# PedLocData（Sun, Wang, Li；武汉大学）。https://zenodo.org/records/18149105
 name: pedlocdata
 path: pedlocdata
-splits:
+splits:                     # 默认划分 = 转换器 grouped_splits（按受试者/录制分组，无泄漏）
   train: train
-  val: val                  # 官方 valid 列表由转换器写为 val.txt
-  test: test
+  val: val
+  test: test                # test = test_yt ∪ test_demo
 test_splits: [test]
 notes: >-
-  约 200 Hz 行人数据；官方提供 train/valid/test 三个划分。
+  200 Hz 行人数据（YT 27 名受试者 + Demo）。官方 train/valid/test 按切片随机分配、存在录制级泄漏，
+  转换器声明 OFFICIAL_SPLITS_LEAK：默认 train/val/test 为分组划分，官方划分另存为
+  official_{train,val,test,test_yt,test_demo}.txt，仅用于与文献对照（报告时必须注明泄漏；
+  不得用默认 train 训练的模型在 official_test 上评测，二者共享序列）。

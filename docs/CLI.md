@@ -47,7 +47,13 @@ ipb convert dataset=ronin source=/raw/ronin only=[a000_1,a001_3] overwrite=false
 | `min_duration` | `2.0` | 短于该时长（秒）的序列拒收 |
 | `val_fraction`, `seed` | `0.1`, `0` | 官方无 val 时按 `group_id` 抽取的比例与种子 |
 
-输出 `sequences/*.h5`、`splits/*.txt`、`dataset.json`（统计、sha256、指纹）、`conversion_report.json`（接收/拒绝原因与警告）。
+输出 `sequences/*.h5`、`splits/*.txt`、`dataset.json`（统计、sha256、IMU 内容哈希、指纹、划分策略）、
+`conversion_report.json`（接收/拒绝原因、警告、裁剪量、泄漏与重复检查）。
+
+划分规则（DESIGN 2.4）：默认写官方划分（缺 val 时按 `group_id` 抽取）；转换器声明 `OFFICIAL_SPLITS_LEAK` 时，
+默认 `train/val/test` 改为转换器的分组划分，官方划分另存为 `official_*.txt`；转换器声明的附加子集
+（如 `test_unseen_subject`）原样写出；不属于任何划分的已转换序列列在 `dataset.json` 的 `unassigned` 中，不会并入 train。
+读取 IDOL 需要 `pip install -e ".[idol]"`（pyarrow）。
 
 ### `ipb check` — 校验已转换数据集
 
@@ -56,8 +62,12 @@ ipb check data=ronin                       # 清单、文件、划分泄漏
 ipb check data=ronin full=true hash=true save=check_ronin.json
 ```
 
-`full=true` 逐条读取并执行完整校验（含重力检查）；`hash=true` 重算 sha256；`save` 写出 JSON 报告。
-报告 train/val/test 之间的 `sequence_id` 与 `group_id` 重叠（`test_seen` 与 train 共享受试者属预期，仅告警）。
+`full=true` 逐条读取并执行完整校验（含重力检查）并重算 IMU 内容哈希；`hash=true` 重算文件 sha256；`save` 写出 JSON 报告。
+
+- **错误**：文件缺失、默认划分之间的序列重叠、`unseen/unknown/novel` 子集与 train/val 共享 `group_id`、
+  IMU 内容相同的不同序列（重复发布）、逐条校验失败、哈希不符；
+- **警告**：默认划分之间的 `group_id` 重叠（seen-subject 等官方设定，如 RoNIN `test_seen`）、
+  `official_*` 划分中的已声明泄漏、不属于任何默认划分的序列（`unassigned`）。
 
 ### `ipb train` — 训练
 
