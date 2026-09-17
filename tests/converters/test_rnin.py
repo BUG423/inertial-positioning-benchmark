@@ -13,8 +13,19 @@ from inertial_benchmark.data.converters import _rig_utils as rig
 from inertial_benchmark.data.converters import rnin
 from inertial_benchmark.data.converters.base import RAW_REQUIRED_ATTRS
 
-EXTRA = ["rv_w", "rv_x", "rv_y", "rv_z", "magnet_un_x", "magnet_un_y", "magnet_un_z", "magnet_bias_x",
-         "magnet_bias_y", "magnet_bias_z", "pressure"]
+EXTRA = [
+    "rv_w",
+    "rv_x",
+    "rv_y",
+    "rv_z",
+    "magnet_un_x",
+    "magnet_un_y",
+    "magnet_un_z",
+    "magnet_bias_x",
+    "magnet_bias_y",
+    "magnet_bias_z",
+    "pressure",
+]
 GT_TILT = Rotation.from_rotvec([np.radians(3.0), 0.0, 0.0])  # gt 世界系相对重力倾斜 3°
 VIO_YAW = Rotation.from_euler("z", 40.0, degrees=True)  # VIO 世界系与真实世界系之间的偏航
 ACC_BIAS = np.array([0.05, -0.04, 0.03])
@@ -45,7 +56,9 @@ def make_frame(motion, *, with_gt, t0=5000.0, gt_delay=0.0, rate=250.0):
         from scipy.spatial.transform import Slerp
 
         gt_rot = GT_TILT * Slerp(t, rot)(tt)
-        gt_p = GT_TILT.apply(np.stack([np.interp(tt, t, motion["position"][:, k]) for k in range(3)], 1))
+        gt_p = GT_TILT.apply(
+            np.stack([np.interp(tt, t, motion["position"][:, k]) for k in range(3)], 1)
+        )
         gt_q = rig.from_rotation(gt_rot)
     else:
         gt_q = np.tile([1.0, 0.0, 0.0, 0.0], (len(t), 1))
@@ -83,7 +96,11 @@ def rnin_root(tmp_path_factory):
 
 def test_official_splits_and_ids(rnin_root):
     splits = rnin.official_splits(rnin_root.parent)
-    assert splits == {"train": ["train_0", "train_1", "train_10"], "val": ["val_0"], "test": ["test_0"]}
+    assert splits == {
+        "train": ["train_0", "train_1", "train_10"],
+        "val": ["val_0"],
+        "test": ["test_0"],
+    }
     assert rnin.list_sequences(rnin_root) == ["train_0", "train_1", "train_10", "val_0", "test_0"]
     assert set(rnin.list_sequences(rnin_root)) == set().union(*splits.values())
 
@@ -94,7 +111,8 @@ def test_vio_reference_keeps_raw_imu_and_records_bias(rnin_root):
     assert raw.check_shapes() == [] and set(RAW_REQUIRED_ATTRS) <= set(raw.attrs)
     assert raw.attrs["reference_type"] == "vio" and raw.attrs["position_source"].startswith("VIO")
     motion = rig.simulate_rig_motion(40.0, rate=250.0, seed=1)
-    np.testing.assert_allclose(raw.accelerometer, motion["accelerometer"] + ACC_BIAS)  # 零偏未被补偿
+    # 零偏未被补偿
+    np.testing.assert_allclose(raw.accelerometer, motion["accelerometer"] + ACC_BIAS)
     bias = json.loads(raw.attrs["vio_bias"])
     np.testing.assert_allclose(bias["acce_last"], ACC_BIAS)
     assert raw.velocity is not None

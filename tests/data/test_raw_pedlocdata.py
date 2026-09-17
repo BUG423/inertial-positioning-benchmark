@@ -1,4 +1,6 @@
-"""PedLocData 真实数据抽样检查与泄漏审计；数据不存在时跳过。路径可用环境变量 ``IPB_RAW_PEDLOCDATA`` 覆盖。"""
+"""PedLocData 真实数据抽样检查与泄漏审计；数据不存在时跳过。
+路径可用环境变量 ``IPB_RAW_PEDLOCDATA`` 覆盖。
+"""
 
 from __future__ import annotations
 
@@ -10,8 +12,14 @@ import pytest
 from inertial_benchmark.data.converters import _rig_utils as rig
 from inertial_benchmark.data.converters import pedlocdata as pl
 
-SOURCE = Path(os.environ.get("IPB_RAW_PEDLOCDATA", "/workspace/webCodex/datasets/imu_odometry/raw/PedLocData"))
-pytestmark = pytest.mark.skipif(not (SOURCE / pl.FILES["yt"]).exists(), reason="PedLocData raw data not available")
+SOURCE = Path(
+    os.environ.get(
+        "IPB_RAW_PEDLOCDATA", "/workspace/webCodex/datasets/imu_odometry/raw/PedLocData"
+    )
+)
+pytestmark = pytest.mark.skipif(
+    not (SOURCE / pl.FILES["yt"]).exists(), reason="PedLocData raw data not available"
+)
 
 
 @pytest.fixture(scope="module")
@@ -22,9 +30,16 @@ def rows():
 def test_official_split_sizes():
     splits = pl.official_splits(SOURCE)
     sizes = {k: len(v) for k, v in splits.items()}
-    assert sizes == {"train": 1479 + 32, "val": 422 + 9, "test": 213 + 6, "test_yt": 213, "test_demo": 6}
+    assert sizes == {
+        "train": 1479 + 32,
+        "val": 422 + 9,
+        "test": 213 + 6,
+        "test_yt": 213,
+        "test_demo": 6,
+    }
     listed = pl.list_sequences(SOURCE)
-    assert len(listed) == 2161 and set(listed) == set(splits["train"]) | set(splits["val"]) | set(splits["test"])
+    all_ids = set(splits["train"]) | set(splits["val"]) | set(splits["test"])
+    assert len(listed) == 2161 and set(listed) == all_ids
 
 
 def test_audit_reports_session_level_leakage(rows):
@@ -47,8 +62,17 @@ def test_grouped_splits_have_no_group_overlap(rows):
 
 
 def test_sampled_slices():
-    raws = {r.sequence_id: r for r in pl.iter_raw_sequences(
-        SOURCE, only=["yt_dzw_F1_server_0_0", "yt_zxc_F1_server_1_0", "demo_mid360_2025-10-27_221831_00"])}
+    raws = {
+        r.sequence_id: r
+        for r in pl.iter_raw_sequences(
+            SOURCE,
+            only=[
+                "yt_dzw_F1_server_0_0",
+                "yt_zxc_F1_server_1_0",
+                "demo_mid360_2025-10-27_221831_00",
+            ],
+        )
+    }
     good = raws["yt_dzw_F1_server_0_0"]
     assert good.rejected is None, good.rejected
     assert good.check_shapes() == [] and good.attrs["group_id"] == "yt_dzw"

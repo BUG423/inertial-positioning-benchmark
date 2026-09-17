@@ -21,9 +21,10 @@ vector，wxyz）、``rv_*``、磁力计与气压（缺失填 0）。
   逐序列选择参考来源（``attrs['reference_type']`` 为 ``gt`` 或 ``vio``）；
 * 官方训练输入用 VIO 姿态旋转 IMU，并减去**最后一行**的 VIO 零偏——这是参考系统信息向输入的泄漏。
   本转换器**不**补偿零偏，只把 VIO 零偏写入 ``attrs['vio_bias']`` 与 ``notes``；
-* 采样率并非文档所说的 200 Hz：实测 250 Hz（160 条）、约 200 Hz（127 条）、约 400 Hz（14 条），且时间戳不均匀；
-* gt 世界系与 VIO（重力对齐）世界系之间存在最多约 3° 的倾斜，本转换器用 VIO 的重力方向把 gt 世界系调平
-  （只做倾斜校正，保留 gt 偏航），角度写入 ``notes``；
+* 采样率并非文档所说的 200 Hz：实测 250 Hz（160 条）、约 200 Hz（127 条）、约 400 Hz（14 条），
+  且时间戳不均匀；
+* gt 世界系与 VIO（重力对齐）世界系之间存在最多约 3° 的倾斜，
+  本转换器用 VIO 的重力方向把 gt 世界系调平（只做倾斜校正，保留 gt 偏航），角度写入 ``notes``；
 * 发布数据里 ``data_train/178`` 与 ``data_train/179`` 的 ``SenseINS.csv`` 逐字节相同，后者被拒收
   （见 ``KNOWN_DUPLICATES``）。
 """
@@ -145,7 +146,12 @@ def session_table(root_str: str) -> dict:
     rows.sort()
     table, session, prev = {}, -1, None
     for rate, t0, t1, sequence_id in rows:
-        if prev is None or rate != prev[0] or t0 - prev[2] > SESSION_GAP_S or t0 < prev[1] - SESSION_GAP_S:
+        if (
+            prev is None
+            or rate != prev[0]
+            or t0 - prev[2] > SESSION_GAP_S
+            or t0 < prev[1] - SESSION_GAP_S
+        ):
             session += 1
             prev = (rate, t0, t1)
         else:
@@ -205,14 +211,21 @@ def _fill_invalid_quaternions(q: np.ndarray) -> tuple:
         good = np.flatnonzero(~bad)
         nearest = good[np.clip(np.searchsorted(good, np.arange(len(q))), 0, len(good) - 1)]
         prev = good[np.clip(np.searchsorted(good, np.arange(len(q))) - 1, 0, len(good) - 1)]
-        pick = np.where(np.abs(prev - np.arange(len(q))) < np.abs(nearest - np.arange(len(q))), prev, nearest)
+        pick = np.where(
+            np.abs(prev - np.arange(len(q))) < np.abs(nearest - np.arange(len(q))), prev, nearest
+        )
         q = q.copy()
         q[bad] = q[pick[bad]]
     return rig.normalize_quaternions(q), int(bad.sum())
 
 
-def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: str = "unknown",
-              rel_path: Optional[str] = None) -> RawSequence:
+def parse_csv(
+    path: Path,
+    sequence_id: str,
+    split: str = "unknown",
+    group_id: str = "unknown",
+    rel_path: Optional[str] = None,
+) -> RawSequence:
     """解析一个 ``SenseINS.csv``（不含物理自检）。"""
 
     notes = []
@@ -227,12 +240,17 @@ def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: st
         "source_license": LICENSE,
         "official_split": split,
         "start_time_unix": float("nan"),
-        "imu_calibration": "none (Android TYPE_*_UNCALIBRATED; VIO bias estimates in attrs['vio_bias'], not applied)",
+        "imu_calibration": (
+            "none (Android TYPE_*_UNCALIBRATED; VIO bias estimates in attrs['vio_bias'], "
+            "not applied)"
+        ),
     }
     df = pd.read_csv(path)
     missing = [c for c in REQUIRED if c not in df.columns]
     if missing:
-        attrs.update(position_source="unknown", orientation_source="unknown", reference_type="unknown")
+        attrs.update(
+            position_source="unknown", orientation_source="unknown", reference_type="unknown"
+        )
         return rig.rejected_sequence(sequence_id, f"missing columns {missing}", attrs, notes)
     time = df["times"].to_numpy(np.float64)
     if not np.all(np.diff(time) > 0):
@@ -241,20 +259,30 @@ def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: st
         df = df.iloc[order]
         time = time[order]
         keep = np.concatenate([[True], np.diff(time) > 0])
-        notes.append(f"timestamps not strictly increasing: sorted and dropped {int((~keep).sum())} duplicate rows")
+        notes.append(
+            f"timestamps not strictly increasing: sorted and dropped "
+            f"{int((~keep).sum())} duplicate rows"
+        )
         df = df.iloc[np.flatnonzero(keep)]
         time = time[keep]
     gyro = df[GYRO].to_numpy(np.float64)
     acc = df[ACCE].to_numpy(np.float64)
-    imu_valid = np.isfinite(gyro).all(1) & np.isfinite(acc).all(1) & (np.linalg.norm(acc, axis=1) > 0)
+    imu_valid = (
+        np.isfinite(gyro).all(1) & np.isfinite(acc).all(1) & (np.linalg.norm(acc, axis=1) > 0)
+    )
     if (~imu_valid).any():
-        notes.append(f"{int((~imu_valid).sum())} IMU rows are missing (all-zero/non-finite) and marked invalid")
+        notes.append(
+            f"{int((~imu_valid).sum())} IMU rows are missing (all-zero/non-finite) "
+            "and marked invalid"
+        )
 
     gt_q = df[GT_Q].to_numpy(np.float64)
     gt_p = df[GT_P].to_numpy(np.float64)
     vio_q = df[VIO_Q].to_numpy(np.float64)
     vio_p = df[VIO_P].to_numpy(np.float64)
-    vio_default = _identity_rows(vio_q, vio_p) | ~np.isfinite(vio_q).all(1) | ~np.isfinite(vio_p).all(1)
+    vio_default = (
+        _identity_rows(vio_q, vio_p) | ~np.isfinite(vio_q).all(1) | ~np.isfinite(vio_p).all(1)
+    )
     has_gt = official_has_gt(gt_q[:, 0])
     gt_default = _identity_rows(gt_q, gt_p) | ~np.isfinite(gt_q).all(1) | ~np.isfinite(gt_p).all(1)
     if not has_gt and (~gt_default).mean() > 0.5:
@@ -275,8 +303,11 @@ def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: st
         "rows_with_bias": int((~(bg_all == 0.0).all(1)).sum()),
     }
     attrs["vio_bias"] = json.dumps(vio_bias)
-    notes.append("IMU kept uncompensated (raw Android uncalibrated sensors); VIO bias estimates recorded in "
-                 "attrs['vio_bias'] only (the official RNIN loader subtracts the last-row VIO bias = reference leak)")
+    notes.append(
+        "IMU kept uncompensated (raw Android uncalibrated sensors); VIO bias estimates recorded in "
+        "attrs['vio_bias'] only (the official RNIN loader subtracts the last-row VIO bias = "
+        "reference leak)"
+    )
 
     velocity = None
     if has_gt:
@@ -295,17 +326,23 @@ def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: st
                 f"(per-sample spread median {spread:.2f} deg); gt yaw kept"
             )
         else:
-            notes.append("gt world frame could not be leveled (no overlapping VIO); used as provided")
+            notes.append(
+                "gt world frame could not be leveled (no overlapping VIO); used as provided"
+            )
         attrs.update(
             reference_type="gt",
             position_source="external_gt (SenseINS gt_p: VICON motion capture or other device)",
             orientation_source="external_gt (SenseINS gt_q: VICON motion capture or other device)",
         )
         if (~pose_valid).any():
-            notes.append(f"{int((~pose_valid).sum())} gt rows hold default values and are marked invalid")
+            notes.append(
+                f"{int((~pose_valid).sum())} gt rows hold default values and are marked invalid"
+            )
     else:
         pose_valid = ~vio_default
-        q_ref = rig.normalize_quaternions(np.where(pose_valid[:, None], vio_q, [1.0, 0.0, 0.0, 0.0]))
+        q_ref = rig.normalize_quaternions(
+            np.where(pose_valid[:, None], vio_q, [1.0, 0.0, 0.0, 0.0])
+        )
         position = np.where(pose_valid[:, None], vio_p, np.nan)
         velocity = np.where(pose_valid[:, None], df[VIO_V].to_numpy(np.float64), np.nan)
         attrs.update(
@@ -314,15 +351,21 @@ def parse_csv(path: Path, sequence_id: str, split: str = "unknown", group_id: st
             orientation_source="VIO (SenseINS vio_q: BVIO, gravity aligned)",
         )
         if (~pose_valid).any():
-            notes.append(f"{int((~pose_valid).sum())} VIO rows hold default values and are marked invalid")
+            notes.append(
+                f"{int((~pose_valid).sum())} VIO rows hold default values and are marked invalid"
+            )
 
     device_q, n_bad = _fill_invalid_quaternions(df[GV_Q].to_numpy(np.float64))
     if device_q is None:
         attrs["device_orientation_source"] = "none"
         notes.append("game rotation vector missing in all rows; device_orientation omitted")
     elif n_bad:
-        notes.append(f"game rotation vector missing in {n_bad} rows; filled with the nearest valid sample")
-    notes.append("quaternions are wxyz body_to_world; timestamps in seconds on the device clock (not unix)")
+        notes.append(
+            f"game rotation vector missing in {n_bad} rows; filled with the nearest valid sample"
+        )
+    notes.append(
+        "quaternions are wxyz body_to_world; timestamps in seconds on the device clock (not unix)"
+    )
 
     return RawSequence(
         sequence_id=sequence_id,
@@ -346,21 +389,36 @@ def check_sequence(raw: RawSequence) -> None:
 
     stats = rig.physical_checks(raw)
     # 外部 gt 与手机 IMU 分属不同时钟，可能残留时延；VIO 与 IMU 同源同行，不做此项
-    if raw.attrs.get("reference_type") == "gt" and rig.correct_time_offset_if_confirmed(raw, stats):
+    if raw.attrs.get("reference_type") == "gt" and rig.correct_time_offset_if_confirmed(
+        raw, stats
+    ):
         stats = rig.physical_checks(raw)
     failures, warnings = rig.evaluate_checks(stats)
     gravity_failures = [f for f in failures if f.startswith("gravity check")]
     if gravity_failures:
         bias = json.loads(raw.attrs["vio_bias"])["acce_median_nonzero"]
         if bias is not None:
-            mean, n = rig.gravity_mean(raw.imu_time, raw.accelerometer - np.asarray(bias), raw.pose_time,
-                                       raw.orientation, imu_valid=raw.imu_valid, pose_valid=raw.pose_valid)
-            err = float(np.linalg.norm(mean - [0.0, 0.0, rig.STANDARD_GRAVITY])) if n else float("nan")
+            mean, n = rig.gravity_mean(
+                raw.imu_time,
+                raw.accelerometer - np.asarray(bias),
+                raw.pose_time,
+                raw.orientation,
+                imu_valid=raw.imu_valid,
+                pose_valid=raw.pose_valid,
+            )
+            err = (
+                float(np.linalg.norm(mean - [0.0, 0.0, rig.STANDARD_GRAVITY]))
+                if n
+                else float("nan")
+            )
             stats["gravity_error_vio_bias_removed"] = err
             if np.isfinite(err) and err <= rig.LIMITS["gravity_error_max"]:
                 failures = [f for f in failures if f not in gravity_failures]
-                warnings.append(gravity_failures[0] + f"; explained by the VIO-estimated accelerometer bias "
-                                f"(error {err:.3f} m/s^2 after removing it for this check only)")
+                warnings.append(
+                    gravity_failures[0]
+                    + "; explained by the VIO-estimated accelerometer bias "
+                    f"(error {err:.3f} m/s^2 after removing it for this check only)"
+                )
     rig.apply_checks(raw, stats, failures, warnings)
 
 
@@ -374,10 +432,15 @@ def iter_raw_sequences(source, only: Optional[Collection[str]] = None) -> Iterat
         if sessions is None:
             sessions = session_table(str(root))
         try:
-            raw = parse_csv(root / rel, sequence_id, split, sessions.get(sequence_id, "unknown"), rel)
+            raw = parse_csv(
+                root / rel, sequence_id, split, sessions.get(sequence_id, "unknown"), rel
+            )
         except Exception as exc:
-            yield rig.rejected_sequence(sequence_id, f"parse error: {exc!r}", {"source_license": LICENSE,
-                                                                              "source_files": rel})
+            yield rig.rejected_sequence(
+                sequence_id,
+                f"parse error: {exc!r}",
+                {"source_license": LICENSE, "source_files": rel},
+            )
             continue
         duplicate = duplicate_of(sequence_id, root)
         if duplicate and raw.rejected is None:

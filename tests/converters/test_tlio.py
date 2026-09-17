@@ -30,11 +30,24 @@ def write_sequence(root, seq_id, motion, *, world_frame_imu=True, columns=None):
     gyr = rot.apply(motion["gyroscope"]) if world_frame_imu else motion["gyroscope"]
     acc = rot.apply(motion["accelerometer"]) if world_frame_imu else motion["accelerometer"]
     ts_us = np.round((motion["time"] + 1000.0) * 1e6)
-    data = np.column_stack([ts_us, gyr, acc, rig.wxyz_to_xyzw(motion["orientation"]), motion["position"],
-                            motion["velocity"]])
+    data = np.column_stack(
+        [
+            ts_us,
+            gyr,
+            acc,
+            rig.wxyz_to_xyzw(motion["orientation"]),
+            motion["position"],
+            motion["velocity"],
+        ]
+    )
     np.save(folder / "imu0_resampled.npy", data)
-    desc = {"columns_name(width)": columns or tlio.EXPECTED_COLUMNS, "num_rows": len(data),
-            "approximate_frequency_hz": 200.0, "t_start_us": float(ts_us[0]), "t_end_us": float(ts_us[-1])}
+    desc = {
+        "columns_name(width)": columns or tlio.EXPECTED_COLUMNS,
+        "num_rows": len(data),
+        "approximate_frequency_hz": 200.0,
+        "t_start_us": float(ts_us[0]),
+        "t_end_us": float(ts_us[-1]),
+    }
     (folder / "imu0_resampled_description.json").write_text(json.dumps(desc))
     (folder / "calibration.json").write_text(json.dumps(CALIBRATION))
     return data
@@ -76,7 +89,9 @@ def test_world_frame_imu_is_rotated_back_to_body(tlio_root):
     np.testing.assert_allclose(raw.gyroscope, motion["gyroscope"], atol=1e-9)
     np.testing.assert_allclose(raw.accelerometer, motion["accelerometer"], atol=1e-9)
     # xyzw → wxyz，且保持 body_to_world
-    np.testing.assert_allclose(np.abs(np.sum(raw.orientation * motion["orientation"], axis=1)), 1.0, atol=1e-9)
+    np.testing.assert_allclose(
+        np.abs(np.sum(raw.orientation * motion["orientation"], axis=1)), 1.0, atol=1e-9
+    )
     np.testing.assert_allclose(raw.imu_time - raw.imu_time[0], motion["time"], atol=1e-6)
     assert raw.imu_time[0] == pytest.approx(1000.0)
     np.testing.assert_allclose(raw.velocity, motion["velocity"])
@@ -94,7 +109,9 @@ def test_body_frame_data_mislabelled_as_world_is_rejected(tlio_root):
 def test_only_filter_and_unexpected_layout(tlio_root):
     ids = [r.sequence_id for r in tlio.iter_raw_sequences(tlio_root, only={"222"})]
     assert ids == ["222"]
-    write_sequence(tlio_root, "444", rig.simulate_rig_motion(20.0), columns=["ts_us(1)", "other(16)"])
+    write_sequence(
+        tlio_root, "444", rig.simulate_rig_motion(20.0), columns=["ts_us(1)", "other(16)"]
+    )
     raw = next(tlio.iter_raw_sequences(tlio_root, only=["444"]))
     assert raw.rejected and "unexpected column layout" in raw.rejected
     assert set(RAW_REQUIRED_ATTRS) <= set(raw.attrs)

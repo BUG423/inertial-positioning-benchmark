@@ -13,8 +13,12 @@ pytest.importorskip("pyarrow")
 from inertial_benchmark.data.converters import _rig_utils as rig  # noqa: E402
 from inertial_benchmark.data.converters import idol  # noqa: E402
 
-SOURCE = Path(os.environ.get("IPB_RAW_IDOL", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/IDOL"))
-pytestmark = pytest.mark.skipif(not (SOURCE / "building1").is_dir(), reason="IDOL raw data not available")
+SOURCE = Path(
+    os.environ.get("IPB_RAW_IDOL", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/IDOL")
+)
+pytestmark = pytest.mark.skipif(
+    not (SOURCE / "building1").is_dir(), reason="IDOL raw data not available"
+)
 
 
 def load(sequence_id):
@@ -25,12 +29,18 @@ def test_official_split_sizes_and_subject_disjointness():
     splits = idol.official_splits(SOURCE)
     sizes = {k: len(v) for k, v in splits.items()}
     assert sizes["train"] == 43 and sizes["test_known"] == 51 and sizes["test_unknown"] == 36
-    assert sizes["test"] == 87 and sizes["test_known_building1"] == 15 and sizes["test_unknown_building1"] == 14
+    assert (
+        sizes["test"] == 87
+        and sizes["test_known_building1"] == 15
+        and sizes["test_unknown_building1"] == 14
+    )
     assert set(idol.list_sequences(SOURCE)) == set(splits["train"]) | set(splits["test"])
     subject_of = {}
     for sequence_id, _, _, path in idol._listing(idol._root(SOURCE)):
         subject_of[sequence_id] = idol._load_metadata(path.parent)[path.stem]["subjectID"]
-    subjects = {key: {subject_of[i] for i in splits[key]} for key in ("train", "test_known", "test_unknown")}
+    subjects = {
+        key: {subject_of[i] for i in splits[key]} for key in ("train", "test_known", "test_unknown")
+    }
     assert not subjects["test_unknown"] & (subjects["train"] | subjects["test_known"])
     assert subjects["test_known"] <= subjects["train"]
 

@@ -76,10 +76,14 @@ def official_splits(source) -> dict:
 
 
 def list_sequences(source) -> list:
-    """全部可转换的 ``sequence_id``：含 ``imu0_resampled.npy`` 的子目录名（发布版 354 条，全部在官方列表中）。"""
+    """全部可转换的 ``sequence_id``：含 ``imu0_resampled.npy`` 的子目录名
+    （发布版 354 条，全部在官方列表中）。
+    """
 
     root = _root(source)
-    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "imu0_resampled.npy").exists())
+    return sorted(
+        p.name for p in root.iterdir() if p.is_dir() and (p / "imu0_resampled.npy").exists()
+    )
 
 
 all_sequence_ids = list_sequences  # 兼容别名
@@ -124,13 +128,18 @@ def parse_sequence(seq_dir: Path, sequence_id: Optional[str] = None) -> RawSeque
         "body_frame": "tlio_headset_imu",
         "source_files": ",".join(f"{sequence_id}/{name}" for name in source_files),
         "source_license": LICENSE,
-        "imu_calibration": "source-compensated (VIO-estimated bias/scale, applied by the dataset authors)",
+        "imu_calibration": (
+            "source-compensated (VIO-estimated bias/scale, applied by the dataset authors)"
+        ),
         "start_time_unix": float("nan"),
     }
     data = np.load(seq_dir / "imu0_resampled.npy")
     if desc.get("columns_name(width)") != EXPECTED_COLUMNS or data.ndim != 2 or data.shape[1] != 17:
         return rig.rejected_sequence(
-            sequence_id, f"unexpected column layout {desc.get('columns_name(width)')} / shape {data.shape}", attrs, notes
+            sequence_id,
+            f"unexpected column layout {desc.get('columns_name(width)')} / shape {data.shape}",
+            attrs,
+            notes,
         )
     time = data[:, 0] * 1e-6
     q_wxyz = rig.xyzw_to_wxyz(data[:, 7:11])
@@ -143,17 +152,27 @@ def parse_sequence(seq_dir: Path, sequence_id: Optional[str] = None) -> RawSeque
     gyro_body = rot.inv().apply(gyro_world)
     acc_body = rot.inv().apply(acc_world)
     notes.append(
-        "IMU in imu0_resampled.npy is world-frame (gyr/acc_compensated_rotated_in_World); rotated back to the "
-        "body (IMU/Device) frame with the same row's q_World_Device: omega_B = R_WD^T omega_W, f_B = R_WD^T f_W"
+        "IMU in imu0_resampled.npy is world-frame (gyr/acc_compensated_rotated_in_World); "
+        "rotated back to the "
+        "body (IMU/Device) frame with the same row's q_World_Device: omega_B = R_WD^T omega_W, "
+        "f_B = R_WD^T f_W"
     )
     notes.append(
-        "IMU is bias/scale compensated by the source using VIO-state estimates (differs from calibration.json "
-        "offline values by slowly varying offsets); compensation kept as provided, calibration.json not re-applied"
+        "IMU is bias/scale compensated by the source using VIO-state estimates (differs from "
+        "calibration.json "
+        "offline values by slowly varying offsets); compensation kept as provided, "
+        "calibration.json not re-applied"
     )
-    notes.append("quaternion reordered xyzw -> wxyz (q_World_Device = body_to_world); timestamps us -> s (device clock)")
+    notes.append(
+        "quaternion reordered xyzw -> wxyz (q_World_Device = body_to_world); "
+        "timestamps us -> s (device clock)"
+    )
     notes.append("imu_samples_0.csv (raw ~1 kHz IMU) not used")
     if not finite.all():
-        notes.append(f"{int((~finite).sum())} rows with non-finite values or invalid quaternion marked invalid")
+        notes.append(
+            f"{int((~finite).sum())} rows with non-finite values or invalid quaternion "
+            "marked invalid"
+        )
     return RawSequence(
         sequence_id=sequence_id,
         imu_time=time,
@@ -179,7 +198,9 @@ def iter_raw_sequences(source, only: Optional[Collection[str]] = None) -> Iterat
         try:
             raw = parse_sequence(root / sequence_id, sequence_id)
         except Exception as exc:  # 解析失败也要产出记录，而不是静默跳过
-            yield rig.rejected_sequence(sequence_id, f"parse error: {exc!r}", {"source_license": LICENSE})
+            yield rig.rejected_sequence(
+                sequence_id, f"parse error: {exc!r}", {"source_license": LICENSE}
+            )
             continue
         if raw.rejected is None:
             stats = rig.physical_checks(raw)

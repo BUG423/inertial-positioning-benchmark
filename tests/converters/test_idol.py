@@ -44,7 +44,9 @@ def make_frame(seed, *, extra_column=False, shuffle_columns=False, time_offset=0
         "iphoneOrientZ": q_ios[:, 3],
         "iphoneAccX": acc_g[:, 0], "iphoneAccY": acc_g[:, 1], "iphoneAccZ": acc_g[:, 2],
         "iphoneGyroX": gyro[:, 0], "iphoneGyroY": gyro[:, 1], "iphoneGyroZ": gyro[:, 2],
-        "iphoneMagX": np.zeros(len(t)), "iphoneMagY": np.zeros(len(t)), "iphoneMagZ": np.zeros(len(t)),
+        "iphoneMagX": np.zeros(len(t)),
+        "iphoneMagY": np.zeros(len(t)),
+        "iphoneMagZ": np.zeros(len(t)),
     }
     f_s = r_si.apply(motion["accelerometer"])
     w_s = r_si.apply(motion["gyroscope"])
@@ -67,7 +69,9 @@ def idol_root(tmp_path_factory):
     root = tmp_path_factory.mktemp("idol") / "IDOL"
     layout = {
         ("building1", "train"): [(0, dict(seed=1), {"subjectID": 0, "calibration": "none"})],
-        ("building1", "known"): [(0, dict(seed=2, time_offset=0.08), {"subjectID": 1, "calibration": "start"})],
+        ("building1", "known"): [
+            (0, dict(seed=2, time_offset=0.08), {"subjectID": 1, "calibration": "start"})
+        ],
         ("building1", "unknown"): [(0, dict(seed=3), {"subjectID": 2, "calibration": "end"})],
         ("building2", "known"): [(0, dict(seed=4, extra_column=True, shuffle_columns=True),
                                   {"subjectID": 1, "calibration": "none"})],
@@ -109,7 +113,9 @@ def test_units_signs_frames_and_leveling(idol_root):
     assert np.degrees(err.magnitude()).max() < 0.3
     assert any("tilt 4.0" in n or "tilt 3.9" in n for n in raw.notes if "leveled" in n)
     # CoreMotion 姿态保留为设备姿态（与参考只差偏航）
-    rel = rig.as_rotation(raw.device_orientation) * rig.as_rotation(motion["orientation"][keep]).inv()
+    rel = (
+        rig.as_rotation(raw.device_orientation) * rig.as_rotation(motion["orientation"][keep]).inv()
+    )
     np.testing.assert_allclose(np.degrees(rel.magnitude()), 50.0, atol=1e-6)
     assert raw.attrs["subject_id"] == raw.attrs["group_id"] == "subject00"
     assert raw.attrs["start_time_unix"] == pytest.approx(1.58e9)

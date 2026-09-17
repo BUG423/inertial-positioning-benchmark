@@ -10,9 +10,14 @@ import pytest
 from inertial_benchmark.data.converters import _rig_utils as rig
 from inertial_benchmark.data.converters import tlio
 
-SOURCE = Path(os.environ.get("IPB_RAW_TLIO", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/TLIO"))
-pytestmark = pytest.mark.skipif(not (SOURCE / "tlio_golden" / "train_list.txt").exists()
-                                and not (SOURCE / "train_list.txt").exists(), reason="TLIO raw data not available")
+SOURCE = Path(
+    os.environ.get("IPB_RAW_TLIO", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/TLIO")
+)
+pytestmark = pytest.mark.skipif(
+    not (SOURCE / "tlio_golden" / "train_list.txt").exists()
+    and not (SOURCE / "train_list.txt").exists(),
+    reason="TLIO raw data not available",
+)
 
 
 def test_official_split_sizes_and_disjointness():

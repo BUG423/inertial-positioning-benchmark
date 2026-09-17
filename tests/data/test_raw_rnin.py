@@ -11,9 +11,13 @@ import pytest
 from inertial_benchmark.data.converters import _rig_utils as rig
 from inertial_benchmark.data.converters import rnin
 
-SOURCE = Path(os.environ.get("IPB_RAW_RNIN", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/RNIN"))
-pytestmark = pytest.mark.skipif(not (SOURCE / "data" / "data_train").is_dir() and not (SOURCE / "data_train").is_dir(),
-                                reason="RNIN raw data not available")
+SOURCE = Path(
+    os.environ.get("IPB_RAW_RNIN", "/workspace/webCodex/datasets/imu_odometry/raw/_staging/RNIN")
+)
+pytestmark = pytest.mark.skipif(
+    not (SOURCE / "data" / "data_train").is_dir() and not (SOURCE / "data_train").is_dir(),
+    reason="RNIN raw data not available",
+)
 
 
 def load(sequence_id):

@@ -4,19 +4,24 @@
 
     building{1,2,3}/{known,unknown[,train]}/<k>.feather + metadata.json
 
-每个 feather 文件的列（按名称访问；列顺序在不同文件中不同，``building3/known/12`` 多一列 ``level_0``）：
+每个 feather 文件的列（按名称访问；列顺序在不同文件中不同，
+``building3/known/12`` 多一列 ``level_0``）：
 ``timestamp``（Unix 秒，100 Hz，含缺口）、``orient[WXYZ]``（Kaarta Stencil 真值姿态）、
 ``processedPos[XYZ]``（Stencil 真值位置，已低通平滑）、``iphoneOrient[WXYZ]``（CoreMotion 姿态）、
-``iphoneAcc*``（原始加速度，单位 G）、``iphoneGyro*``（rad/s）、``iphoneMag*``、``stencilAcc*``/``stencilGyro*``（Xsens）。
+``iphoneAcc*``（原始加速度，单位 G）、``iphoneGyro*``（rad/s）、``iphoneMag*``、
+``stencilAcc*``/``stencilGyro*``（Xsens）。
 
 已核实的约定（README + 物理自检）：
 
 * ``orient`` 是 **Stencil 机体**的 ``body_to_world``（wxyz）；Stencil IMU 与真值同系（README）。
 * iPhone 与 Stencil 轴向大致为 ``x→−x, y→−y, z→z``（README）；由陀螺与真值角速度做常值旋转对齐
   （Wahba，121/130 条序列的稳健平均）得到 ``R_stencil_iphone``，与先验 ``Rz(180°)`` 相差 1.4°。
-  本转换器**保持 IMU 在 iPhone 机体系**，把参考姿态换到 iPhone 机体：``q_ref = q_stencil ⊗ q_stencil_iphone``。
-* iOS 原始加速度 = **−比力 / g**（静止平放时读数为 −1 G）：``f = −9.80665 · iphoneAcc``；陀螺符号与右手系一致，不变号。
-* ``iphoneOrient`` 是 CoreMotion 的 ``body_to_world``（z 轴向上，偏航参考不同），作为 ``device_orientation``。
+  本转换器**保持 IMU 在 iPhone 机体系**，
+  把参考姿态换到 iPhone 机体：``q_ref = q_stencil ⊗ q_stencil_iphone``。
+* iOS 原始加速度 = **−比力 / g**（静止平放时读数为 −1 G）：``f = −9.80665 · iphoneAcc``；
+  陀螺符号与右手系一致，不变号。
+* ``iphoneOrient`` 是 CoreMotion 的 ``body_to_world``（z 轴向上，偏航参考不同），
+  作为 ``device_orientation``。
 * 真值世界系（全局地图对齐后）相对重力倾斜 0.3°–8.4°（中位 1.7°）：Stencil 自带 IMU 与 iPhone IMU
   给出一致的水平残差，且地面平面拟合给出同样的倾斜。本转换器用 **Stencil 自带 IMU** 的平均比力方向
   把真值世界系调平（只校正倾斜，位置与姿态同步旋转），角度写入 ``notes``。
@@ -105,7 +110,9 @@ def official_splits(source) -> dict:
 
 
 def list_sequences(source) -> list:
-    """全部可转换的 ``sequence_id``（``building<b>_<subset>_<k>``）；每条都属于 train/known/unknown 之一，因而都在官方划分中。"""
+    """全部可转换的 ``sequence_id``（``building<b>_<subset>_<k>``）；
+    每条都属于 train/known/unknown 之一，因而都在官方划分中。
+    """
 
     return [sequence_id for sequence_id, *_ in _listing(_root(source))]
 
@@ -127,10 +134,14 @@ def _read_feather(path: Path):
 
         return pd.read_feather(path)
     except ImportError as exc:  # pragma: no cover - 依赖缺失时给出明确提示
-        raise ImportError("reading IDOL .feather files requires the optional dependency 'pyarrow'") from exc
+        raise ImportError(
+            "reading IDOL .feather files requires the optional dependency 'pyarrow'"
+        ) from exc
 
 
-def level_rotation(orientation_wxyz: np.ndarray, specific_force: np.ndarray, valid: np.ndarray) -> tuple:
+def level_rotation(
+    orientation_wxyz: np.ndarray, specific_force: np.ndarray, valid: np.ndarray
+) -> tuple:
     """用与真值同系的 IMU 比力估计世界系倾斜，返回 ``(leveling_rotation, tilt_deg)``。"""
 
     rot = rig.as_rotation(orientation_wxyz[valid])
@@ -167,8 +178,12 @@ def parse_file(path: Path, sequence_id: str, building: str = "unknown", subset: 
         "device_id": "iphone8",
         "placement": "handheld",
         "group_id": subject_id,
-        "position_source": "LiDAR-visual-inertial SLAM (Kaarta Stencil; processedPos, low-pass smoothed)",
-        "orientation_source": "LiDAR-visual-inertial SLAM (Kaarta Stencil orient, rotated into the iPhone frame)",
+        "position_source": (
+            "LiDAR-visual-inertial SLAM (Kaarta Stencil; processedPos, low-pass smoothed)"
+        ),
+        "orientation_source": (
+            "LiDAR-visual-inertial SLAM (Kaarta Stencil orient, rotated into the iPhone frame)"
+        ),
         "device_orientation_source": "ios_coremotion",
         "body_frame": "ios_device",
         "source_files": rel_path or str(path),
@@ -179,8 +194,15 @@ def parse_file(path: Path, sequence_id: str, building: str = "unknown", subset: 
         "imu_calibration": "none (raw iPhone 8 CoreMotion accelerometer/gyroscope)",
     }
     df = _read_feather(path)
-    needed = [COLUMNS["time"]] + COLUMNS["q"] + COLUMNS["p"] + COLUMNS["q_ios"] + COLUMNS["acc"] + COLUMNS["gyr"] \
+    needed = (
+        [COLUMNS["time"]]
+        + COLUMNS["q"]
+        + COLUMNS["p"]
+        + COLUMNS["q_ios"]
+        + COLUMNS["acc"]
+        + COLUMNS["gyr"]
         + COLUMNS["stencil_acc"]
+    )
     missing = [c for c in needed if c not in df.columns]
     if missing:
         return rig.rejected_sequence(sequence_id, f"missing columns {missing}", attrs, notes)
@@ -195,21 +217,32 @@ def parse_file(path: Path, sequence_id: str, building: str = "unknown", subset: 
         keep = np.concatenate([[True], np.diff(time) > 0])
         df = df.iloc[np.flatnonzero(keep)]
         time = time[keep]
-        notes.append(f"timestamps not strictly increasing: sorted and dropped {int((~keep).sum())} rows")
+        notes.append(
+            f"timestamps not strictly increasing: sorted and dropped {int((~keep).sum())} rows"
+        )
     attrs["start_time_unix"] = float(time[0])
     gaps = np.diff(time)
     if (gaps > 0.05).any():
-        notes.append(f"{int((gaps > 0.05).sum())} timestamp gap(s) > 0.05 s kept as-is (max {gaps.max():.3f} s); "
-                     "no interpolation across gaps")
+        notes.append(
+            f"{int((gaps > 0.05).sum())} timestamp gap(s) > 0.05 s kept as-is "
+            f"(max {gaps.max():.3f} s); no interpolation across gaps"
+        )
 
     gyro = df[COLUMNS["gyr"]].to_numpy(np.float64)
     acc = -rig.STANDARD_GRAVITY * df[COLUMNS["acc"]].to_numpy(np.float64)
-    notes.append("iPhone accelerometer converted from G with iOS sign: f = -9.80665 * iphoneAcc (specific force)")
+    notes.append(
+        "iPhone accelerometer converted from G with iOS sign: f = -9.80665 * iphoneAcc "
+        "(specific force)"
+    )
     imu_valid = np.isfinite(gyro).all(1) & np.isfinite(acc).all(1)
 
     q_st = df[COLUMNS["q"]].to_numpy(np.float64)
     pos = df[COLUMNS["p"]].to_numpy(np.float64)
-    pose_valid = np.isfinite(q_st).all(1) & np.isfinite(pos).all(1) & (np.linalg.norm(np.nan_to_num(q_st), axis=1) > 0.5)
+    pose_valid = (
+        np.isfinite(q_st).all(1)
+        & np.isfinite(pos).all(1)
+        & (np.linalg.norm(np.nan_to_num(q_st), axis=1) > 0.5)
+    )
     q_st = rig.normalize_quaternions(np.where(pose_valid[:, None], q_st, [1.0, 0.0, 0.0, 0.0]))
 
     # 1) 用 Stencil 自带 IMU（与真值同系）调平真值世界系
@@ -222,15 +255,18 @@ def parse_file(path: Path, sequence_id: str, building: str = "unknown", subset: 
     pos[~pose_valid] = np.nan
     tilt_plane_after = floor_plane_tilt(pos)
     notes.append(
-        f"reference world frame leveled with the Stencil IMU mean specific force: tilt {tilt:.2f} deg "
+        f"reference world frame leveled with the Stencil IMU mean specific force: "
+        f"tilt {tilt:.2f} deg "
         f"(independent floor-plane fit tilt {tilt_plane_before:.2f} -> {tilt_plane_after:.2f} deg)"
     )
     # 2) 参考姿态从 Stencil 机体换到 iPhone 机体
     q_ref = rig.from_rotation(rig.as_rotation(q_st) * R_STENCIL_IPHONE)
     rv = np.round(R_STENCIL_IPHONE.as_rotvec(), 5).tolist()
     notes.append(
-        f"orientation expressed in the iPhone body frame: q_ref = q_stencil * R_stencil_iphone, rotvec {rv} rad "
-        f"({np.degrees((R_STENCIL_IPHONE_PRIOR.inv() * R_STENCIL_IPHONE).magnitude()):.2f} deg from the README axis map "
+        f"orientation expressed in the iPhone body frame: "
+        f"q_ref = q_stencil * R_stencil_iphone, rotvec {rv} rad "
+        f"({np.degrees((R_STENCIL_IPHONE_PRIOR.inv() * R_STENCIL_IPHONE).magnitude()):.2f} "
+        "deg from the README axis map "
         "x->-x, y->-y, z->z; estimated by gyro/reference angular-rate alignment over the dataset)"
     )
 
@@ -241,13 +277,18 @@ def parse_file(path: Path, sequence_id: str, building: str = "unknown", subset: 
         device_q = rig.normalize_quaternions(q_ios)
     else:
         attrs["device_orientation_source"] = "none"
-        notes.append(f"CoreMotion orientation invalid in {int((~ios_ok).sum())} rows; device_orientation omitted")
+        notes.append(
+            f"CoreMotion orientation invalid in {int((~ios_ok).sum())} rows; "
+            "device_orientation omitted"
+        )
     if not imu_valid.all():
         notes.append(f"{int((~imu_valid).sum())} IMU rows non-finite and marked invalid")
     if not pose_valid.all():
         notes.append(f"{int((~pose_valid).sum())} reference rows non-finite and marked invalid")
-    notes.append("position in metres (verified by walking speed); building-level xy rotation offsets from the "
-                 "README are not applied (they only rotate about z)")
+    notes.append(
+        "position in metres (verified by walking speed); building-level xy rotation offsets "
+        "from the README are not applied (they only rotate about z)"
+    )
 
     return RawSequence(
         sequence_id=sequence_id,
@@ -280,8 +321,11 @@ def iter_raw_sequences(source, only: Optional[Collection[str]] = None) -> Iterat
         try:
             raw = parse_file(path, sequence_id, building, subset, meta, rel)
         except Exception as exc:
-            yield rig.rejected_sequence(sequence_id, f"parse error: {exc!r}", {"source_license": LICENSE,
-                                                                              "source_files": rel})
+            yield rig.rejected_sequence(
+                sequence_id,
+                f"parse error: {exc!r}",
+                {"source_license": LICENSE, "source_files": rel},
+            )
             continue
         if raw.rejected is None:
             if meta is None:

@@ -40,7 +40,8 @@ SOFT_LIMITS = {
     "speed_median_walk_max": 2.5,  # m/s，高于此值说明以跑步等快速运动为主
     "gravity_error_warn": 0.3,  # m/s²
     "gyro_window_error_median_warn": 3.0,  # 度
-    "acc_consistency_ratio_warn": 1.0,  # 加速度一致性残差 / IMU 加速度幅值（高频参考噪声会抬高此值）
+    # 加速度一致性残差 / IMU 加速度幅值（高频参考噪声会抬高此值）
+    "acc_consistency_ratio_warn": 1.0,
     "acc_scale_min": 0.7,  # 位置二阶差分 / IMU 加速度 的比例下限（位置被平滑或不同步时偏低）
     "acc_scale_max": 1.3,
     "time_offset_warn": 0.03,  # s，角速度互相关估计的时延
@@ -171,7 +172,9 @@ def interpolate_orientation(
 
     pose_time = np.asarray(pose_time, dtype=np.float64)
     query_time = np.asarray(query_time, dtype=np.float64)
-    valid = np.ones(len(pose_time), dtype=bool) if pose_valid is None else np.asarray(pose_valid, bool)
+    valid = (
+        np.ones(len(pose_time), dtype=bool) if pose_valid is None else np.asarray(pose_valid, bool)
+    )
     valid = valid & np.isfinite(q_wxyz).all(axis=1) & (np.linalg.norm(q_wxyz, axis=1) > 0.5)
     right = np.searchsorted(pose_time, query_time, side="left")
     right = np.clip(right, 1, len(pose_time) - 1)
@@ -195,7 +198,12 @@ def interpolate_orientation(
 # ---------------------------------------------------------------------------
 
 def reference_angular_velocity(
-    pose_time: np.ndarray, q_wxyz: np.ndarray, grid: np.ndarray, delta: float, pose_valid=None, gap=0.05
+    pose_time: np.ndarray,
+    q_wxyz: np.ndarray,
+    grid: np.ndarray,
+    delta: float,
+    pose_valid=None,
+    gap=0.05,
 ) -> tuple:
     """在 ``grid`` 上用 ``[t, t+delta]`` 的参考相对姿态差分出机体系角速度 (rad/s)。"""
 
@@ -217,7 +225,9 @@ def mean_gyro_on_intervals(imu_time, gyro, start, delta, gap=0.05) -> tuple:
     imu_time = np.asarray(imu_time, dtype=np.float64)
     gyro = np.asarray(gyro, dtype=np.float64)
     dt = np.diff(imu_time)
-    area = np.concatenate([np.zeros((1, 3)), np.cumsum(0.5 * (gyro[1:] + gyro[:-1]) * dt[:, None], axis=0)])
+    area = np.concatenate(
+        [np.zeros((1, 3)), np.cumsum(0.5 * (gyro[1:] + gyro[:-1]) * dt[:, None], axis=0)]
+    )
     gaps = np.concatenate([[0], np.cumsum(dt > gap)])
 
     def integral(t):
@@ -227,7 +237,11 @@ def mean_gyro_on_intervals(imu_time, gyro, start, delta, gap=0.05) -> tuple:
 
     a0, k0 = integral(start)
     a1, k1 = integral(start + delta)
-    ok = (start >= imu_time[0]) & (start + delta <= imu_time[-1]) & (gaps[k0] == gaps[np.minimum(k1 + 1, len(gaps) - 1)])
+    ok = (
+        (start >= imu_time[0])
+        & (start + delta <= imu_time[-1])
+        & (gaps[k0] == gaps[np.minimum(k1 + 1, len(gaps) - 1)])
+    )
     return (a1 - a0) / delta, ok
 
 
@@ -240,7 +254,16 @@ class MountingEstimate:
 
 
 def estimate_mounting_rotation(
-    imu_time, gyro, pose_time, q_wxyz, *, pose_valid=None, delta=0.05, min_rate=0.2, gap=0.05, prior: Optional[Rotation] = None
+    imu_time,
+    gyro,
+    pose_time,
+    q_wxyz,
+    *,
+    pose_valid=None,
+    delta=0.05,
+    min_rate=0.2,
+    gap=0.05,
+    prior: Optional[Rotation] = None,
 ) -> Optional[MountingEstimate]:
     """用陀螺与参考姿态角速度做常值旋转对齐（Wahba 问题），估计 IMU→参考机体系的安装旋转。"""
 
@@ -263,13 +286,18 @@ def estimate_mounting_rotation(
     return est
 
 
-def estimate_world_tilt(q_tilted: np.ndarray, q_level: np.ndarray, mask: Optional[np.ndarray] = None,
-                        outlier_deg: float = 5.0) -> tuple:
+def estimate_world_tilt(
+    q_tilted: np.ndarray,
+    q_level: np.ndarray,
+    mask: Optional[np.ndarray] = None,
+    outlier_deg: float = 5.0,
+) -> tuple:
     """估计“参考 A 的世界系”相对重力的倾斜，重力方向取自同一机体上的水平参考 B（如 VIO）。
 
     对每个时刻，``u(t) = R_A(t) · R_B(t)ᵀ · e_z`` 是 B 认为的“上”方向在 A 世界系中的表示；
     B 的偏航漂移不影响 ``u``。返回 ``(leveling_rotation, tilt_deg, spread_deg)``：
-    ``leveling_rotation`` 是把平均 ``u`` 转到 ``e_z`` 的最小旋转（左乘到 A 的姿态与位置上即可调平）。
+    ``leveling_rotation`` 是把平均 ``u`` 转到 ``e_z`` 的最小旋转
+    （左乘到 A 的姿态与位置上即可调平）。
     """
 
     ok = np.isfinite(q_tilted).all(1) & np.isfinite(q_level).all(1)
@@ -297,20 +325,39 @@ def estimate_world_tilt(q_tilted: np.ndarray, q_level: np.ndarray, mask: Optiona
     return level, float(np.degrees(angle)), float(np.median(ang))
 
 
-def estimate_gyro_bias(imu_time, gyro, pose_time, q_wxyz, *, imu_valid=None, pose_valid=None, window=1.0,
-                       gap=0.05, iterations=3) -> np.ndarray:
+def estimate_gyro_bias(
+    imu_time,
+    gyro,
+    pose_time,
+    q_wxyz,
+    *,
+    imu_valid=None,
+    pose_valid=None,
+    window=1.0,
+    gap=0.05,
+    iterations=3,
+) -> np.ndarray:
     """相对参考姿态的常值陀螺零偏（rad/s）。
 
     在 ``window`` 秒的不重叠窗口上比较陀螺积分与参考相对姿态：带零偏 ``b`` 的积分满足
-    ``ΔR_gyro ≈ ΔR_ref · Exp(b·T)``，故残差旋转向量的中位数给出 ``−b·T``；迭代数次以消除大转动下的近似误差。
+    ``ΔR_gyro ≈ ΔR_ref · Exp(b·T)``，故残差旋转向量的中位数给出 ``−b·T``；
+    迭代数次以消除大转动下的近似误差。
     仅用于诊断“陀螺与参考不一致”能否被常值零偏解释；不用于修改存储的 IMU。
     """
 
     gyro = np.asarray(gyro, dtype=np.float64)
     bias = np.zeros(3)
     for _ in range(iterations):
-        err, dur = gyro_window_residuals(imu_time, gyro - bias, pose_time, q_wxyz, imu_valid=imu_valid,
-                                         pose_valid=pose_valid, window=window, gap=gap)
+        err, dur = gyro_window_residuals(
+            imu_time,
+            gyro - bias,
+            pose_time,
+            q_wxyz,
+            imu_valid=imu_valid,
+            pose_valid=pose_valid,
+            window=window,
+            gap=gap,
+        )
         if len(err) < 5:
             return np.full(3, np.nan)
         # err = ΔR_gyroᵀ ΔR_ref ≈ Exp(−δb·T)
@@ -322,12 +369,24 @@ def estimate_gyro_bias(imu_time, gyro, pose_time, q_wxyz, *, imu_valid=None, pos
     return bias
 
 
-def estimate_time_offset(imu_time, gyro, pose_time, q_wxyz, *, pose_valid=None, max_lag=0.5, step=0.01,
-                         smooth=0.1, gap=0.05, max_points=60000) -> tuple:
+def estimate_time_offset(
+    imu_time,
+    gyro,
+    pose_time,
+    q_wxyz,
+    *,
+    pose_valid=None,
+    max_lag=0.5,
+    step=0.01,
+    smooth=0.1,
+    gap=0.05,
+    max_points=60000,
+) -> tuple:
     """用三轴角速度向量的互相关估计 IMU 相对参考位姿的时延。
 
-    两路角速度先做 ``smooth`` 秒滑动平均（抑制参考姿态的高频抖动），再在 ``±max_lag`` 内以 ``step``
-    分辨率搜索峰值。返回 ``(τ, corr)``：``imu_time + τ`` 与参考时钟最一致（负值表示 IMU 时间戳比参考晚），
+    两路角速度先做 ``smooth`` 秒滑动平均（抑制参考姿态的高频抖动），
+    再在 ``±max_lag`` 内以 ``step`` 分辨率搜索峰值。
+    返回 ``(τ, corr)``：``imu_time + τ`` 与参考时钟最一致（负值表示 IMU 时间戳比参考晚），
     ``corr`` 是峰值处的归一化相关系数（偏低时 ``τ`` 不可信）。
     """
 
@@ -353,7 +412,9 @@ def estimate_time_offset(imu_time, gyro, pose_time, q_wxyz, *, pose_valid=None, 
     bb = float((b * b).sum())
     # 陀螺先在细网格上平滑一次，再按时移插值
     fine_t = np.arange(imu_time[0], imu_time[-1], step)
-    fine_g = uniform_filter1d(np.stack([np.interp(fine_t, imu_time, gyro[:, k]) for k in range(3)], 1), size, axis=0)
+    fine_g = uniform_filter1d(
+        np.stack([np.interp(fine_t, imu_time, gyro[:, k]) for k in range(3)], 1), size, axis=0
+    )
     best, best_lag = -np.inf, float("nan")
     for lag in np.arange(-max_lag, max_lag + step / 2, step):
         # 参考角速度代表区间 [t, t+step] 的中点
@@ -419,11 +480,15 @@ def gyro_window_residuals(
     ib = (np.cumsum(m_b) - 1)[both]
     ref_rel = from_rotation(r_a[ia].inv() * r_b[ib])
     gyr_rel = quat_multiply(quat_conjugate(cum[a[both]]), cum[b[both]])
-    err = quat_multiply(quat_conjugate(normalize_quaternions(gyr_rel)), normalize_quaternions(ref_rel))
+    err = quat_multiply(
+        quat_conjugate(normalize_quaternions(gyr_rel)), normalize_quaternions(ref_rel)
+    )
     return normalize_quaternions(err), imu_time[b[both]] - imu_time[a[both]]
 
 
-def horizontal_speeds(pose_time, position, *, pose_valid=None, step=1.0, gap=0.05, max_points=20000) -> np.ndarray:
+def horizontal_speeds(
+    pose_time, position, *, pose_valid=None, step=1.0, gap=0.05, max_points=20000
+) -> np.ndarray:
     """参考位置在 ``step`` 秒间隔上的水平速度样本（m/s），不跨缺口。"""
 
     pose_time = np.asarray(pose_time, dtype=np.float64)
@@ -448,7 +513,17 @@ def horizontal_speeds(pose_time, position, *, pose_valid=None, step=1.0, gap=0.0
     return np.linalg.norm(position[j, :2] - position[idx, :2], axis=1) / dtt
 
 
-def gravity_mean(imu_time, accelerometer, pose_time, q_wxyz, *, imu_valid=None, pose_valid=None, gap=0.05, max_points=200000):
+def gravity_mean(
+    imu_time,
+    accelerometer,
+    pose_time,
+    q_wxyz,
+    *,
+    imu_valid=None,
+    pose_valid=None,
+    gap=0.05,
+    max_points=200000,
+):
     """机体系比力经参考姿态旋到世界系后的均值向量，以及参与平均的样本数。"""
 
     imu_time = np.asarray(imu_time, dtype=np.float64)
@@ -486,9 +561,18 @@ def _masked_moving_average(x: np.ndarray, mask: np.ndarray, size: int) -> tuple:
     return s / np.maximum(w, 1e-12)[:, None], w > 0.5
 
 
-def acceleration_consistency(raw, *, half_width: float = 0.25, detrend: float = 2.0, rate: float = 100.0,
-                             gap: float = 0.05, gravity: float = STANDARD_GRAVITY, accelerometer=None,
-                             time_shift: float = 0.0, max_points: int = 400000) -> dict:
+def acceleration_consistency(
+    raw,
+    *,
+    half_width: float = 0.25,
+    detrend: float = 2.0,
+    rate: float = 100.0,
+    gap: float = 0.05,
+    gravity: float = STANDARD_GRAVITY,
+    accelerometer=None,
+    time_shift: float = 0.0,
+    max_points: int = 400000,
+) -> dict:
     """比较参考位置的二阶中心差分与世界系比力减重力。
 
     ``(p(t+h) − 2p(t) + p(t−h)) / h²`` 等于加速度与半宽 ``h`` 的归一化三角核的卷积，
@@ -555,31 +639,62 @@ def acceleration_consistency(raw, *, half_width: float = 0.25, detrend: float = 
     resid = float(np.sqrt(((a_pos - a_imu) ** 2).sum(1).mean()))
     signal = float(np.sqrt((a_imu**2).sum(1).mean()))
     scale = float((a_pos * a_imu).sum() / max((a_imu * a_imu).sum(), 1e-12))
-    return {"acc_resid_rms": resid, "acc_signal_rms": signal,
-            "acc_consistency_ratio": resid / signal if signal > 0 else float("nan"), "acc_scale": scale}
+    return {
+        "acc_resid_rms": resid,
+        "acc_signal_rms": signal,
+        "acc_consistency_ratio": resid / signal if signal > 0 else float("nan"),
+        "acc_scale": scale,
+    }
 
 
-def short_window_gyro_error(raw, time_shift: float = 0.0, window: float = 1.0, gap: float = 0.05) -> float:
-    """去除常值零偏后，``window`` 秒窗口陀螺积分与参考相对姿态误差的中位数（度）；IMU 时间可平移。"""
+def short_window_gyro_error(
+    raw, time_shift: float = 0.0, window: float = 1.0, gap: float = 0.05
+) -> float:
+    """去除常值零偏后，``window`` 秒窗口陀螺积分与参考相对姿态误差的中位数（度）；
+    IMU 时间可平移。
+    """
 
     imu_time = np.asarray(raw.imu_time, dtype=np.float64) + time_shift
-    bias = estimate_gyro_bias(imu_time, raw.gyroscope, raw.pose_time, raw.orientation, imu_valid=raw.imu_valid,
-                              pose_valid=raw.pose_valid, gap=gap)
+    bias = estimate_gyro_bias(
+        imu_time,
+        raw.gyroscope,
+        raw.pose_time,
+        raw.orientation,
+        imu_valid=raw.imu_valid,
+        pose_valid=raw.pose_valid,
+        gap=gap,
+    )
     if not np.isfinite(bias).all():
         return float("nan")
-    errs = gyro_window_errors(imu_time, np.asarray(raw.gyroscope) - bias, raw.pose_time, raw.orientation,
-                              imu_valid=raw.imu_valid, pose_valid=raw.pose_valid, window=window, gap=gap)
+    errs = gyro_window_errors(
+        imu_time,
+        np.asarray(raw.gyroscope) - bias,
+        raw.pose_time,
+        raw.orientation,
+        imu_valid=raw.imu_valid,
+        pose_valid=raw.pose_valid,
+        window=window,
+        gap=gap,
+    )
     return float(np.median(errs)) if len(errs) else float("nan")
 
 
-def correct_time_offset_if_confirmed(raw, stats: dict, *, min_offset: float = 0.03, min_corr: float = 0.7,
-                                     min_gain: float = 0.2, confirm: str = "acceleration") -> bool:
+def correct_time_offset_if_confirmed(
+    raw,
+    stats: dict,
+    *,
+    min_offset: float = 0.03,
+    min_corr: float = 0.7,
+    min_gain: float = 0.2,
+    confirm: str = "acceleration",
+) -> bool:
     """两个独立证据一致时修正参考位姿时间戳，返回是否修正。
 
     证据 1：角速度互相关给出 ``τ``（``|τ| ≥ min_offset`` 且峰值相关 ``≥ min_corr``）；
     证据 2（``confirm``）：
 
-    * ``"acceleration"``：IMU 平移 ``τ`` 后，加速度一致性残差比相对下降至少 ``min_gain``，且比例因子更接近 1；
+    * ``"acceleration"``：IMU 平移 ``τ`` 后，加速度一致性残差比相对下降至少 ``min_gain``，
+      且比例因子更接近 1；
     * ``"gyro"``：IMU 平移 ``τ`` 后，1 s 窗口去偏陀螺误差中位数相对下降至少 ``min_gain``
       （用于参考位置被平滑、加速度一致性无信息的数据集）。
 
@@ -621,11 +736,22 @@ def time_overlap(imu_time, pose_time) -> dict:
     hi = min(imu_time[-1], pose_time[-1])
     overlap = max(0.0, hi - lo)
     shorter = min(imu_time[-1] - imu_time[0], pose_time[-1] - pose_time[0])
-    return {"overlap_s": float(overlap), "overlap_ratio": float(overlap / shorter) if shorter > 0 else 0.0}
+    return {
+        "overlap_s": float(overlap),
+        "overlap_ratio": float(overlap / shorter) if shorter > 0 else 0.0,
+    }
 
 
-def physical_checks(raw, *, gravity: float = STANDARD_GRAVITY, window: float = 10.0, gap: float = 0.05,
-                    gyroscope=None, accelerometer=None, time_offset: bool = True) -> dict:
+def physical_checks(
+    raw,
+    *,
+    gravity: float = STANDARD_GRAVITY,
+    window: float = 10.0,
+    gap: float = 0.05,
+    gyroscope=None,
+    accelerometer=None,
+    time_offset: bool = True,
+) -> dict:
     """对一条 ``RawSequence`` 计算物理自检统计量（不修改输入）。
 
     ``gyroscope`` / ``accelerometer`` 可替换输入（例如仅用于诊断的零偏补偿版本）。
@@ -643,33 +769,73 @@ def physical_checks(raw, *, gravity: float = STANDARD_GRAVITY, window: float = 1
     stats["pose_nonmonotonic"] = int(np.sum(np.diff(raw.pose_time) <= 0))
     qn = np.linalg.norm(raw.orientation, axis=1)
     stats["quat_norm_dev_max"] = float(np.nanmax(np.abs(qn - 1.0)))
-    mean, n = gravity_mean(raw.imu_time, acc, raw.pose_time, raw.orientation,
-                           imu_valid=raw.imu_valid, pose_valid=raw.pose_valid, gap=gap)
+    mean, n = gravity_mean(
+        raw.imu_time,
+        acc,
+        raw.pose_time,
+        raw.orientation,
+        imu_valid=raw.imu_valid,
+        pose_valid=raw.pose_valid,
+        gap=gap,
+    )
     stats["gravity_world_mean"] = [float(x) for x in mean]
-    stats["gravity_error"] = float(np.linalg.norm(mean - np.array([0.0, 0.0, gravity]))) if n else float("nan")
-    stats["gravity_tilt_deg"] = float(np.degrees(np.arctan2(np.hypot(mean[0], mean[1]), mean[2]))) if n else float("nan")
+    stats["gravity_error"] = (
+        float(np.linalg.norm(mean - np.array([0.0, 0.0, gravity]))) if n else float("nan")
+    )
+    stats["gravity_tilt_deg"] = (
+        float(np.degrees(np.arctan2(np.hypot(mean[0], mean[1]), mean[2]))) if n else float("nan")
+    )
     speeds = horizontal_speeds(raw.pose_time, raw.position, pose_valid=raw.pose_valid, gap=gap)
     stats["speed_median"] = float(np.median(speeds)) if len(speeds) else float("nan")
     stats["speed_p95"] = float(np.percentile(speeds, 95)) if len(speeds) else float("nan")
-    errs = gyro_window_errors(raw.imu_time, gyro, raw.pose_time, raw.orientation,
-                              imu_valid=raw.imu_valid, pose_valid=raw.pose_valid, window=window, gap=gap)
+    errs = gyro_window_errors(
+        raw.imu_time,
+        gyro,
+        raw.pose_time,
+        raw.orientation,
+        imu_valid=raw.imu_valid,
+        pose_valid=raw.pose_valid,
+        window=window,
+        gap=gap,
+    )
     stats["gyro_windows"] = int(len(errs))
     stats["gyro_window_error_median_deg"] = float(np.median(errs)) if len(errs) else float("nan")
-    stats["gyro_window_error_p90_deg"] = float(np.percentile(errs, 90)) if len(errs) else float("nan")
+    stats["gyro_window_error_p90_deg"] = (
+        float(np.percentile(errs, 90)) if len(errs) else float("nan")
+    )
     # 诊断：参考姿态所隐含的常值陀螺零偏，以及去除它之后的窗口误差
-    bias = estimate_gyro_bias(raw.imu_time, gyro, raw.pose_time, raw.orientation, imu_valid=raw.imu_valid,
-                              pose_valid=raw.pose_valid, gap=gap)
+    bias = estimate_gyro_bias(
+        raw.imu_time,
+        gyro,
+        raw.pose_time,
+        raw.orientation,
+        imu_valid=raw.imu_valid,
+        pose_valid=raw.pose_valid,
+        gap=gap,
+    )
     stats["gyro_bias_vs_ref"] = [float(x) for x in bias]
     if np.isfinite(bias).all() and len(errs):
-        errs_db = gyro_window_errors(raw.imu_time, np.asarray(gyro) - bias, raw.pose_time, raw.orientation,
-                                     imu_valid=raw.imu_valid, pose_valid=raw.pose_valid, window=window, gap=gap)
-        stats["gyro_window_error_median_deg_debiased"] = float(np.median(errs_db)) if len(errs_db) else float("nan")
+        errs_db = gyro_window_errors(
+            raw.imu_time,
+            np.asarray(gyro) - bias,
+            raw.pose_time,
+            raw.orientation,
+            imu_valid=raw.imu_valid,
+            pose_valid=raw.pose_valid,
+            window=window,
+            gap=gap,
+        )
+        stats["gyro_window_error_median_deg_debiased"] = (
+            float(np.median(errs_db)) if len(errs_db) else float("nan")
+        )
     else:
         stats["gyro_window_error_median_deg_debiased"] = float("nan")
     stats.update(acceleration_consistency(raw, gap=gap, gravity=gravity, accelerometer=acc))
     if time_offset:
-        lag, corr = estimate_time_offset(raw.imu_time, np.asarray(gyro), raw.pose_time, raw.orientation,
-                                         pose_valid=raw.pose_valid, gap=gap)
+        lag, corr = estimate_time_offset(
+            raw.imu_time, np.asarray(gyro), raw.pose_time, raw.orientation,
+            pose_valid=raw.pose_valid, gap=gap,
+        )
         stats["time_offset_s"] = lag
         stats["time_offset_corr"] = corr
     return stats
@@ -695,9 +861,14 @@ def evaluate_checks(stats: dict, limits: Optional[dict] = None, skip: tuple = ()
     if stats["overlap_ratio"] < lim["overlap_min"]:
         failures.append(f"IMU/pose overlap {stats['overlap_ratio']:.2f} < {lim['overlap_min']}")
     if bad(stats["gravity_error"], lim["gravity_error_max"]):
-        failures.append(f"gravity check {stats['gravity_error']:.3f} m/s^2 > {lim['gravity_error_max']}")
+        failures.append(
+            f"gravity check {stats['gravity_error']:.3f} m/s^2 > {lim['gravity_error_max']}"
+        )
     elif stats["gravity_error"] > SOFT_LIMITS["gravity_error_warn"]:
-        warnings.append(f"gravity check {stats['gravity_error']:.3f} m/s^2 (warn > {SOFT_LIMITS['gravity_error_warn']})")
+        warnings.append(
+            f"gravity check {stats['gravity_error']:.3f} m/s^2 "
+            f"(warn > {SOFT_LIMITS['gravity_error_warn']})"
+        )
     gyro_limit = lim["gyro_window_error_median_max"]
     debiased = stats.get("gyro_window_error_median_deg_debiased", float("nan"))
     bias = np.asarray(stats.get("gyro_bias_vs_ref", [np.nan] * 3), dtype=float)
@@ -705,40 +876,67 @@ def evaluate_checks(stats: dict, limits: Optional[dict] = None, skip: tuple = ()
     if stats["gyro_windows"] < lim["min_windows"]:
         failures.append("no gap-free 10 s window for the gyro check")
     elif bad(stats["gyro_window_error_median_deg"], gyro_limit):
-        message = (f"gyro/reference 10 s rotation error median {stats['gyro_window_error_median_deg']:.2f} deg "
-                   f"> {gyro_limit}")
+        message = (
+            f"gyro/reference 10 s rotation error median "
+            f"{stats['gyro_window_error_median_deg']:.2f} deg > {gyro_limit}"
+        )
         # 常值零偏不能掩盖轴/方向/时间错误：去偏后通过且零偏量级合理时，归因于未标定陀螺零偏
-        if np.isfinite(debiased) and debiased <= gyro_limit and bias_norm <= lim.get("gyro_bias_max", 0.1):
-            warnings.append(message + f"; explained by a constant gyro bias |b|={bias_norm:.4f} rad/s "
-                            f"(debiased median {debiased:.2f} deg; bias NOT removed from stored IMU)")
+        if (
+            np.isfinite(debiased)
+            and debiased <= gyro_limit
+            and bias_norm <= lim.get("gyro_bias_max", 0.1)
+        ):
+            warnings.append(
+                message
+                + f"; explained by a constant gyro bias |b|={bias_norm:.4f} rad/s "
+                f"(debiased median {debiased:.2f} deg; bias NOT removed from stored IMU)"
+            )
         else:
             failures.append(message + (f" (debiased {debiased:.2f} deg, |b|={bias_norm:.4f} rad/s)"
                                        if np.isfinite(debiased) else ""))
     elif stats["gyro_window_error_median_deg"] > SOFT_LIMITS["gyro_window_error_median_warn"]:
-        warnings.append(f"gyro/reference 10 s rotation error median {stats['gyro_window_error_median_deg']:.2f} deg (warn > {SOFT_LIMITS['gyro_window_error_median_warn']})")
+        warnings.append(
+            f"gyro/reference 10 s rotation error median "
+            f"{stats['gyro_window_error_median_deg']:.2f} deg "
+            f"(warn > {SOFT_LIMITS['gyro_window_error_median_warn']})"
+        )
     if bad(stats["speed_median"], lim["speed_median_max"]):
-        failures.append(f"horizontal speed median {stats['speed_median']:.2f} m/s > {lim['speed_median_max']}")
+        failures.append(
+            f"horizontal speed median {stats['speed_median']:.2f} m/s > {lim['speed_median_max']}"
+        )
     elif stats["speed_median"] < SOFT_LIMITS["speed_median_min"]:
         warnings.append(f"horizontal speed median {stats['speed_median']:.3f} m/s: mostly static")
     elif stats["speed_median"] > SOFT_LIMITS["speed_median_walk_max"]:
-        warnings.append(f"horizontal speed median {stats['speed_median']:.2f} m/s: fast motion (running pace)")
+        warnings.append(
+            f"horizontal speed median {stats['speed_median']:.2f} m/s: "
+            f"fast motion (running pace)"
+        )
     if bad(stats["speed_p95"], lim["speed_p95_max"]):
-        failures.append(f"horizontal speed p95 {stats['speed_p95']:.2f} m/s > {lim['speed_p95_max']}")
+        failures.append(
+            f"horizontal speed p95 {stats['speed_p95']:.2f} m/s > {lim['speed_p95_max']}"
+        )
     ratio = stats.get("acc_consistency_ratio", float("nan"))
     scale = stats.get("acc_scale", float("nan"))
     if "acceleration_consistency" not in skip and np.isfinite(ratio) and (
             ratio > SOFT_LIMITS["acc_consistency_ratio_warn"]
             or not SOFT_LIMITS["acc_scale_min"] <= scale <= SOFT_LIMITS["acc_scale_max"]):
-        warnings.append(f"reference acceleration (position 2nd difference) vs IMU: residual ratio {ratio:.2f}, "
-                        f"scale {scale:.2f}")
+        warnings.append(
+            f"reference acceleration (position 2nd difference) vs IMU: "
+            f"residual ratio {ratio:.2f}, scale {scale:.2f}"
+        )
     offset = stats.get("time_offset_s", float("nan"))
     corr = stats.get("time_offset_corr", float("nan"))
     if offset is not None and np.isfinite(offset):
         if np.isfinite(corr) and corr < SOFT_LIMITS["angular_rate_corr_min"]:
-            warnings.append(f"gyro vs reference angular-rate correlation only {corr:.2f} (noisy reference orientation)")
+            warnings.append(
+                f"gyro vs reference angular-rate correlation only {corr:.2f} "
+                f"(noisy reference orientation)"
+            )
         elif abs(offset) > SOFT_LIMITS["time_offset_warn"]:
-            warnings.append(f"estimated IMU-to-reference time offset {offset:+.2f} s (angular-rate cross-correlation "
-                            f"{corr:.2f}); not corrected")
+            warnings.append(
+                f"estimated IMU-to-reference time offset {offset:+.2f} s "
+                f"(angular-rate cross-correlation {corr:.2f}); not corrected"
+            )
     return failures, warnings
 
 
@@ -795,7 +993,9 @@ def apply_checks(raw, stats: dict, failures: list, warnings: list) -> None:
 # 合成运动（单元测试用）
 # ---------------------------------------------------------------------------
 
-def simulate_rig_motion(duration: float = 60.0, rate: float = 200.0, seed: int = 0, gravity: float = STANDARD_GRAVITY) -> dict:
+def simulate_rig_motion(
+    duration: float = 60.0, rate: float = 200.0, seed: int = 0, gravity: float = STANDARD_GRAVITY
+) -> dict:
     """生成物理一致的行人式运动。
 
     返回时间、``body_to_world`` 姿态（wxyz）、位置、速度、机体系角速度与机体系比力
@@ -811,7 +1011,10 @@ def simulate_rig_motion(duration: float = 60.0, rate: float = 200.0, seed: int =
     rot = Rotation.from_euler("ZYX", np.stack([yaw, pitch, roll], axis=1))
     speed = 1.2 + 0.2 * np.sin(1.8 * 2 * np.pi * t)
     heading = 0.3 * t
-    vel = np.stack([speed * np.cos(heading), speed * np.sin(heading), 0.05 * np.sin(1.8 * 2 * np.pi * t)], axis=1)
+    vel = np.stack(
+        [speed * np.cos(heading), speed * np.sin(heading), 0.05 * np.sin(1.8 * 2 * np.pi * t)],
+        axis=1,
+    )
     pos = np.concatenate([np.zeros((1, 3)), np.cumsum(0.5 * (vel[1:] + vel[:-1]) / rate, axis=0)])
     acc_world = np.gradient(vel, t, axis=0)
     # 机体系角速度：由相邻姿态的相对旋转得到（区间中点值再平均到样本点）

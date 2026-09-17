@@ -62,9 +62,19 @@ def ped_root(tmp_path_factory):
 def test_official_splits_keep_the_published_assignment(ped_root):
     splits = pl.official_splits(ped_root.parent)
     assert sorted(splits["train"]) == sorted(
-        ["yt_aaa_F1_server_0_0", "yt_bbb_B1_server_1_0", "yt_bbb_B1_server_1_1", "yt_eee_B3_server_0_0",
-         "demo_mid360_2025-11-01_142720_00"])
-    assert sorted(splits["val"]) == ["demo_mid360_2025-11-02_191202_00", "yt_aaa_F1_server_0_1", "yt_ccc_F2_server_2_0"]
+        [
+            "yt_aaa_F1_server_0_0",
+            "yt_bbb_B1_server_1_0",
+            "yt_bbb_B1_server_1_1",
+            "yt_eee_B3_server_0_0",
+            "demo_mid360_2025-11-01_142720_00",
+        ]
+    )
+    assert sorted(splits["val"]) == [
+        "demo_mid360_2025-11-02_191202_00",
+        "yt_aaa_F1_server_0_1",
+        "yt_ccc_F2_server_2_0",
+    ]
     assert splits["test_yt"] == ["yt_aaa_F1_server_0_2", "yt_ddd_F3_server_0_0"]
     assert splits["test_demo"] == ["demo_mid360_2025-11-01_142720_01"]
     listed = pl.list_sequences(ped_root)
