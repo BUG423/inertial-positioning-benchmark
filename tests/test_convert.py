@@ -483,3 +483,24 @@ def test_check_leakage_families():
                for p in rep["pairs"] + rep["official"]["pairs"])
     assert not rep["official"]["ok"]
     assert rep["official"]["leaks"] == ["official_train/official_val share 1 groups"]
+
+
+def test_device_orientation_gap_is_masked_separately(tmp_path):
+    entries = [{"id": "dev0", "seed": 12, "group": "subj0", "split": "train",
+                "with_device": True, "device_gaps": [[4.0, 5.0]], "imu_rate": 200.0},
+               {"id": "dev1", "seed": 13, "group": "subj1", "split": "test",
+                "with_device": True, "imu_rate": 200.0}]
+    source = write_spec(tmp_path / "raw", entries)
+    out = tmp_path / "out"
+    manifest = convert_dataset("fake", source, out, converter=FAKE)
+    seq = load_sequence(out / "sequences" / "dev0.h5", validate=True)
+    assert seq.valid_imu.all() and seq.valid_pose.all()  # 设备姿态缺口不拉低 valid/imu
+    gap = (seq.timestamp > 4.05) & (seq.timestamp < 4.95)
+    assert not seq.valid_device_orientation[gap].any()
+    assert seq.valid_device_orientation[seq.timestamp < 3.9].all()
+    assert manifest["sequences"]["dev0"]["valid_fraction"] == 1.0
+    assert manifest["sequences"]["dev0"]["valid_fraction_device"] < 1.0
+    assert manifest["sequences"]["dev1"]["valid_fraction_device"] == 1.0
+    report = json.loads((out / "conversion_report.json").read_text())
+    dev0 = next(r for r in report["sequences"] if r["sequence_id"] == "dev0")
+    assert any("device orientation" in w for w in dev0["warnings"])

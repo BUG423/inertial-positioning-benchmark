@@ -79,6 +79,7 @@ def iter_raw_sequences(source: Path, only=None):
             pose_gaps=[tuple(g) for g in entry.get("pose_gaps", [])],
             with_device=entry.get("with_device", False),
             pose_offset=entry.get("pose_offset", 0.0),
+            device_gaps=[tuple(g) for g in entry.get("device_gaps", [])],
         )
         if kind == "reject":
             raw = RawSequence(sequence_id=sid, imu_time=np.zeros(0), gyroscope=np.zeros((0, 3)),

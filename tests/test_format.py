@@ -29,11 +29,16 @@ def test_synthetic_sequence_is_valid():
 def test_roundtrip(tmp_path, compression):
     seq = make_sequence(duration=5.0, device_yaw_offset=0.3)
     seq.valid_pose[10:20] = False
+    seq.valid_device_orientation = np.ones(len(seq), bool)
+    seq.valid_device_orientation[100:200] = False
     path = save_sequence(tmp_path / "a.h5", seq, compression=compression)
     back = load_sequence(path, validate=True)
     for name in ("timestamp", "gyroscope", "accelerometer", "orientation", "position",
-                 "valid_imu", "valid_pose", "device_orientation", "velocity"):
+                 "valid_imu", "valid_pose", "device_orientation", "velocity",
+                 "valid_device_orientation"):
         np.testing.assert_array_equal(getattr(back, name), getattr(seq, name), err_msg=name)
+    # 设备姿态的缺口只影响自己的掩码，不影响 valid（参考姿态视图）
+    assert back.valid[100:200].all() and not back.valid_device[100:200].any()
     assert back.attrs["source_files"] == seq.attrs["source_files"]
     assert np.isnan(back.attrs["start_time_unix"])
     assert back.sample_rate == 200.0
@@ -41,6 +46,7 @@ def test_roundtrip(tmp_path, compression):
         assert f["imu/gyroscope"].dtype == np.float32
         assert f["pose/position"].dtype == np.float64
         assert f["valid/imu"].dtype == bool
+        assert f["valid/device_orientation"].dtype == bool
         assert set(REQUIRED_ATTRS) <= set(f.attrs)
 
 
@@ -189,3 +195,19 @@ def test_load_v01_resamples_to_v1(tmp_path):
     np.testing.assert_allclose(seq.accelerometer[inner], motion.accelerometer(t_new[inner]),
                                atol=0.02)
     np.testing.assert_allclose(seq.position[inner], motion.position(t_new[inner]), atol=1e-3)
+
+
+def test_device_orientation_mask_requires_device_orientation(tmp_path):
+    seq = make_sequence(duration=3.0)
+    assert seq.valid_device_orientation is None
+    np.testing.assert_array_equal(seq.valid_device, seq.valid)  # 无该数据集时等于 valid
+    seq.valid_device_orientation = np.ones(len(seq), bool)
+    rep = validate(seq)
+    assert any("imu/orientation is not" in e for e in rep.errors)
+    # 有设备姿态时可选写出；不写出时读回为 None
+    ok = make_sequence(duration=3.0, device_yaw_offset=0.2)
+    path = save_sequence(tmp_path / "b.h5", ok)
+    back = load_sequence(path, validate=True)
+    assert back.device_orientation is not None and back.valid_device_orientation is None
+    with h5py.File(path) as f:
+        assert "valid/device_orientation" not in f

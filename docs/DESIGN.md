@@ -118,6 +118,7 @@ runs/<mode>/<name>/
 | `pose/velocity` | (N,3) | f4 | m/s；仅当来源提供时保存 | 否 |
 | `valid/imu` | (N,) | bool | IMU 样本有效 | 是 |
 | `valid/pose` | (N,) | bool | 参考位姿有效（缺口、跟踪丢失处为 False） | 是 |
+| `valid/device_orientation` | (N,) | bool | 设备姿态有效；仅当存在 `imu/orientation` 时写出。设备姿态的缺口**只**记在这里，不拉低 `valid/imu` | 否 |
 
 数组使用 gzip（级别 4）+ shuffle 压缩：同一输入两次转换得到逐字节相同的文件，`dataset.json` 中的 sha256 与数据集指纹才有意义
 （h5py 自带的 LZF 不初始化哈希表，输出字节不可复现，只允许用于本地临时文件）。
@@ -214,7 +215,9 @@ runs/<mode>/<name>/
   为窗口末端速度（有 `pose/velocity` 时直接取，否则用末端前后各一个样本的中心差分）。
 - `orientation=device` 时，设备姿态的世界系与参考世界系差一个常值偏航：视图在首个 IMU/位姿均有效的样本处
   用参考姿态估计该偏航并补偿（与 RoNIN 测试时“初始对齐”一致），此后不再使用参考姿态。
-- 窗口内任一样本 `valid/imu` 或 `valid/pose` 为 False 时，该窗口不参与训练与窗口级指标。
+- 窗口内任一样本 `valid/imu` 或 `valid/pose` 为 False 时，该窗口不参与训练与窗口级指标；
+  `orientation=device` 时额外要求 `valid/device_orientation`（缺该数据集时视为全 True）。
+  设备姿态缺口不影响 `orientation=reference`（默认）的可用窗口。
 
 ## 4. 模型接口
 

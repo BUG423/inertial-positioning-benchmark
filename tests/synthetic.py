@@ -176,11 +176,13 @@ def make_raw_sequence(
     duplicates: int = 0,
     with_device: bool = False,
     pose_offset: float = 0.0,
+    device_gaps: Seq[tuple] = (),
 ) -> RawSequence:
     """生成原生时钟上的原始序列（可带时间抖动、缺口与重复时间戳）。
 
     ``pose_offset`` 把位姿时钟整体后移（例如转换器做完时延修正后 ``pose_time ≠ imu_time``）；
     运动本身仍以 ``t0`` 为时间原点，因此统一网格上的真值与 ``Motion`` 在同一时刻一致。
+    ``device_gaps``（相对 ``t0`` 的时间区间）把设备姿态置为 NaN，模拟 game rotation vector 缺失。
     """
     motion = Motion(seed)
     rng = np.random.default_rng(seed + 7)
@@ -204,6 +206,8 @@ def make_raw_sequence(
     device = None
     if with_device:
         device = quat_multiply(quat_from_yaw(np.full(len(ti), 0.7)), motion.orientation(ti - t0))
+        for a, b in device_gaps:
+            device[(ti - t0 >= a) & (ti - t0 < b)] = np.nan
     return RawSequence(
         sequence_id=sequence_id,
         imu_time=ti,

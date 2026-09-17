@@ -152,6 +152,7 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
         device_orientation=arrays.get("device_orientation"),
         velocity=arrays.get("velocity"),
         attrs=attrs,
+        valid_device_orientation=res.valid_device,
     )
     rep = validate(seq, sample_rate=opts["rate"])
     record.update(notes=notes, warnings=list(rep.warnings), gravity=rep.info.get("gravity"))
@@ -164,6 +165,7 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
         duration_s=seq.duration,
         distance_m=seq.distance(),
         valid_fraction=float(seq.valid.mean()),
+        valid_fraction_device=float(seq.valid_device.mean()),
         group_id=str(attrs["group_id"]),
         subject_id=str(attrs["subject_id"]),
         placement=str(attrs["placement"]),
@@ -494,7 +496,8 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     duplicates = find_duplicates({sid: r.get("imu_sha256") for sid, r in accepted.items()})
 
     keys = ("file", "sha256", "imu_sha256", "num_samples", "duration_s", "distance_m", "group_id",
-            "subject_id", "placement", "valid_fraction", "source_sample_rate_hz")
+            "subject_id", "placement", "valid_fraction", "valid_fraction_device",
+            "source_sample_rate_hz")
     sequences = {sid: {k: r[k] for k in keys if k in r} for sid, r in accepted.items()}
     by_split = {s: _stats(accepted[i] for i in ids) for s, ids in splits.items()}
     now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()

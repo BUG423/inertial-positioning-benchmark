@@ -114,6 +114,24 @@ def test_device_orientation_is_yaw_aligned(seq):
         SequenceView(no_device, ViewConfig(orientation="device"))
 
 
+def test_device_orientation_gap_only_affects_device_windows(seq):
+    import copy
+
+    gap = copy.deepcopy(seq)
+    gap.valid_device_orientation = np.ones(len(gap), bool)
+    gap.valid_device_orientation[600:800] = False  # 1 s 设备姿态缺口
+    ref = SequenceView(gap, ViewConfig(dims=2))
+    dev = SequenceView(gap, ViewConfig(dims=2, orientation="device"))
+    assert len(ref.starts(10)) == len(SequenceView(seq, ViewConfig(dims=2)).starts(10))
+    assert len(dev.starts(10)) < len(ref.starts(10))
+    assert not dev.window_valid(np.array([500, 700, 790])).any()
+    assert dev.window_valid(np.array([0, 800])).all()
+    # 偏航对齐在首个 IMU/位姿/设备姿态都有效的样本处估计
+    gap.valid_device_orientation[:10] = False
+    assert SequenceView(gap, ViewConfig(dims=2, orientation="device")).yaw_offset == \
+        pytest.approx(dev.yaw_offset)
+
+
 def test_displacement_and_end_velocity_targets(seq):
     starts = np.array([0, 400, 1000])
     disp = SequenceView(seq, ViewConfig(dims=3, target="displacement"))

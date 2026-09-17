@@ -99,10 +99,10 @@ def first_valid_index(valid: np.ndarray) -> int:
 
 
 def device_yaw_offset(seq: Sequence) -> float:
-    """设备世界系 → 参考世界系的常值偏航（首个 IMU/位姿均有效的样本处估计）。"""
+    """设备世界系 → 参考世界系的常值偏航（首个 IMU/位姿/设备姿态均有效的样本处估计）。"""
     if seq.device_orientation is None:
         raise ValueError(f"{seq.sequence_id}: orientation=device requires imu/orientation")
-    k = first_valid_index(seq.valid)
+    k = first_valid_index(seq.valid_device)
     return yaw_offset(seq.orientation[k], seq.device_orientation[k])
 
 
@@ -188,7 +188,8 @@ class SequenceView:
         self.q = input_orientation(seq, cfg, self.yaw_offset)
         self.imu = frame_imu(seq.gyroscope, seq.accelerometer, self.q, cfg).astype(np.float32)
         self.yaw = yaw_from_quat(self.q) if cfg.frame == "gravity_yaw_local" else None
-        self.valid = seq.valid_imu & seq.valid_pose
+        # orientation=device 时设备姿态也必须有效（valid/device_orientation）
+        self.valid = seq.valid_device if cfg.orientation == "device" else seq.valid
 
     def __len__(self) -> int:
         return len(self.seq)

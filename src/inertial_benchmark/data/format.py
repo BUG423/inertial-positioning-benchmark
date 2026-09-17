@@ -78,6 +78,7 @@ class Sequence:
     device_orientation: Optional[np.ndarray] = None  # (N,4) f4，设备自身估计姿态
     velocity: Optional[np.ndarray] = None  # (N,3) f4，仅当来源提供
     attrs: dict = field(default_factory=dict)
+    valid_device_orientation: Optional[np.ndarray] = None  # (N,) bool，仅当有设备姿态时
 
     def __post_init__(self) -> None:
         self.timestamp = np.asarray(self.timestamp, dtype=np.float64)
@@ -91,6 +92,8 @@ class Sequence:
             self.device_orientation = np.asarray(self.device_orientation, dtype=np.float32)
         if self.velocity is not None:
             self.velocity = np.asarray(self.velocity, dtype=np.float32)
+        if self.valid_device_orientation is not None:
+            self.valid_device_orientation = np.asarray(self.valid_device_orientation, dtype=bool)
         self.attrs = dict(self.attrs)
 
     def __len__(self) -> int:
@@ -128,6 +131,17 @@ class Sequence:
         """IMU 与参考位姿同时有效的样本。"""
         return self.valid_imu & self.valid_pose
 
+    @property
+    def valid_device(self) -> np.ndarray:
+        """IMU、参考位姿与设备姿态同时有效的样本（``orientation=device`` 的任务视图使用）。
+
+        设备姿态的缺口只影响本掩码，不影响 ``valid``：使用参考姿态的模型不应因此丢窗口。
+        """
+        both = self.valid
+        if self.valid_device_orientation is None:
+            return both
+        return both & self.valid_device_orientation
+
     def slice(self, start: int, stop: int) -> "Sequence":
         """返回 ``[start, stop)`` 的子序列（时间戳不重置）。"""
         s = slice(start, stop)
@@ -144,6 +158,8 @@ class Sequence:
             else self.device_orientation[s],
             velocity=None if self.velocity is None else self.velocity[s],
             attrs=dict(self.attrs),
+            valid_device_orientation=None if self.valid_device_orientation is None
+            else self.valid_device_orientation[s],
         )
 
     def distance(self, resolution: float = 1.0, dims: int = 2) -> float:
@@ -226,6 +242,7 @@ def _read_v1(f: h5py.File, attrs: dict) -> Sequence:
         device_orientation=opt("imu/orientation"),
         velocity=opt("pose/velocity"),
         attrs=attrs,
+        valid_device_orientation=opt("valid/device_orientation"),
     )
 
 
@@ -326,6 +343,8 @@ def save_sequence(
             put("pose/velocity", seq.velocity, np.float32)
         put("valid/imu", seq.valid_imu, bool)
         put("valid/pose", seq.valid_pose, bool)
+        if seq.device_orientation is not None and seq.valid_device_orientation is not None:
+            put("valid/device_orientation", seq.valid_device_orientation, bool)
         attrs = dict(seq.attrs)
         attrs["schema_version"] = SCHEMA_VERSION
         for key in sorted(attrs):
@@ -388,6 +407,8 @@ def validate(
         shapes["imu/orientation"] = (seq.device_orientation, (n, 4))
     if seq.velocity is not None:
         shapes["pose/velocity"] = (seq.velocity, (n, 3))
+    if seq.valid_device_orientation is not None:
+        shapes["valid/device_orientation"] = (seq.valid_device_orientation, (n,))
     shape_ok = True
     for name, (arr, shape) in shapes.items():
         if arr.shape != shape:
@@ -427,7 +448,12 @@ def validate(
             rep.errors.append(f"{name}: {flips} sign discontinuities (q and -q alternate)")
 
     # 掩码
-    for name, mask in (("valid/imu", seq.valid_imu), ("valid/pose", seq.valid_pose)):
+    masks = [("valid/imu", seq.valid_imu), ("valid/pose", seq.valid_pose)]
+    if seq.valid_device_orientation is not None:
+        masks.append(("valid/device_orientation", seq.valid_device_orientation))
+        if seq.device_orientation is None:
+            rep.errors.append("valid/device_orientation: present although imu/orientation is not")
+    for name, mask in masks:
         if mask.dtype != bool:
             rep.errors.append(f"{name}: expected bool dtype, got {mask.dtype}")
     both = seq.valid_imu & seq.valid_pose if shape_ok else np.zeros(n, bool)
@@ -452,6 +478,12 @@ def validate(
     if seq.device_orientation is None and seq.attrs.get("device_orientation_source",
                                                          "none") != "none":
         rep.warnings.append("attrs: device_orientation_source set but imu/orientation is absent")
+    if seq.valid_device_orientation is not None and shape_ok:
+        frac_dev = float(seq.valid_device.mean())
+        rep.info["valid_fraction_device"] = frac_dev
+        if frac_dev < frac:
+            rep.warnings.append(f"valid/device_orientation: {frac - frac_dev:.1%} of the samples "
+                                "have a valid reference pose but no valid device orientation")
 
     if check_gravity and shape_ok and both.sum() >= rate:
         _check_gravity(seq, both, rate, rep, gravity_tol_deg, gravity_norm_tol)

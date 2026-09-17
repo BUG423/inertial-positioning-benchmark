@@ -205,6 +205,7 @@ class ResampleResult:
     valid_imu: np.ndarray
     valid_pose: np.ndarray
     info: dict = field(default_factory=dict)
+    valid_device: Optional[np.ndarray] = None  # 设备姿态有效性（仅当输入提供设备姿态）
 
     @property
     def description(self) -> str:
@@ -257,12 +258,14 @@ def resample_streams(
     valid_imu = gv & av
 
     arrays = {"gyroscope": gyro, "accelerometer": acc}
+    valid_device = None
     if device_orientation is not None:
         qd = np.asarray(device_orientation, dtype=np.float64)[keep_i]
         qd_ok = _quat_ok(qd)
         arrays["device_orientation"] = _interp_quat(ti, qd, qd_ok, grid)
-        # 设备姿态缺失处视为 IMU 无效：该姿态只用于“设备姿态”视图
-        valid_imu &= valid_on_grid(ti, grid, qd_ok, effective_gap_threshold(ti, gap_threshold))
+        # 设备姿态的缺口只标在它自己的掩码上（DESIGN 2.2 的可选 valid/device_orientation）：
+        # 使用参考姿态的模型不应因为设备姿态缺失而丢弃窗口
+        valid_device = valid_on_grid(ti, grid, qd_ok, effective_gap_threshold(ti, gap_threshold))
 
     pos = np.asarray(position, dtype=np.float64)[keep_p]
     quat = np.asarray(orientation, dtype=np.float64)[keep_p]
@@ -306,6 +309,7 @@ def resample_streams(
         valid_imu=valid_imu,
         valid_pose=valid_pose,
         info=info,
+        valid_device=valid_device,
     )
 
 
@@ -342,6 +346,7 @@ def trim_result(res: ResampleResult, start: int, stop: int) -> ResampleResult:
         valid_imu=res.valid_imu[start:stop],
         valid_pose=res.valid_pose[start:stop],
         info=info,
+        valid_device=None if res.valid_device is None else res.valid_device[start:stop],
     )
 
 
