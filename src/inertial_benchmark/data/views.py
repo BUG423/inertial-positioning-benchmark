@@ -562,13 +562,13 @@ def read_window(handle: Any, start: int, cfg: ViewConfig, yaw_offset: Optional[f
     """惰性模式：从打开的 h5 文件读取一个窗口（含历史子窗口、逐帧/多步目标与额外输入）。
 
     做法是把该样本需要的区间读成一条小 :class:`~inertial_benchmark.data.format.Sequence`，
-    再用同一个 :class:`SequenceView` 做变换，因此与缓存模式逐位一致（末端/逐帧速度的中心差分会
-    多读一个样本；区间已到序列末尾时与缓存模式同样退化为后向差分）。
+    再用同一个 :class:`SequenceView` 做变换，因此与缓存模式逐位一致：区间在两端各多读一个样本，
+    供末端/逐帧速度与初速度的中心差分使用；区间已到序列边界时与缓存模式同样退化为单边差分。
 
     返回 ``{"imu", "target", "mask", "extra", "body_to_frame"}``。
     """
     n = int(handle["timestamp"].shape[0])
-    lo = int(start) - cfg.history_offset
+    lo = max(int(start) - cfg.history_offset - 1, 0)
     hi = min(int(start) + cfg.window + 1, n)
     sl = slice(lo, hi)
     sub = Sequence(

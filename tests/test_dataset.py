@@ -34,10 +34,16 @@ VIEWS = [
     ViewConfig(frame="gravity_yaw_local", dims=2, target="velocity_at_end"),
     ViewConfig(frame="body", dims=3),
     ViewConfig(orientation="device", dims=2),
+    ViewConfig(dims=2, target="frame_velocity"),
+    ViewConfig(dims=3, target="multi_displacement", output_steps=5),
+    ViewConfig(dims=2, history=3, history_stride=50),
+    ViewConfig(dims=2, extra_inputs=("orientation", "gravity", "init_velocity")),
 ]
 
 
-@pytest.mark.parametrize("view", VIEWS, ids=lambda v: f"{v.frame}-{v.orientation}-{v.target}")
+@pytest.mark.parametrize("view", VIEWS,
+                         ids=lambda v: f"{v.frame}-{v.orientation}-{v.target}-h{v.history}"
+                                       f"-{len(v.extra_inputs)}")
 def test_lazy_matches_cached(files, view):
     _, paths = files
     cached = InertialDataset(paths, view, stride=37)
@@ -47,8 +53,33 @@ def test_lazy_matches_cached(files, view):
     for i in range(0, len(cached), 7):
         a, b = cached[i], lazy[i]
         assert a["seq"] == b["seq"] and a["start"] == b["start"]
+        assert a["imu"].shape == (view.sub_windows, 6, view.window) if view.history \
+            else a["imu"].shape == (6, view.window)
         np.testing.assert_allclose(a["imu"].numpy(), b["imu"].numpy(), atol=1e-6)
         np.testing.assert_allclose(a["target"].numpy(), b["target"].numpy(), atol=1e-6)
+        np.testing.assert_array_equal(a["mask"].numpy(), b["mask"].numpy())
+        assert set(a.get("extra", {})) == set(view.extra_inputs)
+        for name in view.extra_inputs:
+            np.testing.assert_allclose(a["extra"][name].numpy(), b["extra"][name].numpy(),
+                                       atol=1e-6)
+
+
+def test_lazy_matches_cached_without_reference_velocity(tmp_path):
+    """没有 pose/velocity 时逐帧目标与初速度走中心差分：惰性模式必须多读边界样本。"""
+    seq = make_sequence(duration=6.0, seed=5, sequence_id="nv")
+    seq.velocity = None
+    path = save_sequence(tmp_path / "nv.h5", seq)
+    for view in (ViewConfig(window=100, dims=3, target="frame_velocity"),
+                 ViewConfig(window=100, dims=3, target="velocity_at_end"),
+                 ViewConfig(window=100, dims=3, extra_inputs=("init_velocity",))):
+        cached = InertialDataset([path], view, stride=53)
+        lazy = InertialDataset([path], view, stride=53, cache=False)
+        for i in range(len(cached)):
+            np.testing.assert_allclose(cached[i]["target"].numpy(), lazy[i]["target"].numpy(),
+                                       atol=1e-6)
+            for name in view.extra_inputs:
+                np.testing.assert_allclose(cached[i]["extra"][name].numpy(),
+                                           lazy[i]["extra"][name].numpy(), atol=1e-6)
 
 
 def test_index_skips_invalid_and_short(files, tmp_path):
@@ -81,6 +112,28 @@ def test_augmentation_reproducible(files):
     aug = InertialDataset(paths, ViewConfig(), stride=20, training=True,
                           augment=["random_yaw"])
     np.testing.assert_allclose(plain[3]["target"].norm(), aug[3]["target"].norm(), rtol=1e-5)
+
+
+def test_augmentations_handle_history_and_extra_inputs(files):
+    """历史子窗口下的增强：偏置按子窗口切片对齐，随机偏航同时旋转目标与姿态类额外输入。"""
+    _, paths = files
+    view = ViewConfig(dims=2, history=3, history_stride=50,
+                      extra_inputs=("orientation", "init_velocity"))
+    plain = InertialDataset(paths, view, stride=40)
+    aug = InertialDataset(paths, view, stride=40, training=True, seed=2,
+                          augment=["random_yaw", {"name": "bias", "gyro": 0.01, "acc": 0.1},
+                                   {"name": "noise", "acc": 0.05}])
+    a, b = plain[4], aug[4]
+    assert b["imu"].shape == a["imu"].shape == (3, 6, 200)
+    np.testing.assert_allclose(b["target"].norm(), a["target"].norm(), rtol=2e-2)
+    np.testing.assert_allclose(b["extra"]["init_velocity"].norm(),
+                               a["extra"]["init_velocity"].norm(), rtol=1e-5)
+    np.testing.assert_allclose(b["extra"]["orientation"].norm(dim=-1).numpy(), 1.0, atol=1e-5)
+    # 只加偏置时，同一子窗口内的偏移恒定，相邻子窗口重叠部分一致
+    bias_only = InertialDataset(paths, view, stride=40, training=True, seed=2,
+                               augment=[{"name": "bias", "acc": 0.2}])
+    delta = (bias_only[4]["imu"] - plain[4]["imu"]).numpy()
+    np.testing.assert_allclose(delta[0, 3:6, 50:], delta[1, 3:6, :150], atol=1e-6)
 
 
 def test_dataloader_independent_of_workers(files):
