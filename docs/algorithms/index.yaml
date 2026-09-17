@@ -1345,6 +1345,115 @@ algorithms:
   - Paper re-splits all datasets randomly 8:1:1 and reports length-normalised metrics x100; not comparable with IPB.
   notes: 'Spec model: stem Conv(6,96,k4,s4)+BN, stages [2,2,6,2] x [96,192,384,768] ADE blocks (4.5C^2+35C params each), BN+Conv(k2,s2)
     downsampling, BN+GAP+Linear head; 10,641,506 params (D=2) vs reported 1.1e7; 35.6M MACs at T=200 vs reported 7.3e7 FLOPs.'
+- name: gnio
+  display_name: GNIO (Motion Bank + Gated Prediction Head)
+  priority: paper-only
+  family: tlio
+  card: docs/algorithms/gnio.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'GNIO: Gated Neural Inertial Odometry'
+    venue: arXiv preprint (submitted to RA-L)
+    year: 2026
+    url: https://arxiv.org/abs/2603.15281
+  repo:
+    url: null
+    commit: null
+    license: n/a (no code released)
+    framework: none
+  input:
+    rate_hz: 200
+    window: 200
+    stride: 20
+    frame: gravity_yaw_local
+    orientation: reference
+    remove_gravity: false
+    channels: '[gyro, acc]'
+    extra: []
+  output:
+    quantity: displacement
+    dims: 3
+    uncertainty: logstd_diag
+  params:
+    official: 4900000
+    benchmark: 4934153
+  requires_orientation: true
+  official_datasets:
+  - OxIOD
+  - RIDI
+  - RoNIN
+  - IDOL
+  - TLIO
+  status: spec-ready
+  pitfalls:
+  - Text claims a two-stage MSE->NLL strategy but Eq. 13 is a static weighted sum (lambda_MSE=1e2, lambda_NLL=1e-4) with no
+    epoch switch.
+  - 'Gated head is per-axis: s = Softplus(W_s h) in R^3, g = Tanh(W_g h) in [-1,1]^3, d = s * g (elementwise) - not magnitude
+    x unit direction.'
+  - Attention dimensions, head count and the pooling that yields f_k in R^512 are unspecified; the derived parameter count
+    varies from -14% to +17% across readings.
+  - Eq. 1 channel order [acc, gyro] contradicts 'following TLIO' ([gyro, acc]).
+  - All reported numbers are EKF-fused; no network-only results, and no logstd floor as in TLIO.
+  notes: Reusable 'gated' output head (Softplus scale x Tanh gate) and optional 'motion_bank' module are the parts IPB needs
+    for ablations on any backbone; Table III shows the gated head alone gives 2.40 -> 1.84 m RMSE.
+- name: velobins
+  display_name: VeloBins (binned velocity + error-conditioned Gaussian labels)
+  priority: paper-only
+  family: airio
+  card: docs/algorithms/velobins.md
+  fixture: null
+  fidelity: paper-only
+  paper:
+    title: 'VeloBins: Learning Velocity and Its Uncertainty via Bins and Error-Conditioned Gaussian Labels for Aerial Inertial
+      Odometry'
+    venue: arXiv preprint
+    year: 2026
+    url: https://arxiv.org/abs/2608.29720
+  repo:
+    url: null
+    commit: null
+    license: n/a (code promised upon acceptance)
+    framework: none
+  input:
+    rate_hz: 100
+    window: 100
+    stride: null
+    frame: body
+    orientation: none
+    remove_gravity: false
+    channels: '[acc, gyro, rotor_rpm_or_pwm]'
+    extra:
+    - rotor_speed_or_pwm
+  output:
+    quantity: body_velocity_bins
+    dims: 3
+    uncertainty: bin_variance
+  params:
+    official: 76600
+    benchmark: 69968
+  requires_orientation: false
+  official_datasets:
+  - AI-IO
+  - NanoBench
+  - TII-RATM
+  - NeuroBEM
+  status: spec-partial
+  pitfalls:
+  - Per-axis (x, y, z) independent classification over N=512 bins on a shared symmetric range [-R, R], R ~= 1.1 x train-split
+    axis-wise max speed; NOT a joint 2-D/3-D binning.
+  - Velocity is decoded as the expectation over bin centres (Eq. 1) and the uncertainty as the variance of the same distribution
+    (Eq. 2); argmax is never used.
+  - Supervision is KL(q||pi) with an error-conditioned Gaussian label (sigma = |v_hat - v| detached, floored at 1/10 bin width,
+    CDF-discretised then exponentially tilted so the label mean is exactly v) plus a Huber loss (delta=0.1 m/s); no NLL loss
+    at all.
+  - 'Official input needs rotor RPM/PWM, which pedestrian datasets do not have: the IPB variant drops that branch and is not
+    the paper configuration.'
+  - Encoder details are inherited from AI-IO and not restated, so only the 6,848-parameter bin decoder can be reproduced exactly.
+  - Bin grid is fixed per dataset; out-of-range velocities are clipped by construction and the paper does not say how they
+    are handled.
+  notes: IPB needs a switchable decode mode (expectation / argmax / topk_expectation) and a reusable 'bins' head so the regression-vs-classification
+    comparison can run on pedestrian backbones.
 - name: pdr
   display_name: PDR (step detection + Weinberg + device heading)
   priority: baseline
