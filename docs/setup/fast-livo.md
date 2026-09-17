@@ -1,6 +1,16 @@
 # FAST-LIVO 环境配置指南
 
-> 来源：原 `fast-livo-setup` 仓库，经规范化后并入本 benchmark。验证环境为 Ubuntu 20.04 + ROS Noetic。\n\n> [!CAUTION]\n> 本文记录的是 ROS 1 时代的历史兼容环境。依赖版本、上游提交和系统支持状态可能变化；执行安装前应核对各上游项目的当前文档，不要将本文视为自动化安装脚本。
+> 来源：原 `fast-livo-setup` 仓库，经规范化后并入本 benchmark。验证环境为 Ubuntu 20.04 + ROS Noetic。
+
+> [!CAUTION]
+> 本文记录的是 ROS 1 时代的历史兼容环境。依赖版本、上游提交和系统支持状态可能变化；执行安装前应核对各上游项目的当前文档，不要将本文视为自动化安装脚本。
+
+| 项目 | 记录 |
+| --- | --- |
+| 文档性质 | 历史环境复现记录，不是官方安装器 |
+| 已验证环境 | Ubuntu 20.04 + ROS Noetic |
+| 原始仓库 | [`BUG423/fast-livo-setup`](https://github.com/BUG423/fast-livo-setup) |
+| 本仓库入口 | `docs/setup/fast-livo.md`（唯一维护入口） |
 
 ## 1. Ubuntu 与 ROS
 
@@ -157,4 +167,8 @@ roslaunch fast_livo mapping_avia.launch
 rosbag play YOUR_DOWNLOADED.bag
 ```
 
-## 来源与维护\n\n本文整理自 FAST-LIVO 相关上游文档与实际复现记录。新增命令或版本约束时，应同时注明验证日期、操作系统、ROS 版本和对应上游提交。
+## 来源与维护
+
+本文由原 `fast-livo-setup` 仓库的 README 规范化迁入，并结合 FAST-LIVO 相关上游文档与实际复现记录整理。原仓库仅包含这份指南；合并后，本文件是该内容的唯一维护入口。
+
+新增命令或版本约束时，应同时注明验证日期、操作系统、ROS 版本和对应上游提交。若上游流程已经变化，请保留历史说明并明确标注新的适用范围。

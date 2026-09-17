@@ -17,6 +17,8 @@ This document prevents executable benchmark code, supporting tools, and research
 
 Shared behavior belongs in `src/inertial_benchmark/`. Dataset-specific conversion scripts and device applications remain under `tools/` until they expose a stable reusable interface.
 
+Environment-specific reproduction notes belong in `docs/setup/`. Each guide must record its validated operating system, middleware version, relevant upstream revision, provenance, and known limitations. A guide is documentation rather than a runnable benchmark component.
+
 Every direct child of `tools/` is one coherent component:
 
 - `inertial-positioning-lab/` owns Android capture, archive conversion, and on-device evaluation;
@@ -41,6 +43,7 @@ Reusable code should then move into a dedicated baseline package rather than rem
 - Directory names use lowercase kebab-case; Python packages use lowercase snake_case.
 - `README.md` is the default or Chinese entry; bilingual components use `README_EN.md` for English.
 - Repository-relative links are preferred and validated in CI.
+- Merged documentation has one canonical maintenance path; duplicate copies and repository-level mirrors are not retained.
 - Generated data, checkpoints, build output, and local environments must not be committed.
 - CI and release workflows belong only in the root `.github/workflows/`; nested `.github/workflows/` directories are not permitted.
 - A path rename must update workflows, tests, documentation, and examples in the same `main` commit.

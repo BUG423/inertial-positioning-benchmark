@@ -25,6 +25,7 @@ Inertial-odometry projects often use incompatible data formats, coordinate frame
 - 📱 **Capture tooling** for phone IMU and ARCore VIO reference trajectories;
 - 🧪 **Research material** including method proposals, empirical studies, and figures;
 - 🧠 **Research workflows** containing only the inertial-odometry skills retained from PaperFlow;
+- 📚 **Reproduction guides** preserving the FAST-LIVO dependency, build, and test workflow for Ubuntu 20.04 + ROS Noetic;
 - ✅ **Automated checks** for the Python core, Android project, conversion tools, and documentation links.
 
 The canonical data layer and Android tooling are available today. Public-dataset adapters, standard baselines, fixed evaluation protocols, and an official leaderboard remain under development.
@@ -53,7 +54,8 @@ Model training / evaluation / on-device deployment
 | Pedestrian Coordinate Frames | 📊 Study | Global-frame versus body-frame analysis |
 | PostDiffIO | 💡 Proposal | Conditional-diffusion posterior refinement and uncertainty modeling |
 | ModeMoEIO | 💡 Proposal | Motion-aware mixture-of-experts routing |
-| PaperFlow IO | 🛠️ Research tool | IO ideation, literature validation, feasibility review, and experiment planning |\n| FAST-LIVO Setup | 📚 Environment guide | Historical FAST-LIVO reproduction notes for ROS Noetic |
+| PaperFlow IO | 🛠️ Research tool | IO ideation, literature validation, feasibility review, and experiment planning |
+| FAST-LIVO Setup | 📚 Environment guide | Historical FAST-LIVO reproduction notes for ROS Noetic |
 | Public Baselines & Leaderboard | 🚧 Planned | Dataset adapters, fixed splits, common metrics, and leaderboard |
 
 ## 🗂️ Repository layout
@@ -62,7 +64,8 @@ Model training / evaluation / on-device deployment
 inertial-positioning-benchmark/
 ├── src/inertial_benchmark/       # Core Python data interfaces
 ├── tests/                        # Core, integration, and documentation checks
-├── docs/                         # Specifications, surveys, environment guides, and policy
+├── docs/                         # Specifications, surveys, reproduction guides, and policy
+│   └── setup/fast-livo.md         # Historical FAST-LIVO environment guide
 ├── tools/
 │   ├── inertial-positioning-lab/ # Android capture and on-device evaluation
 │   └── paperflow-io/             # Inertial-odometry-only research workflows
@@ -142,7 +145,8 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - 💡 [PostDiffIO](research/methods/postdiffio/): conditional-diffusion velocity-residual refinement and uncertainty proposal;
 - 💡 [ModeMoEIO](research/methods/moe-io/): motion-aware mixture-of-experts proposal;
 - 📊 [Pedestrian Coordinate Frames](research/studies/pedestrian-coordinate-frames/): global-frame versus body-frame representations;
-- 🧠 [PaperFlow IO](tools/paperflow-io/): IO-only ideation, literature validation, feasibility review, and experiment-design skills;\n- 📚 [FAST-LIVO setup](docs/setup/fast-livo.md): historical reproduction notes for Ubuntu 20.04 and ROS Noetic.
+- 🧠 [PaperFlow IO](tools/paperflow-io/): IO-only ideation, literature validation, feasibility review, and experiment-design skills;
+- 📚 [FAST-LIVO setup](docs/setup/fast-livo.md): historical reproduction notes for Ubuntu 20.04 and ROS Noetic.
 
 ## 🛣️ Roadmap
 
@@ -150,6 +154,7 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - [x] Implement HDF5 I/O, window datasets, and core tests
 - [x] Integrate Android capture and on-device evaluation tooling
 - [x] Consolidate method proposals, the coordinate study, and PaperFlow IO
+- [x] Archive and integrate the FAST-LIVO ROS 1 reproduction guide
 - [ ] Add the first automatically convertible public-dataset adapter
 - [ ] Integrate at least one end-to-end reproducible baseline
 - [ ] Freeze dataset splits and common evaluation metrics

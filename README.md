@@ -25,6 +25,7 @@
 - 📱 **数据采集工具**：使用 Android 设备采集 IMU 与 ARCore VIO 参考轨迹；
 - 🧪 **研究内容**：保存方法提案、实验研究和相关图表；
 - 🧠 **科研工作流**：仅保留 PaperFlow 中面向惯性里程计的 IO 技能；
+- 📚 **环境复现文档**：归档 FAST-LIVO 在 Ubuntu 20.04 + ROS Noetic 下的依赖、编译与测试记录；
 - ✅ **自动化检查**：验证 Python 核心、Android 工程、转换工具和文档链接。
 
 目前，统一数据层与 Android 工具已经可用；公开数据集适配器、标准基线、固定评测协议和排行榜仍在建设中。
@@ -53,7 +54,8 @@ HDF5 持久化 + WindowDataset 窗口化
 | Pedestrian Coordinate Frames | 📊 研究记录 | Global frame 与 body frame 的实验分析 |
 | PostDiffIO | 💡 方法提案 | 条件扩散后验细化与不确定性建模 |
 | ModeMoEIO | 💡 方法提案 | 面向不同运动状态的混合专家路由 |
-| PaperFlow IO | 🛠️ 研究工具 | IO 选题、文献复核、可行性评审与实验规划 |\n| FAST-LIVO Setup | 📚 环境文档 | ROS Noetic 下的 FAST-LIVO 历史复现与依赖说明 |
+| PaperFlow IO | 🛠️ 研究工具 | IO 选题、文献复核、可行性评审与实验规划 |
+| FAST-LIVO Setup | 📚 环境文档 | ROS Noetic 下的 FAST-LIVO 历史复现与依赖说明 |
 | Public Baselines & Leaderboard | 🚧 规划中 | 数据适配器、固定划分、统一指标与排行榜 |
 
 ## 🗂️ 目录结构
@@ -62,7 +64,8 @@ HDF5 持久化 + WindowDataset 窗口化
 inertial-positioning-benchmark/
 ├── src/inertial_benchmark/       # Python 核心数据接口
 ├── tests/                        # 核心、集成与文档一致性测试
-├── docs/                         # 数据规范、数据集调研、环境配置与项目约定
+├── docs/                         # 数据规范、调研、环境复现与项目约定
+│   └── setup/fast-livo.md         # FAST-LIVO 历史环境复现指南
 ├── tools/
 │   ├── inertial-positioning-lab/ # Android 采集与端侧评测工具
 │   └── paperflow-io/             # 仅面向 IO 的科研工作流
@@ -142,7 +145,8 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 - 💡 [PostDiffIO](research/methods/postdiffio/)：条件扩散速度残差细化与不确定性建模提案；
 - 💡 [ModeMoEIO](research/methods/moe-io/)：运动模式感知混合专家提案；
 - 📊 [Pedestrian Coordinate Frames](research/studies/pedestrian-coordinate-frames/)：global-frame 与 body-frame 表征研究；
-- 🧠 [PaperFlow IO](tools/paperflow-io/)：仅包含 IO 选题、文献复核、可行性评审与实验设计技能；\n- 📚 [FAST-LIVO 环境配置](docs/setup/fast-livo.md)：Ubuntu 20.04 与 ROS Noetic 环境下的历史复现说明。
+- 🧠 [PaperFlow IO](tools/paperflow-io/)：仅包含 IO 选题、文献复核、可行性评审与实验设计技能；
+- 📚 [FAST-LIVO 环境配置](docs/setup/fast-livo.md)：Ubuntu 20.04 与 ROS Noetic 环境下的历史复现说明。
 
 ## 🛣️ 路线图
 
@@ -150,6 +154,7 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 - [x] 实现 HDF5 I/O、窗口数据集和核心测试
 - [x] 集成 Android 数据采集与端侧评测工具
 - [x] 整合研究方法、坐标系研究和 PaperFlow IO
+- [x] 归档并整合 FAST-LIVO 的 ROS 1 环境复现指南
 - [ ] 接入首个可自动转换的公开数据集适配器
 - [ ] 集成至少一个端到端可复现基线
 - [ ] 固化数据划分与统一评测指标
