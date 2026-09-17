@@ -1,0 +1,1600 @@
+{
+ "name": "eqnio_tlio",
+ "source_repo": "https://github.com/RoyinaJayanth/EqNIO",
+ "commit": "97b7a60a5e5cc8f0132bba343c83de114211f827",
+ "input_shape": [
+  1,
+  6,
+  200
+ ],
+ "output_shape": {
+  "frame": [
+   1,
+   2,
+   2
+  ],
+  "disp": [
+   1,
+   3
+  ],
+  "logstd": [
+   1,
+   3
+  ]
+ },
+ "total_params": 6020230,
+ "trainable_params": 6020230,
+ "param_shapes": [
+  [
+   64,
+   3
+  ],
+  [
+   64,
+   9
+  ],
+  [
+   128,
+   128
+  ],
+  [
+   128
+  ],
+  [
+   64,
+   64,
+   32,
+   1
+  ],
+  [
+   64,
+   64,
+   32,
+   1
+  ],
+  [
+   128,
+   128
+  ],
+  [
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64,
+   32,
+   1
+  ],
+  [
+   64,
+   64,
+   32,
+   1
+  ],
+  [
+   128,
+   128
+  ],
+  [
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64
+  ],
+  [
+   64,
+   64
+  ],
+  [
+   64,
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64
+  ],
+  [
+   64
+  ],
+  [
+   2,
+   64
+  ],
+  [
+   64,
+   6,
+   7
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64,
+   3
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64,
+   3
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64,
+   3
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64,
+   64,
+   3
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   128,
+   64,
+   3
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128,
+   128,
+   3
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128,
+   64,
+   1
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128,
+   128,
+   3
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128,
+   128,
+   3
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   256,
+   128,
+   3
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   256,
+   256,
+   3
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   256,
+   128,
+   1
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   256,
+   256,
+   3
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   256,
+   256,
+   3
+  ],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [
+   512,
+   256,
+   3
+  ],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   512,
+   3
+  ],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   256,
+   1
+  ],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   512,
+   3
+  ],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   512,
+   3
+  ],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [
+   128,
+   512,
+   1
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   512,
+   896
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   512
+  ],
+  [
+   512
+  ],
+  [
+   3,
+   512
+  ],
+  [
+   3
+  ],
+  [
+   128,
+   512,
+   1
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   512,
+   896
+  ],
+  [
+   512
+  ],
+  [
+   512,
+   512
+  ],
+  [
+   512
+  ],
+  [
+   3,
+   512
+  ],
+  [
+   3
+  ]
+ ],
+ "notes": "Official EqNIO O(2) canonical-frame model with TLIO ResNet1D backbone (TLIO-master/src/network/model_eqvncnn_frame_v2_o2.py::Eq_Motion_Model_fullCov, arch eq_o2_frame_fullCov_2vec_2deep, net_config in_dim=200//32+1=7). IPB input (B,6,200) [gyro, acc] -> dataset-side preprocess_o2 (9 ch: a, v1, v2) -> train.py preprocess_o2 -> vector (B,200,2,3), scalar (B,200,9), original_scalars (B,200,3). disp/logstd are expressed in the canonical frame (xy rotated by frame F^T, z untouched); the official code rotates targets into the canonical frame for the loss and rotates predictions back only at test time. LayerNorm 'beta' are buffers. param order = named_parameters().",
+ "param_names": [
+  "vnlinear_layer0.vector_linear.weight",
+  "slinear_layer0.weight",
+  "nonlinearity0.linear.weight",
+  "nonlinearity0.layer_norm.gamma",
+  "layers.0.0.conv_layer_vec.weight",
+  "layers.0.0.conv_layer_sca.weight",
+  "layers.0.1.linear.weight",
+  "layers.0.1.layer_norm.gamma",
+  "layers.0.2.ln.gamma",
+  "layers.0.3.gamma",
+  "layers.1.0.conv_layer_vec.weight",
+  "layers.1.0.conv_layer_sca.weight",
+  "layers.1.1.linear.weight",
+  "layers.1.1.layer_norm.gamma",
+  "layers.1.2.ln.gamma",
+  "layers.1.3.gamma",
+  "vnlinear_layer1.vector_linear.weight",
+  "slinear_layer1.weight",
+  "nonlinearity1.linear.weight",
+  "nonlinearity1.layer_norm.gamma",
+  "vnlinear_layer2.vector_linear.weight",
+  "vector_ln1.ln.gamma",
+  "vnoutput_layer.vector_linear.weight",
+  "tlio.input_block.0.weight",
+  "tlio.input_block.1.weight",
+  "tlio.input_block.1.bias",
+  "tlio.residual_groups.0.0.conv1.weight",
+  "tlio.residual_groups.0.0.bn1.weight",
+  "tlio.residual_groups.0.0.bn1.bias",
+  "tlio.residual_groups.0.0.conv2.weight",
+  "tlio.residual_groups.0.0.bn2.weight",
+  "tlio.residual_groups.0.0.bn2.bias",
+  "tlio.residual_groups.0.1.conv1.weight",
+  "tlio.residual_groups.0.1.bn1.weight",
+  "tlio.residual_groups.0.1.bn1.bias",
+  "tlio.residual_groups.0.1.conv2.weight",
+  "tlio.residual_groups.0.1.bn2.weight",
+  "tlio.residual_groups.0.1.bn2.bias",
+  "tlio.residual_groups.1.0.conv1.weight",
+  "tlio.residual_groups.1.0.bn1.weight",
+  "tlio.residual_groups.1.0.bn1.bias",
+  "tlio.residual_groups.1.0.conv2.weight",
+  "tlio.residual_groups.1.0.bn2.weight",
+  "tlio.residual_groups.1.0.bn2.bias",
+  "tlio.residual_groups.1.0.downsample.0.weight",
+  "tlio.residual_groups.1.0.downsample.1.weight",
+  "tlio.residual_groups.1.0.downsample.1.bias",
+  "tlio.residual_groups.1.1.conv1.weight",
+  "tlio.residual_groups.1.1.bn1.weight",
+  "tlio.residual_groups.1.1.bn1.bias",
+  "tlio.residual_groups.1.1.conv2.weight",
+  "tlio.residual_groups.1.1.bn2.weight",
+  "tlio.residual_groups.1.1.bn2.bias",
+  "tlio.residual_groups.2.0.conv1.weight",
+  "tlio.residual_groups.2.0.bn1.weight",
+  "tlio.residual_groups.2.0.bn1.bias",
+  "tlio.residual_groups.2.0.conv2.weight",
+  "tlio.residual_groups.2.0.bn2.weight",
+  "tlio.residual_groups.2.0.bn2.bias",
+  "tlio.residual_groups.2.0.downsample.0.weight",
+  "tlio.residual_groups.2.0.downsample.1.weight",
+  "tlio.residual_groups.2.0.downsample.1.bias",
+  "tlio.residual_groups.2.1.conv1.weight",
+  "tlio.residual_groups.2.1.bn1.weight",
+  "tlio.residual_groups.2.1.bn1.bias",
+  "tlio.residual_groups.2.1.conv2.weight",
+  "tlio.residual_groups.2.1.bn2.weight",
+  "tlio.residual_groups.2.1.bn2.bias",
+  "tlio.residual_groups.3.0.conv1.weight",
+  "tlio.residual_groups.3.0.bn1.weight",
+  "tlio.residual_groups.3.0.bn1.bias",
+  "tlio.residual_groups.3.0.conv2.weight",
+  "tlio.residual_groups.3.0.bn2.weight",
+  "tlio.residual_groups.3.0.bn2.bias",
+  "tlio.residual_groups.3.0.downsample.0.weight",
+  "tlio.residual_groups.3.0.downsample.1.weight",
+  "tlio.residual_groups.3.0.downsample.1.bias",
+  "tlio.residual_groups.3.1.conv1.weight",
+  "tlio.residual_groups.3.1.bn1.weight",
+  "tlio.residual_groups.3.1.bn1.bias",
+  "tlio.residual_groups.3.1.conv2.weight",
+  "tlio.residual_groups.3.1.bn2.weight",
+  "tlio.residual_groups.3.1.bn2.bias",
+  "tlio.output_block1.prep1.weight",
+  "tlio.output_block1.bn1.weight",
+  "tlio.output_block1.bn1.bias",
+  "tlio.output_block1.fc1.weight",
+  "tlio.output_block1.fc1.bias",
+  "tlio.output_block1.fc2.weight",
+  "tlio.output_block1.fc2.bias",
+  "tlio.output_block1.fc3.weight",
+  "tlio.output_block1.fc3.bias",
+  "tlio.output_block2.prep1.weight",
+  "tlio.output_block2.bn1.weight",
+  "tlio.output_block2.bn1.bias",
+  "tlio.output_block2.fc1.weight",
+  "tlio.output_block2.fc1.bias",
+  "tlio.output_block2.fc2.weight",
+  "tlio.output_block2.fc2.bias",
+  "tlio.output_block2.fc3.weight",
+  "tlio.output_block2.fc3.bias"
+ ],
+ "buffer_shapes": [
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [],
+  [
+   256
+  ],
+  [
+   256
+  ],
+  [],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [],
+  [
+   512
+  ],
+  [
+   512
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  []
+ ],
+ "framework": "pytorch",
+ "license": "none (no LICENSE file; TLIO-derived files keep Meta BSD headers; EqNIO additions all rights reserved by default)",
+ "official_arch": "eq_o2_frame_fullCov_2vec_2deep",
+ "official_forward_inputs": {
+  "vector": [
+   1,
+   200,
+   2,
+   3
+  ],
+  "scalar": [
+   1,
+   200,
+   9
+  ],
+  "original_scalars": [
+   1,
+   200,
+   3
+  ]
+ },
+ "official_forward_outputs": {
+  "frame": [
+   1,
+   2,
+   2
+  ],
+  "disp_canonical": [
+   1,
+   3
+  ],
+  "logstd_canonical": [
+   1,
+   3
+  ]
+ },
+ "frame_network_params": 595584,
+ "backbone_params": 5424646,
+ "official_config": {
+  "description": "Official == benchmark architecture: TLIO ResNet1D (6->3 disp + 3 logstd, FC in_dim 7) + O(2) frame net (hidden 64, depth 2, kernel (32,1)); 1 s window @ 200 Hz; outputs 3-D displacement and diagonal log-std in the canonical frame.",
+  "input_shape": [
+   1,
+   6,
+   200
+  ],
+  "output_shape": {
+   "frame": [
+    1,
+    2,
+    2
+   ],
+   "disp": [
+    1,
+    3
+   ],
+   "logstd": [
+    1,
+    3
+   ]
+  },
+  "total_params": 6020230
+ },
+ "benchmark_config": {
+  "description": "Architecture unchanged. IPB wrapper maps canonical outputs to world: disp_w=[F d'_xy, d'_z], Sigma_w=diag-block(F Sigma'_xy F^T, sigma_z^2); vel=disp_w/((T-1)*dt) for target=avg_velocity (dims=3; 2-D metrics use xy)."
+ },
+ "variants": {
+  "so2": {
+   "arch": "eq_vn_cnn_wo_t_tlio_frame_fullCov_frameop_2vec",
+   "total_params": 8884870,
+   "frame_network_params": 3460224,
+   "param_shapes": [
+    [
+     128,
+     4
+    ],
+    [
+     128,
+     5
+    ],
+    [
+     256,
+     256
+    ],
+    [
+     256
+    ],
+    [
+     128,
+     256,
+     32,
+     1
+    ],
+    [
+     128,
+     128,
+     32,
+     1
+    ],
+    [
+     256,
+     256
+    ],
+    [
+     256
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     256,
+     32,
+     1
+    ],
+    [
+     128,
+     128,
+     32,
+     1
+    ],
+    [
+     256,
+     256
+    ],
+    [
+     256
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     256
+    ],
+    [
+     128,
+     128
+    ],
+    [
+     128,
+     256
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     256
+    ],
+    [
+     128
+    ],
+    [
+     2,
+     256
+    ],
+    [
+     64,
+     6,
+     7
+    ],
+    [
+     64
+    ],
+    [
+     64
+    ],
+    [
+     64,
+     64,
+     3
+    ],
+    [
+     64
+    ],
+    [
+     64
+    ],
+    [
+     64,
+     64,
+     3
+    ],
+    [
+     64
+    ],
+    [
+     64
+    ],
+    [
+     64,
+     64,
+     3
+    ],
+    [
+     64
+    ],
+    [
+     64
+    ],
+    [
+     64,
+     64,
+     3
+    ],
+    [
+     64
+    ],
+    [
+     64
+    ],
+    [
+     128,
+     64,
+     3
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     128,
+     3
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     64,
+     1
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     128,
+     3
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     128,
+     128,
+     3
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     256,
+     128,
+     3
+    ],
+    [
+     256
+    ],
+    [
+     256
+    ],
+    [
+     256,
+     256,
+     3
+    ],
+    [
+     256
+    ],
+    [
+     256
+    ],
+    [
+     256,
+     128,
+     1
+    ],
+    [
+     256
+    ],
+    [
+     256
+    ],
+    [
+     256,
+     256,
+     3
+    ],
+    [
+     256
+    ],
+    [
+     256
+    ],
+    [
+     256,
+     256,
+     3
+    ],
+    [
+     256
+    ],
+    [
+     256
+    ],
+    [
+     512,
+     256,
+     3
+    ],
+    [
+     512
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     512,
+     3
+    ],
+    [
+     512
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     256,
+     1
+    ],
+    [
+     512
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     512,
+     3
+    ],
+    [
+     512
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     512,
+     3
+    ],
+    [
+     512
+    ],
+    [
+     512
+    ],
+    [
+     128,
+     512,
+     1
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     512,
+     896
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     512
+    ],
+    [
+     512
+    ],
+    [
+     3,
+     512
+    ],
+    [
+     3
+    ],
+    [
+     128,
+     512,
+     1
+    ],
+    [
+     128
+    ],
+    [
+     128
+    ],
+    [
+     512,
+     896
+    ],
+    [
+     512
+    ],
+    [
+     512,
+     512
+    ],
+    [
+     512
+    ],
+    [
+     3,
+     512
+    ],
+    [
+     3
+    ]
+   ],
+   "param_names": [
+    "vnlinear_layer0.vector_linear.weight",
+    "slinear_layer0.weight",
+    "nonlinearity0.linear.weight",
+    "nonlinearity0.layer_norm.gamma",
+    "layers.0.0.conv_layer_vec.weight",
+    "layers.0.0.conv_layer_sca.weight",
+    "layers.0.1.linear.weight",
+    "layers.0.1.layer_norm.gamma",
+    "layers.0.2.ln.gamma",
+    "layers.0.3.gamma",
+    "layers.1.0.conv_layer_vec.weight",
+    "layers.1.0.conv_layer_sca.weight",
+    "layers.1.1.linear.weight",
+    "layers.1.1.layer_norm.gamma",
+    "layers.1.2.ln.gamma",
+    "layers.1.3.gamma",
+    "vnlinear_layer1.vector_linear.weight",
+    "slinear_layer1.weight",
+    "nonlinearity1.linear.weight",
+    "nonlinearity1.layer_norm.gamma",
+    "vnlinear_layer2.vector_linear.weight",
+    "vector_ln1.ln.gamma",
+    "vnoutput_layer.vector_linear.weight",
+    "tlio.input_block.0.weight",
+    "tlio.input_block.1.weight",
+    "tlio.input_block.1.bias",
+    "tlio.residual_groups.0.0.conv1.weight",
+    "tlio.residual_groups.0.0.bn1.weight",
+    "tlio.residual_groups.0.0.bn1.bias",
+    "tlio.residual_groups.0.0.conv2.weight",
+    "tlio.residual_groups.0.0.bn2.weight",
+    "tlio.residual_groups.0.0.bn2.bias",
+    "tlio.residual_groups.0.1.conv1.weight",
+    "tlio.residual_groups.0.1.bn1.weight",
+    "tlio.residual_groups.0.1.bn1.bias",
+    "tlio.residual_groups.0.1.conv2.weight",
+    "tlio.residual_groups.0.1.bn2.weight",
+    "tlio.residual_groups.0.1.bn2.bias",
+    "tlio.residual_groups.1.0.conv1.weight",
+    "tlio.residual_groups.1.0.bn1.weight",
+    "tlio.residual_groups.1.0.bn1.bias",
+    "tlio.residual_groups.1.0.conv2.weight",
+    "tlio.residual_groups.1.0.bn2.weight",
+    "tlio.residual_groups.1.0.bn2.bias",
+    "tlio.residual_groups.1.0.downsample.0.weight",
+    "tlio.residual_groups.1.0.downsample.1.weight",
+    "tlio.residual_groups.1.0.downsample.1.bias",
+    "tlio.residual_groups.1.1.conv1.weight",
+    "tlio.residual_groups.1.1.bn1.weight",
+    "tlio.residual_groups.1.1.bn1.bias",
+    "tlio.residual_groups.1.1.conv2.weight",
+    "tlio.residual_groups.1.1.bn2.weight",
+    "tlio.residual_groups.1.1.bn2.bias",
+    "tlio.residual_groups.2.0.conv1.weight",
+    "tlio.residual_groups.2.0.bn1.weight",
+    "tlio.residual_groups.2.0.bn1.bias",
+    "tlio.residual_groups.2.0.conv2.weight",
+    "tlio.residual_groups.2.0.bn2.weight",
+    "tlio.residual_groups.2.0.bn2.bias",
+    "tlio.residual_groups.2.0.downsample.0.weight",
+    "tlio.residual_groups.2.0.downsample.1.weight",
+    "tlio.residual_groups.2.0.downsample.1.bias",
+    "tlio.residual_groups.2.1.conv1.weight",
+    "tlio.residual_groups.2.1.bn1.weight",
+    "tlio.residual_groups.2.1.bn1.bias",
+    "tlio.residual_groups.2.1.conv2.weight",
+    "tlio.residual_groups.2.1.bn2.weight",
+    "tlio.residual_groups.2.1.bn2.bias",
+    "tlio.residual_groups.3.0.conv1.weight",
+    "tlio.residual_groups.3.0.bn1.weight",
+    "tlio.residual_groups.3.0.bn1.bias",
+    "tlio.residual_groups.3.0.conv2.weight",
+    "tlio.residual_groups.3.0.bn2.weight",
+    "tlio.residual_groups.3.0.bn2.bias",
+    "tlio.residual_groups.3.0.downsample.0.weight",
+    "tlio.residual_groups.3.0.downsample.1.weight",
+    "tlio.residual_groups.3.0.downsample.1.bias",
+    "tlio.residual_groups.3.1.conv1.weight",
+    "tlio.residual_groups.3.1.bn1.weight",
+    "tlio.residual_groups.3.1.bn1.bias",
+    "tlio.residual_groups.3.1.conv2.weight",
+    "tlio.residual_groups.3.1.bn2.weight",
+    "tlio.residual_groups.3.1.bn2.bias",
+    "tlio.output_block1.prep1.weight",
+    "tlio.output_block1.bn1.weight",
+    "tlio.output_block1.bn1.bias",
+    "tlio.output_block1.fc1.weight",
+    "tlio.output_block1.fc1.bias",
+    "tlio.output_block1.fc2.weight",
+    "tlio.output_block1.fc2.bias",
+    "tlio.output_block1.fc3.weight",
+    "tlio.output_block1.fc3.bias",
+    "tlio.output_block2.prep1.weight",
+    "tlio.output_block2.bn1.weight",
+    "tlio.output_block2.bn1.bias",
+    "tlio.output_block2.fc1.weight",
+    "tlio.output_block2.fc1.bias",
+    "tlio.output_block2.fc2.weight",
+    "tlio.output_block2.fc2.bias",
+    "tlio.output_block2.fc3.weight",
+    "tlio.output_block2.fc3.bias"
+   ],
+   "note": "TLIO + SO(2) Eq. Frame (paper: 8,884,870 params); hidden 128, depth 2, kernel (32,1)."
+  }
+ },
+ "equivariance_evidence": {
+  "o2_random_init": {
+   "label": "random init (torch.manual_seed(0)), eval, float64",
+   "dtype": "float64",
+   "scale_disp": 0.3099200304199106,
+   "max_abs_err": {
+    "rot:disp_world": 3.5138558729386205e-14,
+    "rot:cov_world": 5.076494780098528e-14,
+    "rot:disp_canonical_invariant": 8.43769498715119e-15,
+    "rot:logstd_invariant": 4.08006961549745e-15,
+    "rot:frame": 1.345867861601846e-13,
+    "rot:backbone_input": 9.42801392511683e-13,
+    "refl:disp_world": 5.562911242762425e-14,
+    "refl:cov_world": 7.815970093361102e-14,
+    "refl:disp_canonical_invariant": 1.4210854715202004e-14,
+    "refl:logstd_invariant": 5.35682609381638e-15,
+    "refl:frame": 1.9251267247000214e-13,
+    "refl:backbone_input": 1.4437340212225536e-12,
+    "refl_gyro_as_proper_vector:disp_world": 0.518862554290467,
+    "refl_gyro_as_proper_vector:cov_world": 0.4489754189706971,
+    "refl_gyro_as_proper_vector:disp_canonical_invariant": 0.11772666673988236,
+    "refl_gyro_as_proper_vector:logstd_invariant": 0.06225670840325085,
+    "refl_gyro_as_proper_vector:frame": 1.9489167499485105,
+    "refl_gyro_as_proper_vector:backbone_input": 12.318645561795503
+   },
+   "backbone_channels": "[a'_x, a'_y, a_z, s*w'_x, s*w'_y, s*w_z], s=det(F), (a',w')=F^T(a,w)",
+   "backbone_channel_check_max_abs_err": 2.220446049250313e-15,
+   "frame_det_values": [
+    -1.0,
+    1.0
+   ]
+  },
+  "so2_random_init": {
+   "label": "random init (torch.manual_seed(0)), eval, float64",
+   "dtype": "float64",
+   "scale_disp": 0.3149653903444336,
+   "max_abs_err": {
+    "rot:disp_world": 1.68882130502368e-11,
+    "rot:cov_world": 4.9475090690975776e-11,
+    "rot:disp_canonical_invariant": 4.019673482957842e-12,
+    "rot:logstd_invariant": 3.563926931349215e-12,
+    "rot:frame": 4.8665627083721574e-11,
+    "rot:backbone_input": 3.3116487330175914e-10,
+    "refl:disp_world": 0.6134973874787177,
+    "refl:cov_world": 0.900899935013619,
+    "refl:disp_canonical_invariant": 0.08281513138227373,
+    "refl:logstd_invariant": 0.10528876418059341,
+    "refl:frame": 1.9723178250876416,
+    "refl:backbone_input": 12.617289338957331,
+    "refl_gyro_as_proper_vector:disp_world": 0.5616865789373757,
+    "refl_gyro_as_proper_vector:cov_world": 0.8288793903742026,
+    "refl_gyro_as_proper_vector:disp_canonical_invariant": 0.08628078775421735,
+    "refl_gyro_as_proper_vector:logstd_invariant": 0.058581150822994754,
+    "refl_gyro_as_proper_vector:frame": 1.8991037754364888,
+    "refl_gyro_as_proper_vector:backbone_input": 12.783824622537036
+   },
+   "backbone_channels": "[a'_x, w'_x, a'_y, w'_y, w_z, a_z], (a',w')=F^T(a,w)",
+   "backbone_channel_check_max_abs_err": 0.0,
+   "frame_det_values": [
+    -1.0,
+    1.0
+   ]
+  },
+  "o2_pretrained": {
+   "label": "official pretrained TLIO_o2/checkpoint_best.pt (epoch 24), eval, float64",
+   "dtype": "float64",
+   "scale_disp": 0.08338988363682441,
+   "max_abs_err": {
+    "rot:disp_world": 2.3592239273284576e-16,
+    "rot:cov_world": 3.382710778154774e-17,
+    "rot:disp_canonical_invariant": 2.5673907444456745e-16,
+    "rot:logstd_invariant": 3.1086244689504383e-15,
+    "rot:frame": 2.858824288409778e-15,
+    "rot:backbone_input": 1.6209256159527285e-14,
+    "refl:disp_world": 3.0184188481996443e-16,
+    "refl:cov_world": 1.9081958235744878e-17,
+    "refl:disp_canonical_invariant": 2.3592239273284576e-16,
+    "refl:logstd_invariant": 2.6645352591003757e-15,
+    "refl:frame": 2.831068712794149e-15,
+    "refl:backbone_input": 1.6209256159527285e-14,
+    "refl_gyro_as_proper_vector:disp_world": 0.08997918881735928,
+    "refl_gyro_as_proper_vector:cov_world": 0.00590469293553798,
+    "refl_gyro_as_proper_vector:disp_canonical_invariant": 0.08072999536166975,
+    "refl_gyro_as_proper_vector:logstd_invariant": 0.7592069412297149,
+    "refl_gyro_as_proper_vector:frame": 1.7595468319070242,
+    "refl_gyro_as_proper_vector:backbone_input": 13.932896926584103
+   },
+   "backbone_channels": "[a'_x, a'_y, a_z, s*w'_x, s*w'_y, s*w_z], s=det(F), (a',w')=F^T(a,w)",
+   "backbone_channel_check_max_abs_err": 1.7763568394002505e-15,
+   "frame_det_values": [
+    -1.0,
+    1.0
+   ]
+  },
+  "so2_pretrained": {
+   "label": "official pretrained TLIO_so2/checkpoint_best.pt (epoch 22), eval, float64",
+   "dtype": "float64",
+   "scale_disp": 0.5032074046491224,
+   "max_abs_err": {
+    "rot:disp_world": 2.1649348980190553e-15,
+    "rot:cov_world": 3.608224830031759e-16,
+    "rot:disp_canonical_invariant": 1.5543122344752192e-15,
+    "rot:logstd_invariant": 2.220446049250313e-15,
+    "rot:frame": 8.881784197001252e-16,
+    "rot:backbone_input": 5.551115123125783e-15,
+    "refl:disp_world": 0.7455390003070702,
+    "refl:cov_world": 0.054350175483333346,
+    "refl:disp_canonical_invariant": 0.4583039039010203,
+    "refl:logstd_invariant": 0.7962559744577189,
+    "refl:frame": 1.7849473083219984,
+    "refl:backbone_input": 13.687154548154385,
+    "refl_gyro_as_proper_vector:disp_world": 0.394542268501056,
+    "refl_gyro_as_proper_vector:cov_world": 0.041338599281404854,
+    "refl_gyro_as_proper_vector:disp_canonical_invariant": 0.31603377583277237,
+    "refl_gyro_as_proper_vector:logstd_invariant": 0.8721215246943224,
+    "refl_gyro_as_proper_vector:frame": 1.7080117535855637,
+    "refl_gyro_as_proper_vector:backbone_input": 11.792003107609862
+   },
+   "backbone_channels": "[a'_x, w'_x, a'_y, w'_y, w_z, a_z], (a',w')=F^T(a,w)",
+   "backbone_channel_check_max_abs_err": 0.0,
+   "frame_det_values": [
+    -1.0
+   ]
+  }
+ },
+ "loss_evidence": {
+  "epoch9_is_mse": 0.0,
+  "epoch10_is_diag_nll": 0.0,
+  "sum_axes_diag_nll_minus_world_full_nll": 4.440892098500626e-16,
+  "mse_phase_cov_head_grads_are_None": true
+ },
+ "zero_grad_evidence": {
+  "result": {
+   "eq_o2_frame_fullCov_2vec_2deep": {
+    "batches": 3,
+    "optimizer.zero_grad_calls": 0
+   },
+   "eq_vn_cnn_wo_t_tlio_frame_fullCov_frameop_2vec": {
+    "batches": 3,
+    "optimizer.zero_grad_calls": 0
+   },
+   "resnet": {
+    "batches": 3,
+    "optimizer.zero_grad_calls": 3
+   }
+  },
+  "meaning": "network/train.py::do_train never calls optimizer.zero_grad() for EqNIO frame archs -> gradients accumulate across iterations (clip_grad_norm_ 0.1 applied to the accumulated gradient)."
+ },
+ "pretrained_golden": {
+  "input_formula": "t=k/200 for k=0..199; for batch b in {0,1}: gyro_x=0.3*sin(2*pi*(1+b)*t), gyro_y=0.2*cos(2*pi*1.5*t), gyro_z=0.1*sin(2*pi*0.5*t+b), acc_x=1.5*sin(2*pi*2*t+b), acc_y=1.0*cos(2*pi*2*t), acc_z=9.81+0.5*sin(2*pi*4*t); tensor (2,6,200) float64, channels [gyro_xyz, acc_xyz]",
+  "tolerance_hint": "abs 1e-4 in float64 with strict state_dict load; O(2) vectors built by dataloader/sequences_dataset.py::preprocess_o2",
+  "gdrive_ids": {
+   "o2": "1N2kmaHSeNX0UXca8V1Iu5oRQsCvg6oOt",
+   "so2": "1kae7J8VEj2DxmSa--1COpwPzcXhsp5zk"
+  },
+  "outputs": {
+   "o2": {
+    "checkpoint_file": "tlio_o2/TLIO_o2/checkpoint_best.pt",
+    "checkpoint_sha256": "26e6e3ad879f5cfb5aa328e8dde50fd0be43645ca558c91b665e748c1802cd2d",
+    "checkpoint_epoch": 24,
+    "disp_canonical": [
+     [
+      -0.06597123074142536,
+      0.050215077825990724,
+      0.006945059279632303
+     ],
+     [
+      -0.013550896937789929,
+      0.002580095865693556,
+      0.0014465271522340925
+     ]
+    ],
+    "logstd_canonical": [
+     [
+      -3.274669835719048,
+      -3.2000953360214472,
+      -3.735211121734847
+     ],
+     [
+      -3.3140586770692018,
+      -3.6101557631457863,
+      -4.269664580198086
+     ]
+    ],
+    "frame": [
+     [
+      [
+       -0.31697999381700404,
+       -0.9484322239990437
+      ],
+      [
+       0.9484322239990437,
+       -0.31697999381700354
+      ]
+     ],
+     [
+      [
+       -0.9498422909232109,
+       -0.31272931166385154
+      ],
+      [
+       0.3127293116638515,
+       -0.9498422909232109
+      ]
+     ]
+    ],
+    "disp_world": [
+     [
+      0.0685371582533066,
+      0.04665206603324124,
+      0.006945059279632303
+     ],
+     [
+      0.013678086595559804,
+      0.001787078503910966,
+      0.0014465271522340925
+     ]
+    ],
+    "cov_world": [
+     [
+      [
+       0.0016381128287655043,
+       -6.920001394488133e-05,
+       0.0
+      ],
+      [
+       -6.920001394488138e-05,
+       0.00145418791843277,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0005696876991750887
+      ]
+     ],
+     [
+      [
+       0.00126484378300189,
+       0.00017557540242370113,
+       0.0
+      ],
+      [
+       0.0001755754024237011,
+       0.0007893815223149097,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.00019562144675330985
+      ]
+     ]
+    ]
+   },
+   "so2": {
+    "checkpoint_file": "tlio_so2/TLIO_so2/checkpoint_best.pt",
+    "checkpoint_sha256": "e82f58e8f0393431eb8a26e321445654a210fc0571232e6906e88271c318d082",
+    "checkpoint_epoch": 22,
+    "disp_canonical": [
+     [
+      -0.009327121313078742,
+      0.02177594212755437,
+      0.019851749944760026
+     ],
+     [
+      0.06106058971838764,
+      -0.05759699025032692,
+      0.010459952618930278
+     ]
+    ],
+    "logstd_canonical": [
+     [
+      -2.5041031330491665,
+      -2.48371653741948,
+      -3.455711876709204
+     ],
+     [
+      -2.1991626438449345,
+      -2.1766594140520277,
+      -3.7984899268173473
+     ]
+    ],
+    "frame": [
+     [
+      [
+       0.15145117129191152,
+       0.9884647402483855
+      ],
+      [
+       0.9884647402483854,
+       -0.15145117129191157
+      ]
+     ],
+     [
+      [
+       0.8329112750258817,
+       -0.5534065485109118
+      ],
+      [
+       -0.5534065485109119,
+       -0.8329112750258817
+      ]
+     ]
+    ],
+    "disp_world": [
+     [
+      0.020112147531129373,
+      -0.01251752248720055,
+      0.019851749944760026
+     ],
+     [
+      0.08273260521522455,
+      0.0141818523809593,
+      0.010459952618930278
+     ]
+    ],
+    "cov_world": [
+     [
+      [
+       0.006954614251452627,
+       -4.163475812467808e-05,
+       0.0
+      ],
+      [
+       -4.163475812467765e-05,
+       0.006689259088673977,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0009963382461954072
+      ]
+     ],
+     [
+      [
+       0.012471300425332243,
+       0.0002609511202835658,
+       0.0
+      ],
+      [
+       0.0002609511202835658,
+       0.012690665807913826,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0005019651546976145
+      ]
+     ]
+    ]
+   }
+  }
+ }
+}

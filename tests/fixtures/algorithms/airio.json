@@ -1,0 +1,452 @@
+{
+ "name": "airio",
+ "source_repo": "https://github.com/Air-IO/Air-IO",
+ "commit": "7214e8a6ddee95ca07a64f01f1fa3e2f8f60df73",
+ "input_shape": {
+  "imu": [
+   4,
+   6,
+   1000
+  ],
+  "rot": [
+   4,
+   3,
+   1000
+  ]
+ },
+ "output_shape": {
+  "net_vel": [
+   4,
+   112,
+   3
+  ],
+  "cov": [
+   4,
+   112,
+   3
+  ]
+ },
+ "total_params": 387014,
+ "trainable_params": 387014,
+ "param_shapes": [
+  [
+   32,
+   6,
+   7
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   64,
+   32,
+   7
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   192,
+   64
+  ],
+  [
+   192,
+   64
+  ],
+  [
+   192
+  ],
+  [
+   192
+  ],
+  [
+   192,
+   64
+  ],
+  [
+   192,
+   64
+  ],
+  [
+   192
+  ],
+  [
+   192
+  ],
+  [
+   384,
+   128
+  ],
+  [
+   384,
+   128
+  ],
+  [
+   384
+  ],
+  [
+   384
+  ],
+  [
+   384,
+   128
+  ],
+  [
+   384,
+   128
+  ],
+  [
+   384
+  ],
+  [
+   384
+  ],
+  [
+   128,
+   256
+  ],
+  [
+   128
+  ],
+  [
+   3,
+   128
+  ],
+  [
+   3
+  ],
+  [
+   128,
+   256
+  ],
+  [
+   128
+  ],
+  [
+   3,
+   128
+  ],
+  [
+   3
+  ],
+  [
+   32,
+   6,
+   7
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   64,
+   32,
+   7
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   32,
+   3,
+   7
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [
+   64,
+   32,
+   7
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   128,
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [
+   64,
+   128
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [
+   64
+  ]
+ ],
+ "notes": "Official model/code.py CodeNetMotionwithRot (net_dict key 'codewithrot', the paper's Body+Attitude model) instantiated with conf.propcov=True on CPU, torch.manual_seed(0), pypose stubbed (unused by the class). Official forward takes data['acc'], data['gyro'] as (B,T,3) in the BODY frame and concatenates [acc, gyro] (acc first) plus rot=(B,T,3) so(3) Log of the per-sample body-to-world attitude. The wrapper used for export maps IPB (B,6,T)=[gyro,acc] -> official order. total_params counts ALL registered parameters, including modules that the forward never uses (inherited self.cnn, fcn1, batchnorm1); see extra 'unused_params' and 'effective_params'. Parameter count does not depend on window length. Output is sequence-to-sequence: T_out = floor((floor((T-1)/3)+1-1)/3)+1 (23 for T=200, 112 for T=1000); cov = exp(decoder - 5) is a per-axis VARIANCE (not logstd).",
+ "param_names": [
+  "cnn.net.0.weight",
+  "cnn.net.0.bias",
+  "cnn.net.1.weight",
+  "cnn.net.1.bias",
+  "cnn.net.3.weight",
+  "cnn.net.3.bias",
+  "cnn.net.4.weight",
+  "cnn.net.4.bias",
+  "gru1.weight_ih_l0",
+  "gru1.weight_hh_l0",
+  "gru1.bias_ih_l0",
+  "gru1.bias_hh_l0",
+  "gru1.weight_ih_l0_reverse",
+  "gru1.weight_hh_l0_reverse",
+  "gru1.bias_ih_l0_reverse",
+  "gru1.bias_hh_l0_reverse",
+  "gru2.weight_ih_l0",
+  "gru2.weight_hh_l0",
+  "gru2.bias_ih_l0",
+  "gru2.bias_hh_l0",
+  "gru2.weight_ih_l0_reverse",
+  "gru2.weight_hh_l0_reverse",
+  "gru2.bias_ih_l0_reverse",
+  "gru2.bias_hh_l0_reverse",
+  "veldecoder.0.weight",
+  "veldecoder.0.bias",
+  "veldecoder.2.weight",
+  "veldecoder.2.bias",
+  "velcov_decoder.0.weight",
+  "velcov_decoder.0.bias",
+  "velcov_decoder.2.weight",
+  "velcov_decoder.2.bias",
+  "feature_encoder.net.0.weight",
+  "feature_encoder.net.0.bias",
+  "feature_encoder.net.1.weight",
+  "feature_encoder.net.1.bias",
+  "feature_encoder.net.3.weight",
+  "feature_encoder.net.3.bias",
+  "feature_encoder.net.4.weight",
+  "feature_encoder.net.4.bias",
+  "ori_encoder.net.0.weight",
+  "ori_encoder.net.0.bias",
+  "ori_encoder.net.1.weight",
+  "ori_encoder.net.1.bias",
+  "ori_encoder.net.3.weight",
+  "ori_encoder.net.3.bias",
+  "ori_encoder.net.4.weight",
+  "ori_encoder.net.4.bias",
+  "fcn1.0.weight",
+  "fcn1.0.bias",
+  "batchnorm1.weight",
+  "batchnorm1.bias",
+  "fcn2.0.weight",
+  "fcn2.0.bias",
+  "batchnorm2.weight",
+  "batchnorm2.bias"
+ ],
+ "buffer_shapes": [
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   32
+  ],
+  [
+   32
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  [],
+  [
+   128
+  ],
+  [
+   128
+  ],
+  [],
+  [
+   64
+  ],
+  [
+   64
+  ],
+  []
+ ],
+ "official_config": {
+  "description": "configs/{EuRoC,BlackBird,Pegasus}/motion_body_rot.conf: network=codewithrot, window_size=1000 (EuRoC 200 Hz = 5 s; Blackbird resampled to 100 Hz = 10 s), coordinate=body_coord, propcov=True",
+  "input_shape": {
+   "acc": [
+    1,
+    1000,
+    3
+   ],
+   "gyro": [
+    1,
+    1000,
+    3
+   ],
+   "rot": [
+    1,
+    1000,
+    3
+   ]
+  },
+  "output_shape": {
+   "net_vel": [
+    1,
+    112,
+    3
+   ],
+   "cov": [
+    1,
+    112,
+    3
+   ]
+  },
+  "total_params": 387014
+ },
+ "benchmark_config": {
+  "description": "IPB frame=body, window=1000 @ 200 Hz (official 5 s EuRoC window), aux per-sample attitude so(3) log (B,3,T); dims=3 (body-frame velocity has no horizontal plane); window-level vel = net_vel[:, -1]. Architecture unchanged -> same parameter count as official."
+ },
+ "effective_params": 354278,
+ "unused_params": {
+  "cnn.net.0.weight": 1344,
+  "cnn.net.0.bias": 32,
+  "cnn.net.1.weight": 32,
+  "cnn.net.1.bias": 32,
+  "cnn.net.3.weight": 14336,
+  "cnn.net.3.bias": 64,
+  "cnn.net.4.weight": 64,
+  "cnn.net.4.bias": 64,
+  "fcn1.0.weight": 16384,
+  "fcn1.0.bias": 128,
+  "batchnorm1.weight": 128,
+  "batchnorm1.bias": 128
+ },
+ "component_params": {
+  "cnn": 15968,
+  "gru1": 49920,
+  "gru2": 198144,
+  "veldecoder": 33283,
+  "velcov_decoder": 33283,
+  "feature_encoder": 15968,
+  "ori_encoder": 15296,
+  "fcn1": 16512,
+  "batchnorm1": 256,
+  "fcn2": 8256,
+  "batchnorm2": 128,
+  "gelu": 0
+ },
+ "variant_total_params": {
+  "codenetmotion (Body, no attitude encoding; configs/*/motion_body.conf)": 330598,
+  "codenetmotion components": {
+   "cnn": 15968,
+   "gru1": 49920,
+   "gru2": 198144,
+   "veldecoder": 33283,
+   "velcov_decoder": 33283
+  }
+ },
+ "output_length_by_T": {
+  "200": [
+   1,
+   23,
+   3
+  ],
+  "1000": [
+   1,
+   112,
+   3
+  ],
+  "1001": [
+   1,
+   112,
+   3
+  ]
+ },
+ "params_without_grad_in_forward": [
+  "cnn.net.0.weight",
+  "cnn.net.0.bias",
+  "cnn.net.1.weight",
+  "cnn.net.1.bias",
+  "cnn.net.3.weight",
+  "cnn.net.3.bias",
+  "cnn.net.4.weight",
+  "cnn.net.4.bias",
+  "fcn1.0.weight",
+  "fcn1.0.bias",
+  "batchnorm1.weight",
+  "batchnorm1.bias"
+ ],
+ "framework": "pytorch",
+ "license": "BSD-3-Clause"
+}

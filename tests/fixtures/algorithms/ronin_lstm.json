@@ -1,0 +1,202 @@
+{
+ "name": "ronin_lstm",
+ "source_repo": "https://github.com/Sachini/ronin",
+ "commit": "805b7f0f28bb164ce89ada9ac05a9470dbe3d715",
+ "input_shape": [
+  4,
+  400,
+  6
+ ],
+ "output_shape": [
+  4,
+  400,
+  2
+ ],
+ "total_params": 216620,
+ "trainable_params": 216620,
+ "param_shapes": [
+  [
+   24,
+   6,
+   6
+  ],
+  [
+   24
+  ],
+  [
+   400,
+   30
+  ],
+  [
+   400,
+   100
+  ],
+  [
+   400
+  ],
+  [
+   400
+  ],
+  [
+   400,
+   100
+  ],
+  [
+   400,
+   100
+  ],
+  [
+   400
+  ],
+  [
+   400
+  ],
+  [
+   400,
+   100
+  ],
+  [
+   400,
+   100
+  ],
+  [
+   400
+  ],
+  [
+   400
+  ],
+  [
+   10,
+   130
+  ],
+  [
+   10
+  ],
+  [
+   2,
+   10
+  ],
+  [
+   2
+  ]
+ ],
+ "notes": "Paper 'RoNIN LSTM' == official --type lstm_bi == BilinearLSTMSeqNetwork: 'bi' means BILINEAR, the LSTM is UNIDIRECTIONAL (bidirectional=False). Input is batch-first (B,T,6) [gyro,acc] (the IPB port must transpose from (B,6,T)); output is per-frame (B,T,2) velocity. Bilinear(6,6,24) -> concat -> LSTM(30,100,3 layers) -> concat(input_mix, h) -> Linear(130,10) -> Linear(10,2) with NO activation between the linears. Official hidden state is zero-initialised with a batch size fixed at construction (B must equal batch_size).",
+ "param_names": [
+  "bilinear.weight",
+  "bilinear.bias",
+  "lstm.weight_ih_l0",
+  "lstm.weight_hh_l0",
+  "lstm.bias_ih_l0",
+  "lstm.bias_hh_l0",
+  "lstm.weight_ih_l1",
+  "lstm.weight_hh_l1",
+  "lstm.bias_ih_l1",
+  "lstm.bias_hh_l1",
+  "lstm.weight_ih_l2",
+  "lstm.weight_hh_l2",
+  "lstm.bias_ih_l2",
+  "lstm.bias_hh_l2",
+  "linear1.weight",
+  "linear1.bias",
+  "linear2.weight",
+  "linear2.bias"
+ ],
+ "buffer_shapes": [],
+ "official_config": {
+  "description": "ronin_lstm_tcn.py --type lstm_bi, layers=3, layer_size=100, window 400",
+  "input_shape": [
+   4,
+   400,
+   6
+  ],
+  "output_shape": [
+   4,
+   400,
+   2
+  ],
+  "total_params": 216620
+ },
+ "benchmark_config": {
+  "description": "identical module; IPB wrapper transposes (B,6,T)->(B,T,6) and pools per-frame outputs to a window velocity (see card section 6); no parameters added"
+ },
+ "plain_lstm_variant": {
+  "description": "--type lstm (LSTMSeqNetwork): LSTM(6,100,3) -> Linear(100,10) -> Linear(10,2)",
+  "total_params": 205832,
+  "param_shapes": [
+   [
+    400,
+    6
+   ],
+   [
+    400,
+    100
+   ],
+   [
+    400
+   ],
+   [
+    400
+   ],
+   [
+    400,
+    100
+   ],
+   [
+    400,
+    100
+   ],
+   [
+    400
+   ],
+   [
+    400
+   ],
+   [
+    400,
+    100
+   ],
+   [
+    400,
+    100
+   ],
+   [
+    400
+   ],
+   [
+    400
+   ],
+   [
+    10,
+    100
+   ],
+   [
+    10
+   ],
+   [
+    2,
+    10
+   ],
+   [
+    2
+   ]
+  ],
+  "param_names": [
+   "lstm.weight_ih_l0",
+   "lstm.weight_hh_l0",
+   "lstm.bias_ih_l0",
+   "lstm.bias_hh_l0",
+   "lstm.weight_ih_l1",
+   "lstm.weight_hh_l1",
+   "lstm.bias_ih_l1",
+   "lstm.bias_hh_l1",
+   "lstm.weight_ih_l2",
+   "lstm.weight_hh_l2",
+   "lstm.bias_ih_l2",
+   "lstm.bias_hh_l2",
+   "linear1.weight",
+   "linear1.bias",
+   "linear2.weight",
+   "linear2.bias"
+  ]
+ }
+}
