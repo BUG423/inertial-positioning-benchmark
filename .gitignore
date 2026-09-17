@@ -8,3 +8,5 @@ build/
 *.h5
 *.iplab
 *.iplmodel
+.claude/
+runs/
