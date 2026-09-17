@@ -20,6 +20,7 @@ from inertial_benchmark.data.views import (
 )
 from inertial_benchmark.utils.geometry import (
     GRAVITY,
+    quat_conjugate,
     quat_from_yaw,
     quat_multiply,
     quat_rotate,
@@ -46,10 +47,117 @@ def test_view_config_validation():
         ViewConfig(frame="enu")
     with pytest.raises(ValueError, match="target"):
         ViewConfig(target="speed")
+    with pytest.raises(ValueError, match="output_steps"):
+        ViewConfig(target="multi_displacement")
+    with pytest.raises(ValueError, match="history_stride"):
+        ViewConfig(history=3)
+    with pytest.raises(ValueError, match="extra_inputs"):
+        ViewConfig(extra_inputs=("magnetometer",))
+    with pytest.raises(ValueError, match="overlap"):
+        ViewConfig(overlap="first")
     cfg = ViewConfig.from_cfg({"window": "100", "dims": 3, "frame": "body", "extra": 1})
     assert cfg.window == 100 and cfg.dims == 3
     assert ViewConfig(window=201).target_offset == pytest.approx(0.5)
     assert ViewConfig(window=201, target="velocity_at_end").target_offset == pytest.approx(1.0)
+
+
+def test_output_layout_offsets_and_scales():
+    """InputSpec/ViewConfig 必须声明输出布局与各输出的时间偏移（DESIGN 第 3 节）。"""
+    window = ViewConfig(window=201)
+    assert window.output_layout == "window" and window.num_outputs == 1
+    assert window.output_shape == (2,)
+    np.testing.assert_allclose(window.output_offsets, [0.5])
+    np.testing.assert_allclose(window.output_scales, [1.0])
+    disp = ViewConfig(window=201, target="displacement")
+    np.testing.assert_allclose(disp.output_scales, [1.0])  # 位移 → 速度：除以 1 s
+    frames = ViewConfig(window=4, rate=2.0, target="frame_velocity")
+    assert frames.output_layout == "frame" and frames.num_outputs == 4
+    assert frames.output_shape == (4, 2)
+    np.testing.assert_allclose(frames.output_offsets, [0.0, 0.5, 1.0, 1.5])
+    steps = ViewConfig(window=201, target="multi_displacement", output_steps=4, dims=3)
+    assert steps.output_layout == "steps" and steps.num_outputs == 4
+    np.testing.assert_array_equal(steps.step_bounds, [[0, 50], [50, 100], [100, 150], [150, 200]])
+    np.testing.assert_allclose(steps.output_offsets, [0.125, 0.375, 0.625, 0.875])
+    np.testing.assert_allclose(steps.output_scales, 4.0)  # 每段 0.25 s
+    # 时间偏移一律是半个采样间隔的整数倍（重叠合并要精确分组）
+    for cfg in (window, disp, frames, steps):
+        np.testing.assert_allclose(np.round(cfg.output_offsets / (0.5 * cfg.dt)),
+                                   cfg.output_offsets / (0.5 * cfg.dt), atol=1e-9)
+
+
+def test_frame_velocity_targets_match_reference_velocity(seq):
+    view = SequenceView(seq, ViewConfig(window=100, dims=3, target="frame_velocity"))
+    starts = np.array([0, 300, 900])
+    targets = view.targets(starts)
+    assert targets.shape == (3, 100, 3)
+    for row, start in enumerate(starts):
+        expected = seq.velocity[start:start + 100]
+        np.testing.assert_allclose(targets[row], expected, atol=1e-5)
+    times = view.output_times(starts)
+    np.testing.assert_allclose(times[0], seq.timestamp[:100], atol=1e-12)
+    np.testing.assert_array_equal(view.target_mask(starts).shape, (3, 100))
+    np.testing.assert_allclose(view.to_world_velocity(targets, starts), targets, atol=1e-5)
+
+
+def test_multi_step_displacement_targets(seq):
+    cfg = ViewConfig(window=101, dims=3, target="multi_displacement", output_steps=10)
+    view = SequenceView(seq, cfg)
+    starts = np.array([0, 500])
+    targets = view.targets(starts)
+    assert targets.shape == (2, 10, 3)
+    for row, start in enumerate(starts):
+        for step, (lo, hi) in enumerate(cfg.step_bounds):
+            expected = seq.position[start + hi] - seq.position[start + lo]
+            np.testing.assert_allclose(targets[row, step], expected, atol=1e-6)
+    # 位移换算为速度：每段除以自己的时间跨度
+    speeds = view.to_world_velocity(targets, starts)
+    np.testing.assert_allclose(speeds, targets * cfg.output_scales[None, :, None], atol=1e-6)
+    # 10 段位移之和 = 整窗位移
+    np.testing.assert_allclose(targets.sum(axis=1),
+                               seq.position[starts + 100] - seq.position[starts], atol=1e-6)
+
+
+def test_history_sub_windows_are_contiguous_in_time(seq):
+    cfg = ViewConfig(window=100, dims=3, history=4, history_stride=50)
+    view = SequenceView(seq, cfg)
+    assert cfg.input_span == 250 and cfg.history_offset == 150
+    starts = view.starts(50)
+    assert starts[0] == 150  # 起点保证历史子窗口不越过序列开头
+    x = view.imu_windows(starts[:2])
+    assert x.shape == (2, 4, 6, 100)
+    plain = SequenceView(seq, ViewConfig(window=100, dims=3))
+    for sub in range(4):
+        offset = (sub - 3) * 50
+        expected = plain.imu_windows(starts[:2] + offset)
+        np.testing.assert_allclose(x[:, sub], expected, atol=1e-6)  # 子窗口在时间上连续
+    # 有效性按整个输入跨度判断：跨越无效区的窗口被排除
+    gapped = make_sequence(duration=12.0, seed=2)
+    gapped.valid_imu[100:120] = False
+    view2 = SequenceView(gapped, cfg)
+    assert not view2.window_valid_input(np.array([200]))[0]  # 历史子窗口落在缺口上
+    assert view2.window_valid_input(np.array([400]))[0]
+
+
+def test_extra_inputs_and_privileged_marking(seq):
+    cfg = ViewConfig(window=100, dims=3,
+                     extra_inputs=("orientation", "gravity", "init_velocity"))
+    view = SequenceView(seq, cfg)
+    starts = np.array([0, 400])
+    extra = view.extra_inputs(starts)
+    assert set(extra) == {"orientation", "gravity", "init_velocity"}
+    assert extra["orientation"].shape == (2, 100, 4)
+    np.testing.assert_allclose(extra["orientation"][1], seq.orientation[400:500], atol=1e-6)
+    np.testing.assert_allclose(extra["gravity"][0], np.tile([0, 0, GRAVITY], (100, 1)), atol=1e-6)
+    np.testing.assert_allclose(extra["init_velocity"], seq.velocity[starts], atol=1e-5)
+    assert cfg.privileged_inputs == ("init_velocity",)
+    assert ViewConfig(extra_inputs=("orientation",)).privileged_inputs == ()
+    # body 系下重力随姿态变化，姿态输入按视图坐标系给出
+    body = SequenceView(seq, ViewConfig(window=100, dims=3, frame="body",
+                                        extra_inputs=("gravity",)))
+    gravity = body.extra_inputs(starts)["gravity"]
+    expected = quat_rotate(quat_conjugate(seq.orientation[:100].astype(np.float64)),
+                           np.array([0.0, 0.0, GRAVITY]))
+    np.testing.assert_allclose(gravity[0], expected, atol=1e-5)
 
 
 def test_gravity_world_inputs_and_targets(seq):

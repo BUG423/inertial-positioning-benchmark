@@ -13,9 +13,11 @@ from inertial_benchmark.metrics import (
     drift,
     length_ratios,
     path_length,
+    relative_error,
     rte,
     sequence_metrics,
     trajectory_metrics,
+    valid_span,
     window_metrics,
 )
 from inertial_benchmark.utils.geometry import rotate_z
@@ -120,6 +122,51 @@ def test_rte_short_sequence_is_scaled():
     span = (len(t) - 401 - 200) / RATE
     expected = np.linalg.norm(b[:2]) * span * 60.0 / span
     assert rte(pred, gt, valid, RATE, 60.0) == pytest.approx(expected, rel=1e-9)
+
+
+def test_rte_scaling_depends_on_the_effective_span_only():
+    """70 s 序列（有效跨度 30 s）与 30 s 序列必须走同一条规则，不能一个 NaN 一个放大。"""
+    b = np.array([0.02, -0.01, 0.0])
+    t, gt = line(70.0)
+    pred = gt + t[:, None] * b
+    valid = np.zeros(len(t), bool)
+    valid[:6001] = True  # 有效跨度 30 s < 60 s，且不存在相距 60 s 的有效样本对
+    long_seq = relative_error(pred, gt, valid, RATE, 60.0)
+    short = relative_error(pred[:6001], gt[:6001], None, RATE, 60.0)
+    expected = np.linalg.norm(b[:2]) * 60.0
+    assert long_seq["value"] == pytest.approx(expected, rel=1e-9)
+    assert short["value"] == pytest.approx(expected, rel=1e-9)
+    assert long_seq["scaled"] == short["scaled"] == 1.0
+    assert long_seq["span_s"] == short["span_s"] == pytest.approx(30.0)
+    # 缺口让相距 60 s 的有效样本对全部消失，但首末有效样本的跨度足够：按跨度换算，不返回 NaN
+    gapped = np.ones(len(t), bool)
+    gapped[1:13000] = False
+    detail = relative_error(pred, gt, gapped, RATE, 60.0)
+    assert detail["scaled"] == 1.0 and detail["span_s"] == pytest.approx(70.0)
+    assert detail["value"] == pytest.approx(np.linalg.norm(b[:2]) * 60.0, rel=1e-9)
+    # 存在有效样本对时不换算，并记录参与的对数
+    full = relative_error(pred, gt, None, RATE, 60.0)
+    assert full["scaled"] == 0.0 and full["pairs"] == len(t) - 12000
+    assert valid_span(np.zeros(10, bool)) == 0.0
+
+
+def test_metrics_report_the_scaling_flag_and_span():
+    t, gt = line(40.0)
+    out = trajectory_metrics(gt * 1.01, gt, None, RATE, t_rte=(1.0, 10.0))
+    assert out["rte_scaled"] == 1.0 and out["t_rte_10s_scaled"] == 0.0
+    assert out["valid_span_s"] == pytest.approx(40.0)
+    assert out["t_rte_1s_scaled"] == 0.0
+
+
+def test_d_rte_keeps_the_first_start_when_the_sequence_begins_invalid():
+    t, gt = line(60.0)
+    pred = gt * 1.01
+    valid = np.ones(len(t), bool)
+    full = d_rte(pred, gt, valid, RATE, 10.0)
+    valid[:400] = False  # 开头 2 s 无效：k = 0 的起点必须落在首个有效样本上
+    partial = d_rte(pred, gt, valid, RATE, 10.0)
+    assert partial == pytest.approx(full, rel=2e-2)
+    assert not math.isnan(partial)
 
 
 def test_valid_masks_and_edge_cases():

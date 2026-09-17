@@ -59,7 +59,9 @@ class Trajectory:
 
 
 ARRAYS = ("t", "pos_pred", "pos_gt", "pos_oracle", "valid_pose", "t_window", "starts",
-          "vel_pred", "vel_target", "window_valid", "logstd")
+          "vel_pred", "vel_target", "window_valid", "window_valid_input",
+          "window_valid_target", "logstd")
+OUTPUT_PREFIX = "out_"  # 其他逐窗口模型输出在 .npz 中的键前缀
 
 
 @dataclass
@@ -79,7 +81,13 @@ class SequenceResult:
     vel_pred: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     vel_target: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     window_valid: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
+    # 拆分的窗口有效性：输入（IMU + 所需姿态）与目标（参考位姿），见 DESIGN 第 5 节
+    window_valid_input: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
+    window_valid_target: np.ndarray = field(default_factory=lambda: np.zeros(0, bool))
     logstd: Optional[np.ndarray] = None
+    # 模型的其他逐窗口输出（键 → (K, ...)），保持模型输出的视图坐标系与**逐窗口**布局
+    # （不做重叠合并，也不做无效窗口插值）；``logstd`` 同理
+    outputs: dict = field(default_factory=dict)
     frame: str = "gravity_world"
     rate: float = 200.0
     loss: Optional[float] = None
@@ -127,10 +135,11 @@ class SequenceResult:
         return row
 
     def save(self, path: PathLike) -> Path:
-        """保存为 ``.npz``（数组 + ``meta`` JSON 字符串）。"""
+        """保存为 ``.npz``（数组 + ``meta`` JSON 字符串；其他模型输出的键加 ``out_`` 前缀）。"""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         arrays = {k: getattr(self, k) for k in ARRAYS if getattr(self, k) is not None}
+        arrays.update({OUTPUT_PREFIX + k: np.asarray(v) for k, v in self.outputs.items()})
         meta = {"sequence_id": self.sequence_id, "dataset": self.dataset,
                 "group_id": self.group_id, "frame": self.frame, "rate": self.rate,
                 "loss": self.loss, "skipped": self.skipped, "metrics": self.metrics}
@@ -142,8 +151,10 @@ class SequenceResult:
         with np.load(path) as f:
             meta = json.loads(str(f["meta"]))
             arrays = {k: f[k] for k in ARRAYS if k in f}
+            outputs = {k[len(OUTPUT_PREFIX):]: f[k] for k in f.files
+                       if k.startswith(OUTPUT_PREFIX)}
         metrics = {k: (math.nan if v is None else v) for k, v in meta.pop("metrics").items()}
-        return cls(**meta, **arrays, metrics=metrics)
+        return cls(**meta, **arrays, outputs=outputs, metrics=metrics)
 
     def plot(self, path: Optional[PathLike] = None):
         from ..utils.plotting import plot_trajectory
@@ -176,6 +187,8 @@ class RunResult:
     cfg: dict = field(default_factory=dict)
     efficiency: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
+    # 序列级/标定型模型在 train 划分上拟合的标定量（随结果一起发布）
+    calibration: dict = field(default_factory=dict)
     save_dir: Optional[Path] = None
 
     def __len__(self) -> int:
@@ -210,12 +223,19 @@ class RunResult:
     def __getitem__(self, key: str) -> float:
         return self.metrics[key]
 
+    @property
+    def privileged_inputs(self) -> list:
+        """本次评测使用的特权输入（来自参考真值），报表中必须单列。"""
+        from ..data.views import PRIVILEGED_INPUTS
+
+        used = self.cfg.get("extra_inputs") or ()
+        return [name for name in used if name in PRIVILEGED_INPUTS]
+
     def to_dict(self) -> dict:
+        from ..cfg import protocol_from_cfg
+
         agg = self.aggregate()
         cfg = self.cfg
-        protocol_keys = ("window", "eval_stride", "frame", "orientation", "remove_gravity",
-                         "target", "dims", "rate", "metric_dims", "rte_delta", "t_rte", "d_rte",
-                         "min_speed")
         return {
             "mode": "val",
             "created_utc": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat(),
@@ -226,7 +246,9 @@ class RunResult:
             "seed": cfg.get("seed"),
             "dataset_fingerprint": (self.env.get("dataset") or {}).get("fingerprint"),
             "git": (self.env.get("git") or {}).get("commit"),
-            "protocol": {k: cfg.get(k) for k in protocol_keys if k in cfg},
+            "protocol": protocol_from_cfg(cfg),
+            # 特权输入（如来自参考真值的初速度）必须显式标记，报表中单列、不与纯 IMU 方法混排
+            "privileged_inputs": self.privileged_inputs,
             "num_sequences": len(self.evaluated),
             "num_skipped": len(self.sequences) - len(self.evaluated),
             "skipped": {s.sequence_id: s.skipped for s in self.sequences if s.skipped},
@@ -235,6 +257,7 @@ class RunResult:
             "std": agg["std"],
             "count": agg["count"],
             "efficiency": self.efficiency,
+            "calibration": self.calibration,
         }
 
     def summary(self, keys: Iterable[str] = MAIN_METRICS) -> str:

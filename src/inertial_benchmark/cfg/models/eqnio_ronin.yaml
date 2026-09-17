@@ -25,7 +25,6 @@ input:                     # 与 RoNIN 相同的任务视图；等变架构不�
   remove_gravity: false
   target: avg_velocity
   dims: 2
-  augment: [time_shift]    # 只有 random_shift（±step_size//2）
 recipes:
   official:                # ronin_resnet.py + 官方权重的 config.json
     epochs: 120            # config.json 为 120；发布的循环写死 range(start_epoch, 1)，只跑 1 轮
@@ -40,8 +39,9 @@ recipes:
     plateau_patience: 10
     grad_clip: 0.0
     stride: 10
-    eval_stride: 10
+    augment: [time_shift]  # 只有 random_shift（±step_size//2）
     amp: false
     fitness: loss          # 官方按验证 MSE 保存 checkpoint_<epoch>.pt
     patience: 0
-  unified: {}              # 使用 default.yaml 的统一预算（augment 仍取 input 的 [time_shift]）
+  unified:                 # 使用 default.yaml 的统一预算
+    augment: [time_shift]  # 等变架构不需要随机偏航，两个配方一致

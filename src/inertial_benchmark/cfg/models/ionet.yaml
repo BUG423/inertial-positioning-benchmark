@@ -22,7 +22,6 @@ input:                     # 2 s 窗口、0.1 s 训练步长
   remove_gravity: false
   target: avg_velocity
   dims: 2
-  augment: []              # 论文不做增强（靠运动丰富的数据 + dropout）
 loss: ionet_polar          # ‖s̃ − s‖² + κ·m·wrap(ψ̃ − ψ)²
 loss_kwargs:
   kappa: 1.0               # 论文未给出 κ；卡片推荐默认 1.0（可在 val 上扫 {0.1, 1, 10}）
@@ -39,8 +38,9 @@ recipes:
     scheduler: none        # 论文未说明调度
     grad_clip: 0.0
     stride: 20             # 0.1 s
-    eval_stride: 10        # IPB 统一推理步长（窗口彼此独立，不影响语义）
+    augment: []            # 论文不做增强（靠运动丰富的数据 + dropout）
     amp: false
     fitness: ate           # 论文看验证损失；IPB 按 val ATE 选模
     patience: 0
-  unified: {}              # 使用 default.yaml 的统一预算
+  unified:                 # 使用 default.yaml 的统一预算
+    augment: []            # 不做增强属于算法本身，两个配方一致

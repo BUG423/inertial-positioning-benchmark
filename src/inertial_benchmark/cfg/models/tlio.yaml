@@ -22,12 +22,6 @@ input:                     # 官方协议：200 帧 @200 Hz、局部重力对齐
   remove_gravity: false
   target: displacement
   dims: 3
-  # 官方增强顺序：偏置 → 重力方向扰动 → 随机偏航 → 起点偏移（U{0..9}）
-  augment:
-    - {bias_shift: {gyro: 0.05, acc: 0.2}}
-    - {gravity_perturb: {max_deg: 5.0}}
-    - random_yaw
-    - {time_shift: {min_shift: 0, max_shift: 9}}
 loss: nll_detach_then_nll  # 官方 losses.py：epoch（1 起）< 10 时 NLL 的 logstd 被 detach
 loss_kwargs:
   switch_epoch: 9          # IPB 的 epoch 从 0 起，对应官方的“前 9 个 epoch”
@@ -44,10 +38,19 @@ recipes:
     scheduler: none        # 官方构造了 ReduceLROnPlateau 但从未 step()，lr 恒为 1e-4
     grad_clip: 0.1         # clip_grad_norm_(0.1)
     stride: 10
-    eval_stride: 10
+    augment:               # 官方增强顺序：偏置 → 重力方向扰动 → 随机偏航 → 起点偏移（U{0..9}）
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}
     amp: false
     fitness: loss          # 官方按 val 平均 NLL 保存 checkpoint_best.pt
     patience: 0            # 无早停
   unified:                 # IPB 统一预算（epochs/优化器/调度用 default.yaml）
     grad_clip: 0.1
     scheduler: cosine      # 显式声明：官方调度器未生效，unified 按 IPB 默认使用余弦
+    augment:               # 增强管线属于算法本身，两个配方一致
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}

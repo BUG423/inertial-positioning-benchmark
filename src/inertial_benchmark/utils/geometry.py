@@ -93,10 +93,42 @@ def quat_from_euler_zyx(yaw: np.ndarray, pitch: np.ndarray, roll: np.ndarray) ->
 
 
 def yaw_from_quat(q: np.ndarray) -> np.ndarray:
-    """ZYX 分解下的偏航角（弧度，范围 (-π, π]）。"""
+    """ZYX 分解下的偏航角（弧度，范围 (-π, π]）。
+
+    等价于**机体 x 轴**水平投影的方位角，因此机体 x 轴接近竖直（|pitch| → 90°）时不连续：
+    pitch 由 80° 变到 100° 会让该值跳变 180°。任务视图与航向计算请改用
+    :func:`heading_from_quat`（本函数只用于与 ZYX 欧拉角互相转换的场合）。
+    """
     q = np.asarray(q, dtype=np.float64)
     w, x, y, z = np.moveaxis(q, -1, 0)
     return np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+# 航向定义为 “绕世界 z 轴的扭转分量”：q = q_z(ψ) ⊗ q_tilt，其中 q_tilt 的旋转轴水平
+# （倾斜分量取 body-z 与世界 z 之间的最小旋转）。该分解下 ψ = 2·atan2(q_z, q_w)，
+# 与“取最水平的机体轴求方位角、再减去该轴在纯倾斜帧中的方位角”逐位等价（见 test_geometry.py）。
+HEADING_SINGULAR_TOL = 1e-8  # w² + z² = cos²(倾斜角/2)；小于该值视为姿态完全倒置
+
+
+def heading_from_quat(q: np.ndarray) -> np.ndarray:
+    """连续的航向角（弧度，范围 (-π, π]）：绕世界 z 轴的扭转分量。
+
+    性质（均有测试锁定）：
+
+    * **偏航等变**：``heading(q_z(α) ⊗ q) = heading(q) + α``（模 2π）；
+    * **连续**：只在机体 z 轴竖直向下（姿态完全倒置，倾斜角 = 180°）这一处奇异，
+      其余任意姿态下沿平滑轨迹连续，尤其在 |pitch| → 90° 附近无跳变；
+    * **与 ZYX 偏航一致**：roll = 0 时（任意 pitch）逐位相同；一般姿态下差值约为
+      ``pitch·roll/2``（常规手持姿态下 < 3°）；
+    * 对 ``q`` 与 ``-q`` 给出同一角度（取值范围内）。
+
+    倾斜角接近 180° 时 ``w² + z² → 0``，航向无定义（数学上无法避免：等变的航向定义是
+    S² 上非平凡 S¹ 主丛的截面，必有奇点）。此处退化为 0，并由调用方在文档中说明。
+    """
+    q = np.asarray(q, dtype=np.float64)
+    w, z = q[..., 0], q[..., 3]
+    ok = (w * w + z * z) > HEADING_SINGULAR_TOL
+    return wrap_angle(np.where(ok, 2.0 * np.arctan2(z, w), 0.0))
 
 
 def quat_make_continuous(q: np.ndarray) -> np.ndarray:

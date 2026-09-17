@@ -43,7 +43,7 @@ import torch
 from torch import nn
 
 from ...nn.base import BaseModel, InputSpec
-from ...nn.losses import register_loss
+from ...nn.losses import masked_output_mean, mse, register_loss
 from ...nn.registry import register_model
 from ..ronin.model import RoNINResNet
 
@@ -92,7 +92,10 @@ def replace_batchnorm_with_groupnorm(module: nn.Module, groups: int = 32) -> int
 
 @register_loss("rio_joint")
 class RIOJointLoss:
-    """RIO 联合损失：速度项（逐分量求和）+ 旋转等变自监督项（负余弦、按速度门控）。"""
+    """RIO 联合损失：速度项（逐分量求和）+ 旋转等变自监督项（负余弦、按速度门控）。
+
+    两项都按逐输出的有效掩码 ``mask`` 平均（速度门控 ``gate`` 与 ``mask`` 相互独立）。
+    """
 
     def __init__(self, ssl_weight: float = 1.0, speed_gate: float = 0.5,
                  gate_on: str = "pred", stop_grad: bool = False, eps: float = 1e-8) -> None:
@@ -108,19 +111,21 @@ class RIOJointLoss:
         reference = target if self.gate_on == "target" else pred.detach()
         return (reference.norm(dim=-1) > self.speed_gate).to(pred.dtype)
 
-    def ssl(self, out: dict, target: torch.Tensor) -> torch.Tensor:
+    def ssl(self, out: dict, target: torch.Tensor,
+            mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         pred = out["vel"].detach() if self.stop_grad else out["vel"]
         rotated = rotate_vector_z(pred, out["phi"])
         terms = negative_cosine(rotated, out["vel_conj"], self.eps)
-        return (self.gate(out["vel"], target) * terms).mean()
+        return masked_output_mean(self.gate(out["vel"], target) * terms, mask)
 
-    def __call__(self, out: dict, target: torch.Tensor, epoch: int = 0) -> tuple:
-        velocity = torch.mean(torch.sum((out["vel"] - target) ** 2, dim=-1))
+    def __call__(self, out: dict, target: torch.Tensor, epoch: int = 0,
+                 mask: Optional[torch.Tensor] = None) -> tuple:
+        velocity = masked_output_mean(torch.sum((out["vel"] - target) ** 2, dim=-1), mask)
         items = {"vel_loss": velocity.detach(),
-                 "mse": torch.mean((out["vel"] - target) ** 2).detach()}
+                 "mse": mse(out["vel"], target, mask).detach()}
         loss = velocity
         if "vel_conj" in out and "phi" in out:
-            ssl = self.ssl(out, target)
+            ssl = self.ssl(out, target, mask)
             items["ssl"] = ssl.detach()
             loss = loss + self.ssl_weight * ssl
         return loss, items

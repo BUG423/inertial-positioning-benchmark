@@ -95,7 +95,8 @@ def test_loss_is_mse_plus_l1():
     assert model.loss_name == "mse_l1"
     pred = torch.tensor([[1.0, -2.0], [0.5, 0.0]])
     target = torch.zeros(2, 2)
-    loss, items = model.loss({"vel": pred}, {"target": target})
+    imu = torch.zeros(2, 6, model.input_spec.window)
+    loss, items = model.loss({"vel": pred}, {"target": target, "imu": imu})
     mse = float(((pred - target) ** 2).mean())
     l1 = float((pred - target).abs().mean())
     assert loss.item() == pytest.approx(mse + l1)

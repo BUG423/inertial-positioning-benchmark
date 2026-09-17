@@ -11,6 +11,7 @@ from typing import Iterable, Optional, Sequence, Union
 
 import numpy as np
 
+from ..cfg import EVAL_PROTOCOL_KEYS, ConfigError
 from ..metrics import MAIN_METRICS, display_name
 from . import LOGGER, json_load, json_save
 
@@ -38,6 +39,39 @@ def find_runs(root: PathLike) -> list:
     return runs
 
 
+class ProtocolMismatch(ConfigError):
+    """同一份报表中的 run 使用了不同的评测协议，指标不可比（CLI 以退出码 2 报错）。"""
+
+
+def check_protocols(runs: Iterable[PathLike]) -> dict:
+    """核对各 run 的评测协议是否一致，不一致时抛出 :class:`ProtocolMismatch`。
+
+    只比较**评测协议**键（``EVAL_PROTOCOL_KEYS``：步长、指标维度、RTE/D-RTE 参数、速度阈值）：
+    这些键决定指标怎么算，必须全表一致；输入规格键（窗口、坐标系、目标…）本来就随模型不同，
+    只记录不比较。缺少 ``protocol`` 的旧结果视为未知，直接报错（宁可让人重跑也不混表）。
+    """
+    seen: dict = {}
+    for run in runs:
+        meta = json_load(Path(run) / "metrics.json")
+        protocol = meta.get("protocol")
+        if not protocol:
+            raise ProtocolMismatch(f"{run}/metrics.json has no 'protocol' block; re-run the "
+                                   "evaluation with the current version before reporting")
+        missing = [k for k in EVAL_PROTOCOL_KEYS if protocol.get(k) is None]
+        if missing:
+            raise ProtocolMismatch(f"{run}: evaluation protocol is incomplete, missing {missing}")
+        for key in EVAL_PROTOCOL_KEYS:
+            value = protocol[key]
+            value = tuple(value) if isinstance(value, list) else value
+            first_run, first = seen.setdefault(key, (run, value))
+            if first != value:
+                raise ProtocolMismatch(
+                    f"evaluation protocol differs between runs: {key}={first!r} in {first_run} "
+                    f"but {key}={value!r} in {run}. Re-evaluate both with the same protocol "
+                    "(eval keys come from default.yaml / the benchmark config / the CLI).")
+    return {key: value for key, (_, value) in seen.items()}
+
+
 def load_runs(root: PathLike):
     """把评测结果展开为逐序列表：``dataset, split, model, seed, run, sequence_id, group_id, …``。"""
     pd = _pd()
@@ -48,7 +82,9 @@ def load_runs(root: PathLike):
         if "skipped" in df:
             df = df[df["skipped"].isna() | (df["skipped"] == "")]
         eff = meta.get("efficiency") or {}
+        privileged = meta.get("privileged_inputs") or []
         df.insert(0, "run", str(run))
+        df.insert(0, "privileged", ",".join(privileged))
         df.insert(0, "seed", meta.get("seed", 0))
         df.insert(0, "model", meta.get("model", "unknown"))
         df.insert(0, "split", meta.get("split", "unknown"))
@@ -57,8 +93,10 @@ def load_runs(root: PathLike):
             df[key] = eff.get(key, np.nan)
         frames.append(df)
     if not frames:
-        return pd.DataFrame(columns=list(KEYS) + ["seed", "run", "sequence_id", "group_id"])
+        return pd.DataFrame(columns=list(KEYS) + ["seed", "privileged", "run", "sequence_id",
+                                                  "group_id"])
     df = pd.concat(frames, ignore_index=True)
+    df["privileged"] = df["privileged"].fillna("").astype(str)
     df["group_id"] = df.get("group_id", df["sequence_id"]).astype(str)
     df["sequence_id"] = df["sequence_id"].astype(str)
     return df
@@ -97,6 +135,9 @@ def summarize(df, metrics: Iterable[str] = MAIN_METRICS, n_boot: int = 2000):
         per_seed = part.groupby("seed")[metrics].mean()
         row = dict(zip(KEYS, key))
         row.update(n_sequences=len(seq), n_seeds=int(part["seed"].nunique()),
+                   privileged=(sorted(set(part["privileged"]) - {""})[0]
+                               if "privileged" in part and set(part["privileged"]) - {""}
+                               else ""),
                    params=part["params"].iloc[0] if "params" in part else np.nan,
                    flops=part["flops"].iloc[0] if "flops" in part else np.nan)
         for m in metrics:
@@ -160,22 +201,47 @@ def _cell(row, m: str, digits: int, pm: str) -> str:
     return _fmt(mean, digits)
 
 
-def table_rows(summary, metrics: Sequence[str], digits: int = 3, pm: str = "±") -> tuple:
+def split_privileged(summary) -> tuple:
+    """按是否使用特权输入拆成两张表：主表只放纯 IMU 方法。"""
+    if "privileged" not in summary.columns:
+        return summary, summary.iloc[0:0]
+    flag = summary["privileged"].fillna("").astype(str) != ""
+    return summary[~flag], summary[flag]
+
+
+def table_rows(summary, metrics: Sequence[str], digits: int = 3, pm: str = "±",
+               privileged: bool = False) -> tuple:
     metrics = [m for m in metrics if f"{m}_mean" in summary.columns]
-    header = ["dataset", "split", "model", "n"] + [display_name(m) for m in metrics]
+    header = ["dataset", "split", "model", "n"]
+    if privileged:
+        header.append("privileged inputs")
+    header += [display_name(m) for m in metrics]
     rows = []
     for _, r in summary.iterrows():
-        rows.append([str(r["dataset"]), str(r["split"]), str(r["model"]),
-                     str(int(r["n_sequences"]))] + [_cell(r, m, digits, pm) for m in metrics])
+        row = [str(r["dataset"]), str(r["split"]), str(r["model"]), str(int(r["n_sequences"]))]
+        if privileged:
+            row.append(str(r.get("privileged", "")))
+        rows.append(row + [_cell(r, m, digits, pm) for m in metrics])
     return header, rows
 
 
-def to_markdown(summary, metrics: Sequence[str] = MAIN_METRICS, digits: int = 3) -> str:
-    header, rows = table_rows(summary, metrics, digits)
+def _markdown_table(summary, metrics: Sequence[str], digits: int, privileged: bool) -> str:
+    header, rows = table_rows(summary, metrics, digits, privileged=privileged)
+    fixed = 5 if privileged else 3
     lines = ["| " + " | ".join(header) + " |",
-             "|" + "|".join(["---"] * 3 + ["---:"] * (len(header) - 3)) + "|"]
+             "|" + "|".join(["---"] * fixed + ["---:"] * (len(header) - fixed)) + "|"]
     lines += ["| " + " | ".join(r) + " |" for r in rows]
     return "\n".join(lines) + "\n"
+
+
+def to_markdown(summary, metrics: Sequence[str] = MAIN_METRICS, digits: int = 3) -> str:
+    """主表（纯 IMU 方法）；存在特权输入的方法单列一张表，不与主表混排。"""
+    plain, privileged = split_privileged(summary)
+    out = _markdown_table(plain, metrics, digits, privileged=False)
+    if len(privileged):
+        out += ("\n**使用特权输入（来自参考真值）的方法** — 不与上表直接比较：\n\n"
+                + _markdown_table(privileged, metrics, digits, privileged=True))
+    return out
 
 
 def _tex(text: str) -> str:
@@ -186,7 +252,8 @@ def _tex(text: str) -> str:
 
 
 def to_latex(summary, metrics: Sequence[str] = MAIN_METRICS, digits: int = 3) -> str:
-    """booktabs 风格表格；多种子时单元格为 ``均值 $\\pm$ 种子标准差``。"""
+    """booktabs 风格表格（只含纯 IMU 方法）；多种子时单元格为 ``均值 $\\pm$ 种子标准差``。"""
+    summary, _ = split_privileged(summary)
     header, rows = table_rows(summary, metrics, digits, pm="$\\pm$")
     spec = "lll" + "r" * (len(header) - 3)
     out = [f"\\begin{{tabular}}{{{spec}}}", "\\toprule",
@@ -237,6 +304,7 @@ def build_report(runs: PathLike, out: PathLike, metrics: Sequence[str] = MAIN_ME
     """汇总 ``runs`` 下全部评测结果，写出 CSV / Markdown / LaTeX 表格与图。"""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    protocol = check_protocols(find_runs(runs))
     df = load_runs(runs)
     if df.empty:
         raise FileNotFoundError(f"no evaluation results (metrics.json + sequences.csv) "
@@ -254,7 +322,7 @@ def build_report(runs: PathLike, out: PathLike, metrics: Sequence[str] = MAIN_ME
     files = make_plots(df, summary, out) if plots else []
     info = {"runs": str(runs), "num_runs": int(df["run"].nunique()),
             "num_rows": int(len(df)), "datasets": sorted(df["dataset"].unique()),
-            "models": sorted(df["model"].unique()),
+            "models": sorted(df["model"].unique()), "protocol": protocol,
             "files": sorted(str(p.relative_to(out)) for p in out.iterdir()),
             "plots": [str(p) for p in files]}
     json_save(out / "report.json", info)

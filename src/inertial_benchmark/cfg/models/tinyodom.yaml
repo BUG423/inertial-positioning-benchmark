@@ -24,7 +24,6 @@ input:                     # 官方 RoNIN 设置：2 s 窗口、机体系原始�
   remove_gravity: false
   target: avg_velocity
   dims: 3                  # DESIGN §3：frame=body 必须 dims=3
-  augment: []              # 官方 RoNIN 笔记本 AugmentationCopies=0，不做增强
 loss: mse_sum              # 各头 MSE 等权求和（官方 {'velx':'mse','vely':'mse'}）
 recipes:
   official:                # TinyOdom_RoNIN.ipynb cell 7/11
@@ -38,8 +37,9 @@ recipes:
     scheduler: none        # 常数学习率，无调度
     grad_clip: 0.0
     stride: 20             # 官方训练/推理步长 0.1 s
-    eval_stride: 10        # IPB 统一推理步长
+    augment: []            # 官方 RoNIN 笔记本 AugmentationCopies=0，不做增强
     amp: false
     fitness: ate           # 官方按训练损失选模（monitor='loss'）；IPB 诚实协议改用 val ATE
     patience: 0
-  unified: {}              # 使用 default.yaml 的统一预算
+  unified:                 # 使用 default.yaml 的统一预算
+    augment: []            # 不做增强属于算法本身，两个配方一致

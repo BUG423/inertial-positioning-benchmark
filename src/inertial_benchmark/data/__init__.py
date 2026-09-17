@@ -4,6 +4,8 @@
 需显式导入（``from inertial_benchmark.data.build import build_dataloader``）。
 """
 
+from typing import Any
+
 from .format import (
     Sequence,
     SequenceError,
@@ -14,8 +16,17 @@ from .format import (
     validate,
 )
 
-# v0.1 旧接口：保持可导入，新代码不依赖它们
-from .legacy_v01 import CanonicalSequence, SequenceValidationError, WindowDataset, WindowSample
+# v0.1 旧接口：保持可导入（惰性，首次访问时发出 DeprecationWarning），新代码不依赖它们
+_LEGACY = ("CanonicalSequence", "SequenceValidationError", "WindowDataset", "WindowSample")
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LEGACY:
+        from . import legacy
+
+        return getattr(legacy, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "CanonicalSequence",

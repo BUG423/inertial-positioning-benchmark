@@ -22,8 +22,11 @@ def register_model(*names: str):
 
 
 def import_models() -> None:
-    """导入 ``inertial_benchmark.models`` 以触发全部注册。"""
+    """导入 ``inertial_benchmark.models`` 与 ``IPB_PLUGINS`` 列出的插件模块，以触发全部注册。"""
+    from ..utils.plugins import load_plugins
+
     importlib.import_module("inertial_benchmark.models")
+    load_plugins()
 
 
 def list_models() -> list:

@@ -133,7 +133,8 @@ def test_loss_is_sum_of_per_head_mse():
     model = build()
     pred = torch.tensor([[1.0, 2.0, -1.0]])
     target = torch.zeros(1, 3)
-    loss, items = model.loss({"vel": pred}, {"target": target})
+    imu = torch.zeros(1, 6, model.input_spec.window)
+    loss, items = model.loss({"vel": pred}, {"target": target, "imu": imu})
     assert loss.item() == pytest.approx(1.0 + 4.0 + 1.0)      # Σ_d mean_b (·)²
     assert items["mse"].item() == pytest.approx(6.0 / 3)
 

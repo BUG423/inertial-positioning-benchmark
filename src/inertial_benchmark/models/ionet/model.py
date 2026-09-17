@@ -34,11 +34,13 @@ IPB 适配（规格卡 §6，**改变语义**，结果表必须注明 “IONet (
 
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 from torch import nn
 
 from ...nn.base import BaseModel, InputSpec
-from ...nn.losses import register_loss
+from ...nn.losses import masked_output_mean, mse, register_loss
 from ...nn.registry import register_model
 
 # IPB 的 [gyro_xyz, acc_xyz] → 论文的 (a, w) = [acc_xyz, gyro_xyz]
@@ -55,21 +57,24 @@ class IONetPolarLoss:
     """极坐标损失 ``mean(s − s̃)² + κ·mean(m·wrap(ψ − ψ̃)²)``（规格卡 §6.1）。
 
     ``m = 1[‖v̄‖ > min_speed]``：近静止窗口的方向没有定义，不参与角度项。
+    ``mask``（逐输出的有效掩码）与 ``m`` 相互独立：无效的窗口/帧/步两项都不计入。
     """
 
     def __init__(self, kappa: float = 1.0, min_speed: float = 0.1) -> None:
         self.kappa = float(kappa)
         self.min_speed = float(min_speed)
 
-    def __call__(self, out: dict, target: torch.Tensor, epoch: int = 0) -> tuple:
+    def __call__(self, out: dict, target: torch.Tensor, epoch: int = 0,
+                 mask: Optional[torch.Tensor] = None) -> tuple:
         speed_target = target.norm(dim=-1)
-        angle_target = torch.atan2(target[:, 1], target[:, 0])
-        speed_term = torch.mean((out["speed"] - speed_target) ** 2)
-        mask = (speed_target > self.min_speed).to(target.dtype)
-        angle_term = torch.mean(mask * wrap_angle(out["heading"] - angle_target) ** 2)
+        angle_target = torch.atan2(target[..., 1], target[..., 0])
+        speed_term = masked_output_mean((out["speed"] - speed_target) ** 2, mask)
+        moving = (speed_target > self.min_speed).to(target.dtype)
+        angle_term = masked_output_mean(
+            moving * wrap_angle(out["heading"] - angle_target) ** 2, mask)
         loss = speed_term + self.kappa * angle_term
         return loss, {"speed": speed_term.detach(), "heading": angle_term.detach(),
-                      "mse": torch.mean((out["vel"] - target) ** 2).detach()}
+                      "mse": mse(out["vel"], target, mask).detach()}
 
 
 @register_model("ionet")

@@ -16,6 +16,7 @@ from inertial_benchmark.nn import (  # noqa: E402
     build_model,
     gaussian_nll,
     list_models,
+    mse,
     register_model,
 )
 from inertial_benchmark.nn.losses import (  # noqa: E402
@@ -23,6 +24,8 @@ from inertial_benchmark.nn.losses import (  # noqa: E402
     MIN_LOGSTD,
     DetachedNLLThenNLL,
     MSEThenNLL,
+    expand_mask,
+    masked_output_mean,
     register_loss,
 )
 from inertial_benchmark.nn.modules import ResNet1DBackbone  # noqa: E402
@@ -62,11 +65,16 @@ def test_model_args_override_and_loss():
     model = build_model(cfg)
     assert model.model_cfg["args"]["fc_dim"] == 64
     assert model.loss_name == "mse_then_nll" and model.loss_kwargs == {"switch_epoch": 3}
-    out = model(torch.randn(4, 6, 200))
-    loss, items = model.loss(out, {"target": torch.zeros(4, 2)}, epoch=0)
+    imu = torch.randn(4, 6, 200)
+    out = model(imu)
+    batch = {"target": torch.zeros(4, 2), "imu": imu}
+    loss, items = model.loss(out, batch, epoch=0)
     assert loss.ndim == 0 and "mse" in items
     with pytest.raises(KeyError, match="logstd"):
-        model.loss(out, {"target": torch.zeros(4, 2)}, epoch=5)
+        model.loss(out, batch, epoch=5)
+    # 训练与验证必须传同样的键（至少 target 与 imu）
+    with pytest.raises(KeyError, match="loss batch is missing"):
+        model.loss(out, {"target": torch.zeros(4, 2)}, epoch=0)
     # 训练时的损失写入模型配置，从 checkpoint 重建时保持一致
     assert model.model_cfg["loss"] == "mse_then_nll"
     rebuilt = build_model(get_cfg({"model": "ronin_resnet18"}), model_cfg=model.model_cfg)
@@ -97,8 +105,9 @@ def test_registry():
     try:
         model = build_model(get_cfg({"model": {"name": "tiny", "arch": "tiny_test_model",
                                                "args": {"hidden": 4}}, "window": 10}))
-        out = model(torch.randn(2, 6, 10))
-        loss, items = model.loss(out, {"target": torch.zeros(2, 2)})
+        imu = torch.randn(2, 6, 10)
+        out = model(imu)
+        loss, items = model.loss(out, {"target": torch.zeros(2, 2), "imu": imu})
         assert set(items) == {"nll", "mse"} and torch.isfinite(loss)
     finally:
         MODELS.pop("tiny_test_model")
@@ -153,6 +162,67 @@ def test_gaussian_nll_value_and_clamp():
     assert value.item() == pytest.approx(clamped)
     value.backward()
     assert torch.all(tiny.grad == 0)  # 裁剪区间外无梯度（与 TLIO 相同）
+
+
+def test_losses_support_per_frame_and_multi_step_targets_with_masks():
+    """逐帧/多步目标：损失按掩码跳过无效的帧/步（DESIGN 第 3 节）。"""
+    pred = torch.tensor([[[1.0, 0.0], [0.0, 0.0], [5.0, 0.0]]])  # (B=1, R=3, D=2)
+    target = torch.zeros(1, 3, 2)
+    assert mse(pred, target).item() == pytest.approx((1.0 + 25.0) / 6)
+    mask = torch.tensor([[True, True, False]])
+    assert mse(pred, target, mask).item() == pytest.approx(1.0 / 4)  # 第 3 帧不计入
+    # 全部无效：损失为 0 但保留计算图（优化器不会拿不到梯度）
+    grad_pred = pred.clone().requires_grad_(True)
+    zero = mse(grad_pred, target, torch.zeros(1, 3, dtype=torch.bool))
+    assert zero.item() == 0.0
+    zero.backward()
+    assert torch.all(grad_pred.grad == 0)
+    # 高斯 NLL 与调度损失同样接受掩码
+    logstd = torch.zeros(1, 3, 2)
+    nll = build_loss("gaussian_nll")({"vel": pred, "logstd": logstd}, target, 0, mask)[0]
+    assert nll.item() == pytest.approx(0.5 * (1.0 / 4))
+    scheduled, items = build_loss("mse_then_nll", switch_epoch=2)(
+        {"vel": pred, "logstd": logstd}, target, 0, mask)
+    assert scheduled.item() == pytest.approx(0.25) and set(items) == {"mse"}
+    assert expand_mask(mask, pred).shape == pred.shape
+    assert expand_mask(None, pred) is None
+
+
+def test_base_model_passes_the_mask_through_the_loss_batch():
+    @register_model("test_mask_model")
+    class Masked(BaseModel):
+        def __init__(self, input_spec):
+            super().__init__(input_spec)
+            self.bias = torch.nn.Parameter(torch.zeros(input_spec.output_shape))
+
+        def forward(self, imu):
+            return {"vel": self.bias.expand(imu.shape[0], *self.bias.shape)}
+
+    try:
+        cfg = get_cfg({"model": {"name": "masked", "arch": "test_mask_model"},
+                       "window": 4, "target": "frame_velocity", "rate": 4.0})
+        model = build_model(cfg)
+        assert model.input_spec.output_shape == (4, 2)
+        imu = torch.zeros(2, 6, 4)
+        out = model(imu)
+        target = torch.ones(2, 4, 2)
+        mask = torch.tensor([[True, True, False, False], [True, False, False, False]])
+        loss, _ = model.loss(out, {"target": target, "imu": imu, "mask": mask})
+        assert loss.item() == pytest.approx(1.0)
+        with pytest.raises(ValueError, match="expected input"):
+            model.check_input(torch.zeros(2, 6, 5))
+    finally:
+        MODELS.pop("test_mask_model")
+
+
+def test_input_spec_declares_layouts_and_extra_inputs():
+    spec = InputSpec(window=100, history=3, history_stride=50, dims=3,
+                     target="multi_displacement", output_steps=5,
+                     extra_inputs=("orientation", "init_velocity"))
+    assert spec.input_shape == (3, 6, 100) and spec.output_shape == (5, 3)
+    assert spec.input_span == 200 and spec.privileged_inputs == ("init_velocity",)
+    assert InputSpec.from_dict(spec.to_dict()) == spec
+    assert InputSpec(window=50).input_shape == (6, 50)
 
 
 def test_mse_then_nll_schedule():
@@ -212,10 +282,16 @@ def test_detached_nll_schedule():
 def test_register_loss():
     @register_loss("test_tmp_loss")
     class Tmp:
-        def __call__(self, out, target, epoch=0):
-            return out["vel"].sum(), {}
+        def __call__(self, out, target, epoch=0, mask=None):
+            return masked_output_mean(out["vel"].sum(dim=-1), mask), {}
 
     try:
+        fn = build_loss("test_tmp_loss")
+        assert fn.name == "test_tmp_loss"
+        # 注册的专用损失按四参数签名调用，并按掩码跳过无效输出
+        value, _ = fn({"vel": torch.ones(2, 2)}, torch.zeros(2, 2), 0,
+                      torch.tensor([[True], [False]]))
+        assert value.item() == pytest.approx(2.0)
         assert build_loss("test_tmp_loss").name == "test_tmp_loss"
         with pytest.raises(KeyError, match="already registered"):
             register_loss("test_tmp_loss")(type("Other", (), {}))

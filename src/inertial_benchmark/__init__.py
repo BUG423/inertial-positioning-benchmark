@@ -14,16 +14,15 @@ from __future__ import annotations
 __version__ = "1.0.0.dev0"
 
 from .data import (
-    CanonicalSequence,
     Sequence,
     SequenceError,
-    SequenceValidationError,
-    WindowDataset,
-    WindowSample,
     load_sequence,
     save_sequence,
     validate,
 )
+
+# v0.1 旧接口：惰性导入，首次访问时发出 DeprecationWarning（见 data/legacy）
+_LEGACY = ("CanonicalSequence", "SequenceValidationError", "WindowDataset", "WindowSample")
 
 
 def __getattr__(name: str):
@@ -31,6 +30,10 @@ def __getattr__(name: str):
         from .engine.model import NIO
 
         return NIO
+    if name in _LEGACY:
+        from . import data
+
+        return getattr(data, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

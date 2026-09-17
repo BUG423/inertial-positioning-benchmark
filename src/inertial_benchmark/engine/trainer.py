@@ -7,17 +7,20 @@ from __future__ import annotations
 import csv
 import datetime as _dt
 import math
+import random
 import time
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import torch
 
 from .. import __version__
-from ..cfg import ConfigError, get_cfg
+from ..cfg import ConfigError, get_cfg, protocol_from_cfg
 from ..data.build import build_dataloader, build_dataset
 from ..data.manifest import resolve_dataset
 from ..metrics import METRIC_INFO
+from ..nn.base import SequenceModel
 from ..utils import LOGGER, add_file_handler, json_save, to_builtin, yaml_save
 from ..utils.callbacks import add_callback, default_callbacks, run_callbacks
 from ..utils.checks import collect_env
@@ -27,6 +30,7 @@ from ..utils.torch_utils import (
     build_optimizer,
     build_scheduler,
     de_parallel,
+    epoch_seed,
     load_checkpoint,
     model_info,
     save_checkpoint,
@@ -75,6 +79,7 @@ class Trainer:
         self.epoch = 0
         self.start_epoch = 0
         self.model = None
+        self.sequence_model = False
         self.stopper = EarlyStopping(int(self.args.patience))
 
     # ------------------------------------------------------------------ 准备
@@ -90,6 +95,14 @@ class Trainer:
 
     def add_callback(self, event: str, fn) -> None:
         add_callback(self.callbacks, event, fn)
+
+    def _close_log(self) -> None:
+        """移除并关闭本次运行的文件日志句柄（可重复调用）。"""
+        handler = getattr(self, "_log_handler", None)
+        if handler is not None:
+            self._log_handler = None
+            LOGGER.removeHandler(handler)
+            handler.close()
 
     def setup(self) -> None:
         a = self.args
@@ -113,6 +126,7 @@ class Trainer:
                           for k in range(len(self.val_set.sequence_ids))]
 
         self.model = load_model(a, self.device)
+        self.sequence_model = isinstance(de_parallel(self.model), SequenceModel)
         info = model_info(self.model, self.model.input_spec.window, flops=False)
         LOGGER.info(f"model {self.model.model_cfg.get('name')} "
                     f"({type(self.model).__name__}): {info['parameters']:,} parameters, "
@@ -124,7 +138,8 @@ class Trainer:
         self.validator = Validator(a, callbacks=self.callbacks)
         if self.resume_ckpt is not None:
             self._load_resume_state()
-        yaml_save(self.save_dir / "args.yaml", a.to_dict())
+        yaml_save(self.save_dir / "args.yaml",
+                  {**a.to_dict(), "protocol": protocol_from_cfg(a)})
         self.env = collect_env(self.device, self.spec)
         json_save(self.save_dir / "env.json", self.env)
         run_callbacks(self.callbacks, "on_pretrain_routine_end", self)
@@ -149,10 +164,30 @@ class Trainer:
             self._write_rows(rows)
 
     # ------------------------------------------------------------------ 训练
+    def seed_epoch(self, epoch: int) -> None:
+        """按 ``(seed, epoch)`` 重置采样与全局随机数状态。
+
+        DataLoader 的 ``generator`` 在每轮 shuffle 时被推进，torch 全局 RNG 也被 dropout 等消耗，
+        因此“第 e 轮的随机性”原本依赖于之前跑过多少轮：续训那一轮会重复第 0 轮的 shuffle 顺序。
+        每轮开始时按轮次重新播种后，第 e 轮的随机性只由 ``(seed, e)`` 决定，
+        “连续训练 N 轮”与“中断后续训到 N 轮”得到逐位相同的权重。
+        """
+        seed = epoch_seed(int(self.args.seed), epoch)
+        generator = getattr(self.train_loader, "generator", None)
+        if generator is not None:
+            generator.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed % 2**32)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
     def train_one_epoch(self, epoch: int) -> dict:
         a = self.args
         model = self.model
+        if isinstance(de_parallel(model), SequenceModel):
+            return self.calibrate_once(epoch)
         model.train()
+        self.seed_epoch(epoch)
         self.train_set.set_epoch(epoch)
         total, count, items_sum = 0.0, 0, {}
         grad_clip = float(a.grad_clip)
@@ -161,10 +196,14 @@ class Trainer:
             run_callbacks(self.callbacks, "on_train_batch_start", self)
             x = batch["imu"].to(self.device, non_blocking=True)
             y = batch["target"].to(self.device, non_blocking=True)
+            mask = batch["mask"].to(self.device, non_blocking=True)
+            extra = {k: v.to(self.device, non_blocking=True)
+                     for k, v in batch.get("extra", {}).items()}
             with torch.autocast(self.device.type, enabled=self.amp):
-                out = model(x)
+                out = model(x, extra) if extra else model(x)
             out = {k: v.float() if torch.is_tensor(v) else v for k, v in out.items()}
-            loss, items = de_parallel(model).loss(out, {"target": y, "imu": x}, epoch)
+            loss, items = de_parallel(model).loss(
+                out, {"target": y, "imu": x, "mask": mask, "extra": extra}, epoch)
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite loss at epoch {epoch}: {loss.item()}")
             self.optimizer.zero_grad(set_to_none=True)
@@ -185,6 +224,26 @@ class Trainer:
                     if f"train/{k}" != "train/loss"})
         return out
 
+    def calibrate_once(self, epoch: int) -> dict:
+        """序列级模型没有梯度训练：只在 **train 划分**上拟合一次标定标量。
+
+        标定量写入 ``model_cfg["calibration"]``（随 checkpoint 与 ``metrics.json`` 发布），
+        之后与其他模型走同一套验证、选模与结果写出。
+        """
+        model = de_parallel(self.model)
+        if epoch > self.start_epoch:
+            return {"train/loss": math.nan}
+        views = [self.train_set.sequence_view(k)
+                 for k in range(len(self.train_set.sequence_ids))]
+        stats = model.calibrate(views, split="train") or {}
+        model.model_cfg["calibration"] = to_builtin(stats)
+        LOGGER.info(f"calibrate: {model.model_cfg.get('name')} on {self.spec.name}/train "
+                    f"({len(views)} sequences): {stats}")
+        row = {"train/loss": math.nan}
+        row.update({f"train/{k}": float(v) for k, v in stats.items()
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)})
+        return row
+
     def validate(self, epoch: int) -> dict:
         result = self.validator(model=self.model, sources=self.val_views, device=self.device,
                                 epoch=epoch, dataset=self.spec, split="val")
@@ -202,9 +261,17 @@ class Trainer:
         return float(value)
 
     def train(self) -> dict:
-        self.setup()
+        try:
+            self.setup()
+        except BaseException:
+            self._close_log()  # setup 失败时也要摘掉文件日志句柄，否则句柄泄漏到后续运行
+            raise
         a = self.args
         epochs = int(a.epochs)
+        if self.sequence_model:
+            # 序列级模型没有梯度训练：只在 train 划分上标定一次，再走同一套验证与结果写出
+            epochs = self.start_epoch + 1
+            LOGGER.info("sequence model: calibrating once instead of running gradient epochs")
         LOGGER.info(f"train: {self.spec.name}, {len(self.train_set)} windows, "
                     f"{len(self.val_views)} val sequences, epochs {self.start_epoch}->{epochs}, "
                     f"save_dir={self.save_dir}")
@@ -221,7 +288,7 @@ class Trainer:
                 run_callbacks(self.callbacks, "on_train_epoch_end", self)
                 is_plateau = isinstance(self.scheduler,
                                         torch.optim.lr_scheduler.ReduceLROnPlateau)
-                if not is_plateau:
+                if not is_plateau and not self.sequence_model:
                     self.scheduler.step()
                 last_epoch = epoch == epochs - 1
                 improved = False
@@ -248,11 +315,9 @@ class Trainer:
                         f"(epoch {self.stopper.best_epoch}), weights → {self.best}")
             run_callbacks(self.callbacks, "on_train_end", self)
         finally:
-            handler = getattr(self, "_log_handler", None)
-            if handler is not None:
-                LOGGER.removeHandler(handler)
-                handler.close()
-            if self.device.type == "cuda":
+            self._close_log()
+            device = getattr(self, "device", None)
+            if device is not None and device.type == "cuda":
                 torch.cuda.empty_cache()
         return self.metrics
 
@@ -290,10 +355,15 @@ class Trainer:
         }
 
     def save_model(self, epoch: int, improved: bool) -> None:
+        """先写 ``best.pt`` 再写 ``last.pt``。
+
+        顺序很重要：``last.pt`` 里保存了早停器状态（``best_epoch``/``best``），只有 best 先落盘，
+        中断后从 ``last.pt`` 续训时记录的最优轮次才一定对应磁盘上的 ``best.pt``。
+        """
         ckpt = self.checkpoint(epoch)
-        save_checkpoint(self.last, ckpt)
         if improved:
             save_checkpoint(self.best, ckpt)
+        save_checkpoint(self.last, ckpt)
         period = int(self.args.save_period)
         if period > 0 and (epoch + 1) % period == 0:
             save_checkpoint(self.wdir / f"epoch{epoch + 1}.pt", ckpt)

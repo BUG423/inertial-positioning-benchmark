@@ -25,7 +25,6 @@ input:                     # 与 RoNIN 相同的任务视图
   remove_gravity: false
   target: avg_velocity
   dims: 2
-  augment: [random_yaw, time_shift]   # RoNIN 的一致增强策略 + 随机窗口偏移
 loss: rio_joint            # 速度项（逐分量求和）+ 旋转等变自监督项（负余弦、速度门控）
 loss_kwargs:
   ssl_weight: 1.0          # 论文两项权重 1:1
@@ -46,8 +45,9 @@ recipes:
     plateau_patience: 10
     grad_clip: 0.0
     stride: 10
-    eval_stride: 10
+    augment: [random_yaw, time_shift]   # RoNIN 的一致增强策略 + 随机窗口偏移
     amp: false
     fitness: loss          # RoNIN 按 val 损失选模
     patience: 0
-  unified: {}              # 使用 default.yaml 的统一预算
+  unified:                 # 使用 default.yaml 的统一预算
+    augment: [random_yaw, time_shift]   # 增强属于算法本身，两个配方一致

@@ -200,38 +200,112 @@ runs/<mode>/<name>/
 | `window` | 窗口样本数（200 Hz 下） | 200 |
 | `stride` | 训练滑窗步长（样本） | 10 |
 | `eval_stride` | 推理步长（样本） | 10 |
-| `frame` | `gravity_world`（用姿态旋转到重力对齐世界系）/ `body` / `gravity_yaw_local`（按窗口末端偏航去除后的重力对齐系） | `gravity_world` |
+| `frame` | `gravity_world`（用姿态旋转到重力对齐世界系）/ `body` / `gravity_yaw_local`（按窗口末端航向去除后的重力对齐系） | `gravity_world` |
 | `orientation` | `reference` / `device`（输入旋转使用哪个姿态） | `reference` |
 | `remove_gravity` | bool | false |
-| `target` | `avg_velocity`（窗口首末位移/时长）/ `displacement` / `velocity_at_end` | `avg_velocity` |
+| `target` | `avg_velocity`（窗口首末位移/时长）/ `displacement` / `velocity_at_end` / `frame_velocity` / `multi_displacement` | `avg_velocity` |
 | `dims` | 2（水平）/ 3 | 2 |
+| `output_steps` | `multi_displacement` 的步数 `H`（窗口等分为 `H` 段） | 0（不适用） |
+| `overlap` | 重叠预测的合并策略 `center` / `mean` | `mean` |
+| `history` | 历史子窗口个数 `H_in`（0 = 不使用历史） | 0 |
+| `history_stride` | 子窗口起点间隔（样本），`history > 1` 时必须 ≥ 1 | 0 |
+| `extra_inputs` | 额外输入列表：`orientation` / `gravity` / `init_velocity` | `[]` |
 | `augment` | 列表，例如 `[random_yaw, time_shift]` | 模型配置决定 |
 
 模型输入通道顺序**固定为 `[gyro_xyz, acc_xyz]`**，形状 `(B, 6, T)`。模型若需要其他顺序或额外通道，
 必须在自己的模型代码内部完成，并有单元测试。
 
+### 3.1 逐帧 / 多步目标与输出布局
+
+`InputSpec` 声明**输出布局**与**各输出的时间偏移**，Predictor 据此把每个输出放到正确的时间戳上：
+
+| `output_layout` | 触发条件 | 输出形状 | 第 `r` 行的含义 | 时间偏移 `output_offsets[r]` |
+|---|---|---|---|---|
+| `window` | `avg_velocity` / `displacement` / `velocity_at_end` | `(B, D)` | 整个窗口 | 窗口中心（`velocity_at_end` 为末端） |
+| `frame` | `frame_velocity` | `(B, T, D)` | 窗口内第 `r` 帧的平均速度 | 该帧本身 `r·dt` |
+| `steps` | `multi_displacement` | `(B, H, D)` | 窗口第 `r` 段的位移 | 该段中心 |
+
+- `frame_velocity`：第 `i` 帧的目标为该帧的平均速度——有 `pose/velocity` 时直接取，否则用前后各一个
+  样本的中心差分（序列端点退化为单边差分），与 `velocity_at_end` 的定义一致；
+- `multi_displacement`：窗口 `[s, s+T)` 按 `output_steps` **等分**（边界 `round(linspace(0, T−1, H+1))`），
+  第 `h` 段的目标是 `p[s+hi_h] − p[s+lo_h]`；换算为速度时各段除以自己的时间跨度 `(hi_h−lo_h)·dt`
+  （`output_scales`）。RNIN 式“10 步位移”即 `output_steps=10`；
+- 时间偏移一律是**半个采样间隔的整数倍**，重叠预测才能精确对齐合并；
+- 损失支持逐帧/多步：batch 中的 `mask`（`(B, R)`）给出逐输出的目标有效性，无效的帧/步不计入损失；
+  某个样本全部无效时损失为 0 但保留计算图。
+
+### 3.2 历史上下文
+
+`history` / `history_stride` 声明历史子窗口：输入形状变为 `(B, H_in, 6, T)`，第 `h` 个子窗口为
+`[start − (H_in−1−h)·history_stride, … + T)`，**最后一个子窗口就是主窗口**（目标与时间戳都只由主窗口决定）。
+窗口起点从 `history_offset = (H_in−1)·history_stride` 开始，有效性按**整个输入跨度**
+`input_span = history_offset + T` 判断，因此训练与推理都保证子窗口在时间上连续、不跨越无效区。
+
+### 3.3 额外输入与特权输入
+
+`extra_inputs` 声明模型除 `[gyro, acc]` 之外需要的输入；声明后模型签名为 `forward(imu, extra)`，
+`extra` 为 `{名称: 张量}`，形状与输入布局一致（有历史时带 `H_in` 维）：
+
+| 名称 | 内容 | 形状 | 特权 |
+|---|---|---|---|
+| `orientation` | 逐样本姿态（视图坐标系，`gravity_yaw_local` 下已去掉窗口末端航向） | `(B[, H_in], T, 4)` | 否 |
+| `gravity` | 逐样本重力向量（视图坐标系，模长 9.81） | `(B[, H_in], T, 3)` | 否 |
+| `init_velocity` | **参考真值**在输入跨度首样本处的速度（视图坐标系） | `(B, D)` | **是** |
+
+**特权输入必须显式标记**：`metrics.json` 写 `privileged_inputs`，`ipb report` 把使用特权输入的方法
+单列一张表，不与纯 IMU 方法混排（LaTeX 主表只含纯 IMU 方法）。
+
 补充约定（实现时澄清）：
 
-- **目标与输入同一坐标系**：`gravity_world` 下目标是参考世界系速度；`gravity_yaw_local` 下目标同样按窗口末端偏航旋转；
+- **航向定义（`heading_from_quat`）**：所有“偏航/航向”一律取**绕世界 z 轴的扭转分量**，
+  即把姿态分解为 `q = q_z(ψ) ⊗ q_tilt`（`q_tilt` 的旋转轴水平，为 body-z 与世界 z 之间的最小旋转），
+  闭式解 `ψ = 2·atan2(q_z, q_w)`；它与“取最水平的机体轴求方位角、再减去该轴在纯倾斜帧中的方位角”等价。
+  该定义偏航等变（`q_z(α) ⊗ q` 使 `ψ` 加 `α`）、在 |pitch| → 90° 附近连续，roll = 0 时与 ZYX 偏航逐位相同，
+  一般姿态下与 ZYX 偏航相差约 `pitch·roll/2`。**不使用 ZYX 偏航**：它等于机体 x 轴水平投影的方位角，
+  机体 x 轴接近竖直时跳变 180°（pitch 80° → 100° 时从 28.6° 跳到 −151.4°），会把姿态噪声放大成协议噪声。
+  唯一奇点是姿态完全倒置（机体 z 轴竖直向下、倾斜角 = 180°），此时 `w² + z² = 0`，约定取 `ψ = 0`；
+  等变的航向定义必然存在奇点（S² 上非平凡 S¹ 主丛没有全局截面），把奇点放在“完全倒置”比放在“x 轴竖直”合理。
+- **目标与输入同一坐标系**：`gravity_world` 下目标是参考世界系速度；`gravity_yaw_local` 下目标同样按窗口末端航向旋转；
   `body` 下目标用窗口末端姿态旋到机体系，因而**必须 `dims=3`**（机体系没有“水平面”）。推理时用同一姿态把预测旋回世界系。
 - 窗口 `[s, s+T)` 的 `avg_velocity = (p[s+T−1] − p[s]) / ((T−1)·dt)`，`displacement` 为同一差分，`velocity_at_end`
   为窗口末端速度（有 `pose/velocity` 时直接取，否则用末端前后各一个样本的中心差分）。
 - `orientation=device` 时，设备姿态的世界系与参考世界系差一个常值偏航：视图在首个 IMU/位姿均有效的样本处
   用参考姿态估计该偏航并补偿（与 RoNIN 测试时“初始对齐”一致），此后不再使用参考姿态。
-- 窗口内任一样本 `valid/imu` 或 `valid/pose` 为 False 时，该窗口不参与训练与窗口级指标；
-  `orientation=device` 时额外要求 `valid/device_orientation`（缺该数据集时视为全 True）。
-  设备姿态缺口不影响 `orientation=reference`（默认）的可用窗口。
+- 窗口内任一样本的**输入有效性**或 `valid/pose` 为 False 时，该窗口不参与训练与窗口级指标
+  （推理时两套掩码分开使用，见第 5 节第 5 条）。输入有效性以 `valid/imu` 为基础，再与视图实际
+  取用的姿态有效性相与：`orientation=reference` 与 `valid/pose`，`orientation=device` 与
+  `valid/device_orientation`（可选字段，数据集没有它时视为全 True）；因此设备姿态缺口不影响
+  `orientation=reference`（默认）的可用窗口，`frame=body` 且不去重力时输入只取决于 `valid/imu`。
 
 ## 4. 模型接口
 
 ```python
 class BaseModel(nn.Module):
-    input_spec:  InputSpec   # window, frame, channels, dims, target, rate=200
-    def forward(self, imu: Tensor) -> dict:      # {"vel": (B,D), 可选 "logstd"/"cov": (B,D[,D]), 可选 "aux": ...}
+    input_spec:  InputSpec   # window, frame, channels, dims, target, rate=200, 输出布局与额外输入
+    def forward(self, imu: Tensor, extra: dict = ...) -> dict   # {"vel": input_spec.output_shape, 可选 "logstd"/"cov", "aux": ...}
     def loss(self, out: dict, batch: dict, epoch: int) -> tuple[Tensor, dict]   # 默认 MSE；可覆盖
+
+
+class SequenceModel(BaseModel):   # 序列级 / 有状态模型（PDR、递推、滤波类）
+    def predict_sequence(self, seq, view) -> tuple   # (times, velocities[, extras])
+    def calibrate(self, views) -> dict               # 只在 train 划分上拟合标定标量
 ```
 
+- `forward` 接收 `(B, 6, T)`（声明 `history` 时为 `(B, H_in, 6, T)`），输出形状由
+  `input_spec.output_shape` 给出；声明 `extra_inputs` 的模型签名为 `forward(imu, extra)`。
+- `loss(out, batch, epoch)` 的 `batch` 在训练与验证中结构一致：至少含 `target`、`imu`，
+  另有 `mask`（逐输出的目标有效掩码）与可选的 `extra`。
+- **序列级 / 有状态模型**（不能逐窗口独立运行的方法：PDR、有状态递推、滤波、测试时训练）实现
+  `SequenceModel`：`predict_sequence(seq, view) -> (times, velocities[, extras])`，其中 `times`
+  必须落在视图的窗口网格（`view.target_times(view.starts(eval_stride))`）上、`velocities` 为**视图
+  坐标系**中的窗口速度，从而与逐窗口模型共用第 5 节的轨迹重建与第 6 节的全部指标。
+  需要标定的方法实现 `calibrate(views)`：Trainer 检测到序列级模型时不跑梯度循环，只用 **train 划分**
+  的视图调用一次 `calibrate`，标定量写入 `model_cfg["calibration"]`（随 checkpoint 与结果发布），
+  之后走同一套验证与选模。
+
 - 通过 `@register_model("name")` 注册，`cfg/models/<name>.yaml` 给出结构参数与训练配方。
+  仓库外的模型/增强可放在插件模块中（`@register_model` / `@register_augmentation`），由环境变量
+  `IPB_PLUGINS` 列出后自动导入；配置用模型 YAML 路径（`model=path/to/model.yaml`）引用。
 - 每个公开算法必须在模型文档字符串与 `docs/algorithms/<name>.md` 中注明：论文、官方仓库、许可、提交号、
   与官方实现的差异（例如 2D 输出、单窗口输入）及理由。
 - 忠实性底线：网络结构、参数量、专用损失、训练阶段切换与官方一致；参数量必须有单元测试锁定。
@@ -239,14 +313,29 @@ class BaseModel(nn.Module):
 
 ## 5. 推理与轨迹重建
 
-1. 以 `eval_stride` 滑窗，得到每个窗口的速度 `v_k`，时间戳赋给**窗口中心**（`velocity_at_end` 目标对应窗口末端时刻，
-   时间戳相应赋给窗口末端；`displacement` 目标先除以窗口跨度 `(T−1)·dt` 换算为速度）；
+1. 以 `eval_stride` 滑窗，把**每个输出**按 `InputSpec.output_offsets` 放到自己的时间戳上、按
+   `output_scales` 换算为速度（窗口级目标的时间戳即窗口中心，`velocity_at_end` 为窗口末端，
+   `displacement` 除以窗口跨度 `(T−1)·dt`；逐帧目标对应各帧，多步位移对应各段中心）。
+   逐帧/多步布局在滑窗下会让同一时刻出现多个预测，按 `overlap` 合并：
+   - `mean`（**默认**）：同一时刻的全部**有效**输出取算术平均。理由：这些预测来自同一模型、同一时刻、
+     不同上下文窗口，误差近似独立同分布，平均降低方差且不引入偏置；而且它对 `eval_stride` 的取值最
+     不敏感（换步长时结果稳定），跨模型比较更公平。
+   - `center`：只保留“窗口中心距该时刻最近”的输出，即最少依赖窗口边界外推的那个；适合因果/单向结构
+     或边界效应明显的模型。
+   两种策略都优先使用有效输出；某一时刻全部无效时先合并、再标记为无效（交给第 5 条填补）。
+   序列级模型（`SequenceModel`）直接给出同一网格上的速度，后续步骤完全相同；
 2. 在序列首尾半个窗口内保持首/末速度（常值外推），使所有模型覆盖**同一时间轴**；
 3. 对分段线性速度做梯形积分得到逐帧轨迹，起点锚定参考轨迹首个有效位置；不做任何对齐；
 4. 同时保存窗口级 `vel_pred / vel_target / (logstd)`，以及“oracle 轨迹”（用窗口目标本身积分），用于分离协议效应与模型效应；
-5. 含无效样本的窗口仍然推理，但其速度（预测与目标）在积分前用相邻有效窗口的速度按时间线性插值替换；
-   轨迹指标只在 `valid/pose` 为 True 的样本上计算，锚点为首个有效参考位置；
-6. 序列短于一个窗口时无法推理，记为跳过并写入结果，不参与聚合。
+   模型返回的其他逐窗口张量（首维为批大小，例如速度大小、协方差）原样保存为 `out_<键>`
+  （模型输出的坐标系、未做第 5 步的无效窗口插值；模型可用 `saved_outputs` 限定保存哪些键）；
+5. 含无效样本的窗口仍然推理，填补范围按**两套窗口掩码**分开（`window_valid_input` / `window_valid_target`）：
+   **预测**只在输入无效的窗口上用相邻有效窗口的预测线性插值替换，**目标**只在参考位姿无效的窗口上替换。
+   输入有效性 = `valid/imu` ∧ 视图所需姿态有效（`orientation=device` 时为可选字段 `valid/device_orientation`，
+   字段不存在则视为全部有效；`orientation=reference` 时为 `valid/pose`；`frame=body` 且不去重力时不需要姿态）。
+   这样“位姿有缺口、IMU 正常”的窗口不再被插值掉，**模型穿越位姿缺口的漂移会被真实评测**；
+   轨迹指标只在 `valid/pose` 为 True 的样本上计算，锚点为首个有效参考位置；窗口级速度指标仍要求两者同时有效；
+6. 序列短于一个输入跨度（`history_offset + window`）时无法推理，记为跳过并写入结果，不参与聚合。
 
 旧实现的已知错误（时间戳赋给窗口起点造成半窗错位、末尾一个窗口时长不被覆盖）在此明确禁止。
 
@@ -257,7 +346,7 @@ class BaseModel(nn.Module):
 | 指标 | 定义 |
 |---|---|
 | ATE | `sqrt(mean_t ‖p̂_t − p_t‖²)`，不对齐（另提供 `ATE_aligned`：刚体对齐后） |
-| RTE | RoNIN 定义：Δ=60 s，`sqrt(mean_t ‖(p̂_{t+Δ}−p̂_t) − (p_{t+Δ}−p_t)‖²)`；序列短于 60 s 时取全长并按 60/时长线性缩放 |
+| RTE | RoNIN 定义：Δ=60 s，`sqrt(mean_t ‖(p̂_{t+Δ}−p̂_t) − (p_{t+Δ}−p_t)‖²)`；没有相距 Δ 的有效样本对时取首末有效样本并按 60/**有效跨度**线性换算，并输出 `rte_scaled` 与 `valid_span_s` |
 | T-RTE@τ | 同上，τ ∈ {1 s, 10 s}（可配） |
 | D-RTE@d | 参考轨迹每走过 d 米（默认 10 m）的相对位移误差 RMSE |
 | Drift / PDE | `‖p̂_N − p_N‖ / L_ref × 100%` |
@@ -273,7 +362,21 @@ class BaseModel(nn.Module):
 配对 Wilcoxon 检验；输出 CSV / Markdown / LaTeX 表格；图包括轨迹叠加、误差 CDF、误差随时间曲线、
 箱线图、长度比散点、参数量–精度帕累托图。
 
-**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE。
+**协议与模型分离（配置层强制）**：
+
+- 模型 YAML 的 `input` 只允许**输入/输出规格**键（`window`、`frame`、`orientation`、`remove_gravity`、
+  `target`、`dims`、`rate`，以及第 3 节的扩展键 `overlap`、`history*`、`extra_inputs`）；
+  `recipes` 只允许**训练相关**键。
+- **评测协议键**（`eval_stride`、`metric_dims`、`rte_delta`、`t_rte`、`d_rte`、`min_speed`、`split`）
+  只能来自 `cfg/default.yaml`、benchmark 配置或用户显式命令行/Python 参数，**不得**来自模型 YAML
+  或 checkpoint 里保存的 `model_cfg`；违反时 `get_cfg` 直接报错。运行/输出键（`device`、`project`、
+  `name`、`plots`…）同样不允许出现在模型配方里。
+- 生效的协议（输入规格 + 评测协议）写入 `runs/*/args.yaml` 与 `metrics.json` 的 `protocol` 块。
+  `ipb report` 汇总前核对所有 run 的**评测协议**键是否一致：不一致（或缺少 `protocol`）直接报错，
+  指出差异键与对应目录；输入规格键本来就随模型不同，只记录不比较。
+
+**诚实协议**：训练中只允许看 val；test 只在最终评测时运行一次；模型选择 fitness 默认为 val ATE，
+且 `fitness` 在配置解析时就按“越小越好的验证指标”校验（拼错立即报错，不会等到第一轮结束）。
 
 ## 7. 开发纪律
 

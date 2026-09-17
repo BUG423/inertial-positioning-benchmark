@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import os
 import random
@@ -50,6 +51,12 @@ def select_device(device: Any = None, verbose: bool = True) -> torch.device:
     return dev
 
 
+def epoch_seed(seed: int, epoch: int) -> int:
+    """``(seed, epoch)`` → 稳定的 63 位种子（与轮次顺序无关，便于续训复现）。"""
+    state = np.random.SeedSequence([int(seed), int(epoch)]).generate_state(1, dtype=np.uint64)
+    return int(state[0] >> 1)
+
+
 def seed_everything(seed: int = 0, deterministic: bool = True) -> None:
     """设置 python / numpy / torch 随机种子；``deterministic`` 时启用确定性算法（仅告警）。"""
     random.seed(seed)
@@ -79,11 +86,15 @@ def build_optimizer(model: nn.Module, name: str, lr: float, momentum: float = 0.
     for p in model.parameters():
         if p.requires_grad:
             (decay if p.ndim > 1 else no_decay).append(p)
+    if not decay and not no_decay:
+        # 没有可训练参数（例如只做标定的序列级模型）：torch 不接受空参数列表，放一个占位参数
+        no_decay = [nn.Parameter(torch.zeros(1))]
     groups = [{"params": decay, "weight_decay": weight_decay},
               {"params": no_decay, "weight_decay": 0.0}]
     name = name.lower()
     if name == "sgd":
-        return torch.optim.SGD(groups, lr=lr, momentum=momentum, nesterov=True)
+        # Nesterov 要求动量 > 0（且 dampening = 0），momentum=0 时退化为普通 SGD
+        return torch.optim.SGD(groups, lr=lr, momentum=momentum, nesterov=momentum > 0)
     if name == "adam":
         return torch.optim.Adam(groups, lr=lr, betas=(momentum, 0.999))
     if name == "adamw":
@@ -153,7 +164,11 @@ _CKPT_CACHE: dict = {}
 
 
 def load_checkpoint(path: PathLike, map_location: Any = "cpu") -> dict:
-    """读取 checkpoint（只含张量与基本类型，``weights_only=True``）；按路径与修改时间缓存。"""
+    """读取 checkpoint（只含张量与基本类型，``weights_only=True``）；按路径与修改时间缓存。
+
+    返回的始终是**深拷贝**：优化器 ``load_state_dict`` 只在 dtype/device 不匹配时才复制张量，
+    否则会与缓存共享存储，随后 ``exp_avg.mul_()`` 之类的原地更新就会污染缓存里的 checkpoint。
+    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"checkpoint not found: {path}")
@@ -161,7 +176,7 @@ def load_checkpoint(path: PathLike, map_location: Any = "cpu") -> dict:
     if key not in _CKPT_CACHE:
         _CKPT_CACHE.clear()
         _CKPT_CACHE[key] = torch.load(path, map_location=map_location, weights_only=True)
-    return _CKPT_CACHE[key]
+    return copy.deepcopy(_CKPT_CACHE[key])
 
 
 def save_checkpoint(path: PathLike, ckpt: dict) -> None:
@@ -179,13 +194,23 @@ def time_sync(device: Optional[torch.device] = None) -> float:
 
 
 def model_info(model: nn.Module, window: Optional[int] = None, channels: int = 6,
-               flops: bool = True) -> dict:
-    """参数量（总数/可训练）与单窗口 FLOPs。"""
+               flops: bool = True, input_shape: Any = None,
+               extra: Optional[dict] = None) -> dict:
+    """参数量（总数/可训练）与单窗口 FLOPs。
+
+    ``input_shape`` 为单个样本的输入形状（不含批维），缺省 ``(channels, window)``；
+    声明历史子窗口的模型请传 ``InputSpec.input_shape``。序列级模型没有逐窗口前向，跳过 FLOPs。
+    """
     from ..metrics.efficiency import count_flops, count_params
 
     info = {"parameters": count_params(model),
             "trainable": count_params(model, trainable_only=True),
             "layers": sum(1 for _ in model.modules())}
-    if flops and window:
-        info.update(count_flops(model, (1, channels, window)))
+    if flops and (window or input_shape):
+        shape = tuple(int(v) for v in (input_shape if input_shape is not None
+                                       else (channels, int(window))))
+        try:
+            info.update(count_flops(model, (1, *shape), extra=extra))
+        except NotImplementedError:
+            info.update({"flops": None, "flops_backend": "not applicable"})
     return info

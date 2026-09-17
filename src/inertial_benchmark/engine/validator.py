@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 
 import torch
 
-from ..cfg import ConfigError, get_cfg, is_checkpoint
+from ..cfg import ConfigError, get_cfg, is_checkpoint, protocol_from_cfg
 from ..data.format import Sequence, load_sequence
 from ..data.manifest import DatasetSpec, resolve_dataset
 from ..data.views import SequenceView
@@ -66,7 +66,8 @@ class Validator:
         model_cfg = getattr(predictor.model, "model_cfg", {}) or {}
         return RunResult(results, dataset=dataset, split=split,
                          model=str(model_cfg.get("name", self.args.model)),
-                         cfg=self.args.to_dict() if hasattr(self.args, "to_dict") else {})
+                         cfg=self.args.to_dict() if hasattr(self.args, "to_dict") else {},
+                         calibration=dict(model_cfg.get("calibration") or {}))
 
     def __call__(self, model: Optional[torch.nn.Module] = None, sources: Optional[list] = None,
                  device: Optional[torch.device] = None, epoch: int = 0,
@@ -103,7 +104,8 @@ class Validator:
                 result.env = collect_env(device, spec)
                 if self.args.efficiency:
                     result.efficiency = self.efficiency(predictor.model, device)
-                yaml_save(self.save_dir / "args.yaml", self.args.to_dict())
+                yaml_save(self.save_dir / "args.yaml",
+                          {**self.args.to_dict(), "protocol": protocol_from_cfg(self.args)})
                 json_save(self.save_dir / "env.json", result.env)
                 result.save(self.save_dir, predictions=bool(self.args.save_predictions),
                             plots=bool(self.args.plots), max_plots=int(self.args.max_plots))
@@ -123,7 +125,9 @@ class Validator:
         spec = model.input_spec
         devices = ["cpu"] + ([str(device)] if device.type == "cuda" else [])
         try:
-            return efficiency_metrics(model, spec.window, spec.num_channels, devices)
+            return efficiency_metrics(model, spec.window, spec.num_channels, devices,
+                                      input_shape=spec.input_shape,
+                                      extra=spec.dummy_extra())
         except Exception as exc:  # noqa: BLE001 - 效率统计失败不影响精度结果
             LOGGER.warning(f"efficiency metrics failed: {exc}")
             return {}

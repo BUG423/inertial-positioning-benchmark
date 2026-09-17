@@ -79,8 +79,9 @@ def test_loss_stage_switch():
     grads = {}
     for epoch in (8, 9):
         model.zero_grad(set_to_none=True)
-        out = model(torch.randn(4, 6, 200))
-        loss, items = model.loss(out, {"target": target}, epoch)
+        imu = torch.randn(4, 6, 200)
+        out = model(imu)
+        loss, items = model.loss(out, {"target": target, "imu": imu}, epoch)
         loss.backward()
         grads[epoch] = (float(model.mean_head.fc3.weight.grad.abs().sum()),
                         float(model.logstd_head.fc3.weight.grad.abs().sum()))
@@ -93,14 +94,15 @@ def test_logstd_lower_bound_and_no_upper_bound():
     model = build()
     loss_fn = model.loss
     out = {"vel": torch.zeros(1, 3), "logstd": torch.full((1, 3), -10.0)}
-    value, _ = loss_fn(out, {"target": torch.zeros(1, 3)}, 100)
+    batch = {"target": torch.zeros(1, 3), "imu": torch.zeros(1, 6, 200)}
+    value, _ = loss_fn(out, batch, 100)
     assert value.item() == pytest.approx(MIN_LOGSTD)  # u' = log(1e-3)
     expected = gaussian_nll(out["vel"], torch.full((1, 3), MIN_LOGSTD),
                             torch.zeros(1, 3), None, None).item()
     assert value.item() == pytest.approx(expected)
     # 官方只截下限：logstd 很大时不被截断
     high, _ = loss_fn({"vel": torch.zeros(1, 3), "logstd": torch.full((1, 3), 8.0)},
-                      {"target": torch.zeros(1, 3)}, 100)
+                      batch, 100)
     assert high.item() == pytest.approx(8.0)
 
 

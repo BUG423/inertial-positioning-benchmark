@@ -5,10 +5,15 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
+from inertial_benchmark.cfg import load_default  # noqa: E402
 from inertial_benchmark.engine.results import RunResult, SequenceResult  # noqa: E402
+from inertial_benchmark.utils import json_load, json_save  # noqa: E402
 from inertial_benchmark.utils.reports import (  # noqa: E402
+    ProtocolMismatch,
     bootstrap_ci,
     build_report,
+    check_protocols,
+    find_runs,
     load_runs,
     paired_wilcoxon,
     summarize,
@@ -17,16 +22,19 @@ from inertial_benchmark.utils.reports import (  # noqa: E402
 )
 
 ATE = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+# 完整的评测协议（report 会核对它在各 run 之间一致）
+PROTOCOL = dict(load_default(), seed=0)
 
 
-def write_run(root, model, seed, offset, dataset="syn", split="test"):
+def write_run(root, model, seed, offset, dataset="syn", split="test", **cfg):
     seqs = []
     for k, ate in enumerate(ATE):
         s = SequenceResult(sequence_id=f"q{k}", group_id=f"g{k // 2}")
         s.metrics = {"ate": ate + offset + 0.1 * seed, "rte": 2 * ate, "plr": 1.0,
                      "num_windows": 10}
         seqs.append(s)
-    run = RunResult(seqs, dataset=dataset, split=split, model=model, cfg={"seed": seed},
+    run = RunResult(seqs, dataset=dataset, split=split, model=model,
+                    cfg={**PROTOCOL, "seed": seed, **cfg},
                     efficiency={"params": 1000 * (1 + offset), "flops": 5e6})
     return run.save(root / model / f"seed{seed}" / split, predictions=False, plots=False)
 
@@ -92,5 +100,29 @@ def test_build_report(runs, tmp_path):
     assert any("box_ate" in p for p in info["plots"])
     tests = pd.read_csv(out / "wilcoxon.csv")
     assert set(tests["metric"]) == {"ate", "rte"}
+    assert info["protocol"]["metric_dims"] == 2 and info["protocol"]["eval_stride"] == 10
     with pytest.raises(FileNotFoundError):
         build_report(tmp_path / "empty", out)
+
+
+def test_report_rejects_inconsistent_protocols(runs, tmp_path):
+    """不同 run 的评测协议必须一致，否则指标不可比，report 直接报错。"""
+    assert check_protocols(find_runs(runs))["metric_dims"] == 2
+    # 输入规格（窗口）随模型不同是允许的，只记录不比较
+    write_run(runs, "C", 0, 2.0, window=400, target="displacement")
+    assert check_protocols(find_runs(runs))["rte_delta"] == 60.0
+    # 评测协议键不同：报错并指出具体键
+    write_run(runs, "D", 0, 3.0, metric_dims=3)
+    with pytest.raises(ProtocolMismatch, match="metric_dims"):
+        check_protocols(find_runs(runs))
+    with pytest.raises(ProtocolMismatch, match="metric_dims"):
+        build_report(runs, tmp_path / "bad")
+
+
+def test_report_rejects_results_without_a_protocol(runs, tmp_path):
+    path = find_runs(runs)[0] / "metrics.json"
+    meta = json_load(path)
+    meta.pop("protocol")
+    json_save(path, meta)
+    with pytest.raises(ProtocolMismatch, match="no 'protocol' block"):
+        build_report(runs, tmp_path / "old")

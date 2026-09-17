@@ -27,11 +27,6 @@ input:                     # 与 tlio 卡一致的任务视图（LLIO 复用 TLI
   remove_gravity: false
   target: displacement
   dims: 3
-  augment:                 # 继承 TLIO 官方增强顺序（未核实）
-    - {bias_shift: {gyro: 0.05, acc: 0.2}}
-    - {gravity_perturb: {max_deg: 5.0}}
-    - random_yaw
-    - {time_shift: {min_shift: 0, max_shift: 9}}
 loss: nll_detach_then_nll  # 继承 TLIO 官方实际行为（前 9 个 epoch 的 NLL 中 logstd 被 detach）
 loss_kwargs:
   switch_epoch: 9
@@ -48,10 +43,19 @@ recipes:
     scheduler: none
     grad_clip: 0.1
     stride: 10
-    eval_stride: 10
+    augment:               # 继承 TLIO 官方增强顺序（未核实）
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}
     amp: false
     fitness: loss
     patience: 0
   unified:                 # IPB 统一预算
     grad_clip: 0.1
     scheduler: cosine
+    augment:               # 增强管线属于算法本身，两个配方一致
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}

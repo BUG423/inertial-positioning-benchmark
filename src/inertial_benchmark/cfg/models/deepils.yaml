@@ -41,7 +41,6 @@ recipes:
     plateau_patience: 10
     grad_clip: 0.0
     stride: 10
-    eval_stride: 10
     amp: false             # 官方不用 AMP
     augment: [random_yaw, time_shift]   # RandomHoriRotate(2π) + ±5 样本随机平移
     fitness: loss          # 官方按 val 平均 L1 选模、按 val MSE 调度；IPB 统一用验证损失

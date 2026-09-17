@@ -14,15 +14,28 @@ from ..utils import CFG_DIR, DEFAULT_CFG_PATH, IterableSimpleNamespace, yaml_loa
 
 PathLike = Union[str, Path]
 
-# 定义模型输入的键：使用 checkpoint 时必须与训练时一致
-INPUT_KEYS = ("window", "frame", "orientation", "remove_gravity", "target", "dims", "rate")
+# 定义模型输入/输出规格的键：模型 YAML 的 `input` 只允许这些键；使用 checkpoint 时必须与训练时一致
+INPUT_KEYS = ("window", "frame", "orientation", "remove_gravity", "target", "dims", "rate",
+              "output_steps", "overlap", "history", "history_stride", "extra_inputs")
+# 评测协议键：决定指标怎么算，**只能**来自 default.yaml / benchmark 配置 / 用户显式覆盖，
+# 不得来自模型 YAML 或 checkpoint 的 model_cfg（否则模型可以自己挑一套好看的评测协议）
+EVAL_PROTOCOL_KEYS = ("eval_stride", "metric_dims", "rte_delta", "t_rte", "d_rte", "min_speed")
+EVAL_KEYS = EVAL_PROTOCOL_KEYS + ("split",)
+# 写入 args.yaml 与 metrics.json 的 `protocol` 块：输入规格（随模型）+ 评测协议（随 benchmark）
+PROTOCOL_KEYS = INPUT_KEYS + EVAL_PROTOCOL_KEYS
+# 运行环境与输出键：由命令行/benchmark 配置决定，模型配方不得改写
+RUN_KEYS = ("mode", "model", "data", "source", "resume", "pretrained", "device", "project",
+            "name", "exist_ok", "verbose", "recipe", "save_predictions", "plots", "max_plots",
+            "efficiency")
 CHOICES = {
     "mode": ("train", "val", "predict", "benchmark"),
     "optimizer": ("sgd", "adam", "adamw"),
     "scheduler": ("none", "cosine", "step", "plateau"),
     "frame": ("gravity_world", "body", "gravity_yaw_local"),
     "orientation": ("reference", "device"),
-    "target": ("avg_velocity", "displacement", "velocity_at_end"),
+    "target": ("avg_velocity", "displacement", "velocity_at_end", "frame_velocity",
+               "multi_displacement"),
+    "overlap": ("center", "mean"),
     "dims": (2, 3),
     "metric_dims": (2, 3),
     "recipe": ("official", "unified"),
@@ -33,6 +46,10 @@ CHOICES = {
 FLEX_TYPES = {"resume": (bool, str), "device": (str, int, type(None)), "model": (str, dict)}
 # 缺省为空、但取值应为字符串的键（CLI 可能把 name=1 解析成整数）
 STR_KEYS = ("name", "data", "split", "source", "pretrained", "project", "model")
+# 明确可空的键（default.yaml 中默认为空）；其余键写 None 视为配置错误，不再静默走默认值
+NULLABLE_KEYS = ("data", "source", "pretrained", "loss", "device", "name")
+# CLI 中一律按“字符串列表”解析的键（序列 id 不能被当成八进制/整数）
+STR_LIST_KEYS = ("only",)
 
 
 class ConfigError(ValueError):
@@ -111,10 +128,41 @@ def check_keys(overrides: Mapping[str, Any], defaults: Mapping[str, Any]) -> Non
         raise ConfigError(f"unknown config key(s): {msg}. See `ipb cfg` for all keys.")
 
 
+def recipe_keys(defaults: Mapping[str, Any]) -> list:
+    """模型配方允许出现的键：训练相关键（排除输入规格、评测协议与运行/输出键）。"""
+    forbidden = set(INPUT_KEYS) | set(EVAL_KEYS) | set(RUN_KEYS)
+    return sorted(k for k in defaults if k not in forbidden)
+
+
+def _check_section(section: Mapping[str, Any], allowed: Any, defaults: Mapping[str, Any],
+                   where: str, reason: str) -> None:
+    """校验模型 YAML 的一个小节：键必须已知，且必须落在 ``allowed`` 内。"""
+    check_keys(section, defaults)
+    bad = sorted(set(section) - set(allowed))
+    if bad:
+        raise ConfigError(f"{where} must not set {bad}: {reason}. Allowed keys: {sorted(allowed)}")
+
+
+def protocol_from_cfg(cfg: Any) -> dict:
+    """生效的评测协议（输入规格 + 评测协议键），写入 ``args.yaml`` 与 ``metrics.json``。"""
+    get = cfg.get if hasattr(cfg, "get") else (lambda k, d=None: getattr(cfg, k, d))
+    out = {}
+    for key in PROTOCOL_KEYS:
+        value = get(key)
+        out[key] = list(value) if isinstance(value, (list, tuple)) else value
+    return out
+
+
 def _coerce(key: str, value: Any, default: Any) -> Any:
+    if value is None:
+        # 只有明确可空的键允许 None；否则 `epochs=none` 会静默退回默认值
+        if key not in NULLABLE_KEYS:
+            raise ConfigError(f"{key}=None is not allowed; nullable keys are "
+                              f"{sorted(NULLABLE_KEYS)}")
+        return None
     if key in STR_KEYS and isinstance(value, (int, float, Path)) and not isinstance(value, bool):
         return str(value)
-    if value is None or (default is None and key not in FLEX_TYPES):
+    if default is None and key not in FLEX_TYPES:
         return value
     if key in FLEX_TYPES:
         if not isinstance(value, FLEX_TYPES[key]):
@@ -155,7 +203,37 @@ def check_cfg(cfg: dict, defaults: Mapping[str, Any]) -> dict:
             raise ConfigError(f"{key} must be >= 1, got {out[key]}")
     if out.get("frame") == "body" and out.get("dims") != 3:
         raise ConfigError("frame=body requires dims=3 (targets are expressed in the device frame)")
+    for key in ("output_steps", "history", "history_stride"):
+        if key in out and out[key] is not None and out[key] < 0:
+            raise ConfigError(f"{key} must be >= 0, got {out[key]}")
+    _check_view(out, defaults)
+    _check_fitness(out, defaults)
     return out
+
+
+def _check_view(out: dict, defaults: Mapping[str, Any]) -> None:
+    """用 ``ViewConfig`` 复核视图/输出布局的组合（窗口、目标、历史、额外输入）。"""
+    from ..data.views import ViewConfig
+
+    merged = {**defaults, **out}
+    try:
+        ViewConfig.from_cfg(merged)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+
+def _check_fitness(out: dict, defaults: Mapping[str, Any]) -> None:
+    """在配置解析时校验 ``fitness``（否则拼错要等到第一轮验证结束才报错）。"""
+    from ..metrics import fitness_keys
+
+    fitness = out.get("fitness", defaults.get("fitness"))
+    if fitness is None:
+        return
+    allowed = fitness_keys(out.get("t_rte", defaults.get("t_rte") or ()),
+                           out.get("d_rte", defaults.get("d_rte") or ()))
+    if fitness not in allowed:
+        raise ConfigError(f"fitness={fitness!r} is not a lower-is-better validation metric"
+                          f"{_suggest(fitness, allowed)}; available: {allowed}")
 
 
 def get_cfg(overrides: Optional[Mapping[str, Any]] = None,
@@ -171,15 +249,21 @@ def get_cfg(overrides: Optional[Mapping[str, Any]] = None,
     model = overrides.get("model", defaults.get("model"))
     if model is not None:
         mcfg = load_model_cfg(model)
-        check_keys(mcfg["input"], defaults)
+        name = mcfg["name"]
+        _check_section(mcfg["input"], INPUT_KEYS, defaults, f"model {name!r} 'input'",
+                       "only the input/output spec belongs to the model")
         merged.update(mcfg["input"])
         recipe = overrides.get("recipe", defaults["recipe"])
         recipes = mcfg["recipes"]
         if recipe not in recipes and recipe != "unified":
-            raise ConfigError(f"model {mcfg['name']} has no recipe {recipe!r} "
+            raise ConfigError(f"model {name} has no recipe {recipe!r} "
                               f"(available: {sorted(recipes) or ['unified']})")
         recipe_cfg = dict(recipes.get(recipe) or {})
-        check_keys(recipe_cfg, defaults)
+        _check_section(recipe_cfg, recipe_keys(defaults), defaults,
+                       f"model {name!r} recipe {recipe!r}",
+                       "the evaluation protocol and the run/output keys are not the model's to "
+                       "choose (they come from default.yaml, the benchmark config or the "
+                       "command line)")
         merged.update(recipe_cfg)
         if is_checkpoint(model):
             from ..utils.torch_utils import load_checkpoint
@@ -223,8 +307,30 @@ def _normalize(obj: Any) -> Any:
     return obj
 
 
+def parse_str_list(text: str, key: str = "value") -> list:
+    """把 ``a,b`` / ``[a, b]`` / ``a`` 解析为字符串列表（不做数字/八进制转换）。
+
+    序列 id 必须按字符串处理：``only=[010]`` 不是八进制 8，``only=007`` 不是整数 7。
+    非法输入（空列表、括号不匹配、空元素、嵌套结构）抛出 :class:`ConfigError`。
+    """
+    s = text.strip()
+    if s.startswith("[") or s.endswith("]"):
+        if not (s.startswith("[") and s.endswith("]")):
+            raise ConfigError(f"{key}={text!r}: unbalanced brackets")
+        s = s[1:-1]
+    if any(ch in s for ch in "[]{}"):
+        raise ConfigError(f"{key}={text!r}: expected a flat comma-separated list of strings")
+    items = [item.strip().strip("'\"").strip() for item in s.split(",")]
+    if not items or any(not item for item in items):
+        raise ConfigError(f"{key}={text!r}: expected a non-empty comma-separated list of ids")
+    return items
+
+
 def parse_key_value(args: list) -> dict:
-    """``["epochs=2", "augment=[random_yaw]"]`` → ``{"epochs": 2, "augment": ["random_yaw"]}``。"""
+    """``["epochs=2", "augment=[random_yaw]"]`` → ``{"epochs": 2, "augment": ["random_yaw"]}``。
+
+    ``STR_LIST_KEYS`` 中的键（序列 id 列表）按字符串列表解析，见 :func:`parse_str_list`。
+    """
     out: dict = {}
     for arg in args:
         if "=" not in arg:
@@ -233,7 +339,7 @@ def parse_key_value(args: list) -> dict:
         key = key.strip().lstrip("-").replace("-", "_")
         if not key:
             raise ConfigError(f"empty key in {arg!r}")
-        out[key] = parse_value(value)
+        out[key] = parse_str_list(value, key) if key in STR_LIST_KEYS else parse_value(value)
     return out
 
 
@@ -243,7 +349,13 @@ def cfg_to_dict(cfg: Any) -> dict:
 
 __all__ = [
     "CHOICES",
+    "EVAL_KEYS",
+    "EVAL_PROTOCOL_KEYS",
     "INPUT_KEYS",
+    "NULLABLE_KEYS",
+    "PROTOCOL_KEYS",
+    "RUN_KEYS",
+    "STR_LIST_KEYS",
     "ConfigError",
     "cfg_to_dict",
     "check_cfg",
@@ -251,5 +363,8 @@ __all__ = [
     "load_default",
     "load_model_cfg",
     "parse_key_value",
+    "parse_str_list",
     "parse_value",
+    "protocol_from_cfg",
+    "recipe_keys",
 ]

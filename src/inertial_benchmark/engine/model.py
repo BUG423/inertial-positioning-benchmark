@@ -29,19 +29,15 @@ class NIO:
             model = str(model)
         self.overrides = {"model": model, **overrides}
         self.callbacks = default_callbacks()
-        cfg = get_cfg(self._cfg_overrides(self.overrides))
+        cfg = get_cfg(self.overrides)
         self.model = load_model(cfg)
         self.ckpt_path: Optional[str] = model if is_checkpoint(model) else None
         self.trainer = None
         self.metrics: dict = {}
 
-    @staticmethod
-    def _cfg_overrides(overrides: dict) -> dict:
-        return {k: v for k, v in overrides.items() if v is not None or k == "data"}
-
     def _merge(self, mode: str, kwargs: dict) -> dict:
-        merged = {**self.overrides, **kwargs, "mode": mode}
-        return self._cfg_overrides(merged)
+        """合并构造参数与调用参数；``None`` 原样传给 ``get_cfg`` 校验（不再静默丢弃）。"""
+        return {**self.overrides, **kwargs, "mode": mode}
 
     def __repr__(self) -> str:
         name = self.model.model_cfg.get("name", type(self.model).__name__)
@@ -51,14 +47,20 @@ class NIO:
         add_callback(self.callbacks, event, fn)
 
     # ------------------------------------------------------------------ 训练与评测
-    def train(self, **kwargs: Any) -> dict:
-        """训练；若当前模型来自 checkpoint 且未指定 ``resume``，则以其权重作为 ``pretrained``。"""
+    def train(self, trainer: Optional[type] = None, **kwargs: Any) -> dict:
+        """训练；若当前模型来自 checkpoint 且未指定 ``resume``，则以其权重作为 ``pretrained``。
+
+        ``trainer`` 可传入 :class:`Trainer` 的子类以定制训练流程（缺省为 ``Trainer``）。
+        """
         from .trainer import Trainer
 
+        trainer = trainer or Trainer
+        if not (isinstance(trainer, type) and issubclass(trainer, Trainer)):
+            raise TypeError(f"trainer must be a Trainer subclass, got {trainer!r}")
         overrides = self._merge("train", kwargs)
         if self.ckpt_path and not overrides.get("resume") and "pretrained" not in kwargs:
             overrides["pretrained"] = self.ckpt_path
-        self.trainer = Trainer(overrides=overrides, callbacks=self.callbacks)
+        self.trainer = trainer(overrides=overrides, callbacks=self.callbacks)
         self.metrics = self.trainer.train()
         self.model = self.trainer.model
         self.ckpt_path = str(self.trainer.best)
@@ -112,7 +114,8 @@ class NIO:
                 "input_spec": spec.to_dict(),
                 "loss": self.model.loss_name,
                 "args": self.model.model_cfg.get("args", {}),
-                **model_info(self.model, spec.window, spec.num_channels, flops)}
+                **model_info(self.model, spec.window, spec.num_channels, flops,
+                             input_shape=spec.input_shape, extra=spec.dummy_extra())}
         for key in ("paper", "code", "license", "commit"):
             if key in self.model.model_cfg:
                 info[key] = self.model.model_cfg[key]
@@ -128,4 +131,5 @@ class NIO:
         dev = select_device(device, verbose=False)
         devices = ["cpu"] + ([str(dev)] if dev.type == "cuda" else [])
         spec = self.model.input_spec
-        return efficiency_metrics(self.model, spec.window, spec.num_channels, devices, runs)
+        return efficiency_metrics(self.model, spec.window, spec.num_channels, devices, runs,
+                                  input_shape=spec.input_shape, extra=spec.dummy_extra())

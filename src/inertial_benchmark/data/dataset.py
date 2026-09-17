@@ -13,13 +13,13 @@ import torch
 from torch.utils.data import Dataset
 
 from ..utils import LOGGER
-from ..utils.geometry import quat_rotate, rotate_z
 from .augment import build_augmentations
 from .format import Sequence, load_sequence
 from .views import (
     SequenceView,
     ViewConfig,
     first_valid_index,
+    input_valid_mask,
     read_window,
     window_valid_mask,
     yaw_offset,
@@ -36,7 +36,14 @@ class _LazySource:
         with h5py.File(self.path, "r") as f:
             attrs = dict(f.attrs)
             self.n = int(f["timestamp"].shape[0])
-            self.valid = np.asarray(f["valid/imu"]) & np.asarray(f["valid/pose"])
+            valid_imu = np.asarray(f["valid/imu"], bool)
+            valid_pose = np.asarray(f["valid/pose"], bool)
+            # valid/device_orientation 是可选字段：存在时才参与（orientation=device）
+            device_valid = (np.asarray(f["valid/device_orientation"], bool)
+                            if "valid/device_orientation" in f else None)
+            self.valid_input = input_valid_mask(cfg, valid_imu, valid_pose, device_valid)
+            self.valid_target = valid_pose
+            self.valid = self.valid_input & self.valid_target
             self.has_velocity = "pose/velocity" in f
             self.sequence_id = str(attrs.get("sequence_id", self.path.stem))
             self.group_id = str(attrs.get("group_id", self.sequence_id))
@@ -120,12 +127,15 @@ class InertialDataset(Dataset):
                 self.sequence_ids.append(lz.sequence_id)
                 self.group_ids.append(lz.group_id)
             self.valid_masks.append(valid)
-            if n < view.window:
-                LOGGER.warning(f"dataset: {self.sequence_ids[-1]} shorter than one window, skipped")
+            if n < view.input_span:
+                LOGGER.warning(f"dataset: {self.sequence_ids[-1]} shorter than one input span "
+                               f"({n} < {view.input_span}), skipped")
                 continue
-            starts = np.arange(0, n - view.window + 1, self.stride, dtype=np.int64)
+            starts = np.arange(view.history_offset, n - view.window + 1, self.stride,
+                               dtype=np.int64)
             if require_valid:
-                starts = starts[window_valid_mask(valid, starts, view.window)]
+                starts = starts[window_valid_mask(valid, starts - view.history_offset,
+                                                  view.input_span)]
             index.append(np.stack([np.full(len(starts), k, dtype=np.int64), starts], axis=1))
         self.index = np.concatenate(index) if index else np.zeros((0, 2), dtype=np.int64)
         if self.views and self.lazy:
@@ -145,31 +155,24 @@ class InertialDataset(Dataset):
         lo, hi = self.shift_range
         if lo == hi == 0:
             return start
+        view = self.view
         cand = start + int(rng.integers(lo, hi + 1))
-        cand = min(max(cand, 0), self._length(k) - self.view.window)
-        if self.require_valid and not window_valid_mask(self.valid_masks[k], np.array([cand]),
-                                                        self.view.window)[0]:
+        cand = min(max(cand, view.history_offset), self._length(k) - view.window)
+        if self.require_valid and not window_valid_mask(
+                self.valid_masks[k], np.array([cand - view.history_offset]), view.input_span)[0]:
             return start
         return cand
 
     def load_window(self, k: int, start: int) -> dict:
-        """取一个未增强的窗口：``imu (6,T)``、``target (D,)``、``body_to_frame`` 回调。"""
+        """取一个未增强的样本：``imu``、``target``、``mask``、``extra``、``body_to_frame`` 回调。"""
         if self.views:
             sv = self.views[k]
-            starts = np.array([start])
-            return {"imu": sv.imu_windows(starts)[0], "target": sv.targets(starts)[0],
+            out = sv.windows(np.array([start], dtype=np.int64))
+            return {"imu": out["imu"][0], "target": out["target"][0], "mask": out["mask"][0],
+                    "extra": {name: value[0] for name, value in out.get("extra", {}).items()},
                     "body_to_frame": lambda v, s=start, sv=sv: sv.body_to_frame(s, v)}
         lz = self.lazy[k]
-        w = read_window(lz.handle(), start, self.view, lz.yaw_offset, lz.has_velocity)
-        q, yaw_end, frame = w["q"], w["yaw_end"], self.view.frame
-
-        def to_frame(v: np.ndarray) -> np.ndarray:
-            if frame == "body":
-                return np.broadcast_to(v, (len(q), 3)).astype(np.float64)
-            out = quat_rotate(q, v)
-            return rotate_z(out, -yaw_end) if frame == "gravity_yaw_local" else out
-
-        return {"imu": w["imu"], "target": w["target"], "body_to_frame": to_frame}
+        return read_window(lz.handle(), start, self.view, lz.yaw_offset, lz.has_velocity)
 
     def __getitem__(self, i: int) -> dict:
         k, start = (int(v) for v in self.index[i])
@@ -180,14 +183,20 @@ class InertialDataset(Dataset):
         if rng is not None:
             sample["imu"] = sample["imu"].copy()
             sample["target"] = sample["target"].copy()
+            sample["extra"] = {name: value.copy() for name, value in sample["extra"].items()}
             for aug in self.augs:
                 sample = aug(sample, rng)
-        return {
+        item = {
             "imu": torch.from_numpy(np.ascontiguousarray(sample["imu"])),
             "target": torch.from_numpy(np.ascontiguousarray(sample["target"])),
+            "mask": torch.from_numpy(np.ascontiguousarray(sample["mask"])),
             "seq": k,
             "start": start,
         }
+        if sample["extra"]:
+            item["extra"] = {name: torch.from_numpy(np.ascontiguousarray(value))
+                             for name, value in sample["extra"].items()}
+        return item
 
     def sequence(self, k: int) -> Sequence:
         """第 ``k`` 条序列（惰性模式下临时加载）。"""

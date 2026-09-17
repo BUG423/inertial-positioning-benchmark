@@ -33,7 +33,6 @@ recipes:
     plateau_patience: 10
     grad_clip: 0.0
     stride: 10
-    eval_stride: 10
     amp: false
     augment: [random_yaw, time_shift]   # RandomHoriRotate(2π) + ±5 样本随机平移
     fitness: loss          # 官方按最低验证 MSE 保存 checkpoint_best.pt
