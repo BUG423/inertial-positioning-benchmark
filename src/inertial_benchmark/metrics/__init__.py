@@ -67,12 +67,42 @@ def display_name(key: str) -> str:
     return f"{name} ({unit})" if unit else name
 
 
+# 跨序列聚合统计量的后缀：``<metric>`` 取逐序列均值（缺省），``<metric>_median`` 取中位数。
+# 中位数型 fitness 用于 val 划分小、构成偏斜的数据集：RIDI 自动生成的 val 只有 1 名受试者，
+# 其中 2 条携带方式在 train 中不存在，均值会被这两条主导，选模信号很噪。
+MEDIAN_SUFFIX = "_median"
+
+
+def split_metric_key(key: str, known: Optional[Iterable[str]] = None) -> tuple:
+    """把 ``fitness`` 键拆成 ``(指标名, 统计量)``，统计量为 ``"mean"`` 或 ``"median"``。
+
+    ``ate`` → ``("ate", "mean")``；``ate_median`` → ``("ate", "median")``。
+    只有去掉后缀后仍是**已知指标名**时才按聚合键解析，因此不会和 ``dir_err_median``
+    （序列内窗口角度的中位数，本身就是一个指标名）冲突；它的跨序列中位数是
+    ``dir_err_median_median``。
+    """
+    names = set(known) if known is not None else set(METRIC_INFO)
+    if key in names:
+        return key, "mean"
+    if key.endswith(MEDIAN_SUFFIX):
+        base = key[: -len(MEDIAN_SUFFIX)]
+        if base in names:
+            return base, "median"
+    return key, "mean"
+
+
 def fitness_keys(t_rte: Iterable[float] = (1.0, 10.0),
                  d_rte: Iterable[float] = (10.0,)) -> list:
-    """可用作 ``fitness`` 的验证指标名（越小越好），含按配置生成的 T-RTE / D-RTE 键。"""
+    """可用作 ``fitness`` 的验证指标名（越小越好）。
+
+    含按配置生成的 T-RTE / D-RTE 键，以及每个键的中位数型变体 ``<key>_median``
+    （逐序列该指标的中位数，见 :data:`MEDIAN_SUFFIX`）。
+    """
     keys = {k for k, info in METRIC_INFO.items() if info[2] is True and k not in NON_FITNESS}
     keys |= {f"t_rte_{float(tau):g}s" for tau in t_rte}
     keys |= {f"d_rte_{float(dist):g}m" for dist in d_rte}
+    # ``loss`` 是按窗口数加权的窗口级损失，没有“逐序列中位数”的语义
+    keys |= {f"{k}{MEDIAN_SUFFIX}" for k in keys if k != "loss"}
     return sorted(keys)
 
 
@@ -101,6 +131,7 @@ def sequence_metrics(
 
 __all__ = [
     "MAIN_METRICS",
+    "MEDIAN_SUFFIX",
     "METRIC_INFO",
     "NON_FITNESS",
     "align_trajectory",
@@ -117,6 +148,7 @@ __all__ = [
     "relative_error",
     "rte",
     "sequence_metrics",
+    "split_metric_key",
     "trajectory_metrics",
     "valid_span",
     "window_metrics",

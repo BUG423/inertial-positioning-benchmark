@@ -19,7 +19,7 @@ from .. import __version__
 from ..cfg import ConfigError, get_cfg, protocol_from_cfg
 from ..data.build import build_dataloader, build_dataset
 from ..data.manifest import resolve_dataset
-from ..metrics import METRIC_INFO
+from ..metrics import METRIC_INFO, split_metric_key
 from ..nn.base import SequenceModel
 from ..utils import LOGGER, add_file_handler, json_save, to_builtin, yaml_save
 from ..utils.callbacks import add_callback, default_callbacks, run_callbacks
@@ -253,12 +253,14 @@ class Trainer:
         return result.metrics
 
     def fitness(self, metrics: dict) -> float:
+        """选模指标：``<metric>`` 取跨序列均值，``<metric>_median`` 取逐序列中位数。"""
         key = self.args.fitness
-        value = metrics.get(key)
+        base, statistic = split_metric_key(key, metrics)
+        value = metrics.get(base) if statistic == "mean" else self.val_result.value(key)
         if value is None:
             raise ConfigError(f"fitness={key!r} is not a validation metric; "
                               f"available: {sorted(metrics)}")
-        if METRIC_INFO.get(key, ("", "", True))[2] is not True:
+        if METRIC_INFO.get(base, ("", "", True))[2] is not True:
             raise ConfigError(f"fitness={key!r} is not a lower-is-better metric")
         return float(value)
 
@@ -299,6 +301,8 @@ class Trainer:
                     row.update({f"val/{k}": v for k, v in val.items()
                                 if not k.startswith("num_")})
                     fit = self.fitness(val)
+                    # 中位数型 fitness 的取值不在均值字典里，单独记一列便于复盘
+                    row.setdefault(f"val/{a.fitness}", fit)
                     row["fitness"] = fit
                     improved = self.stopper.update(epoch, fit)
                     if is_plateau:

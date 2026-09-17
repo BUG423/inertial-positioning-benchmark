@@ -217,8 +217,19 @@ class RunResult:
 
     @property
     def metrics(self) -> dict:
-        """各指标跨序列均值（``fitness`` 的来源）。"""
+        """各指标跨序列均值（``fitness`` 的缺省来源）。"""
         return self.aggregate()["mean"]
+
+    def value(self, key: str) -> Optional[float]:
+        """按 ``fitness`` 键取值：``<metric>`` 取跨序列均值，``<metric>_median`` 取中位数。
+
+        未知键返回 ``None``（调用方给出可用键列表）。
+        """
+        from ..metrics import split_metric_key
+
+        agg = self.aggregate()
+        base, statistic = split_metric_key(key, agg["mean"])
+        return agg[statistic].get(base)
 
     def __getitem__(self, key: str) -> float:
         return self.metrics[key]

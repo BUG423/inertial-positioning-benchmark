@@ -287,6 +287,34 @@ def test_nio_facade(dataset, tmp_path):
     assert ft["cfg"]["pretrained"] == str(ckpt)
 
 
+def test_median_fitness_selects_on_the_per_sequence_median(dataset, tmp_path):
+    """``fitness=ate_median`` 必须按逐序列 ATE 的中位数选模，而不是均值。
+
+    理由：自动生成的 val 划分可能只有一名受试者、且含 train 中不存在的携带方式（RIDI），
+    均值会被少数序列主导，选模信号很噪。
+    """
+    data = make_dataset(tmp_path / "ds", n_train=12, duration=8.0)  # val 有 3 条，中位数≠均值
+    over = {**TINY, "data": str(data), "epochs": 1, "project": str(tmp_path),
+            "save_predictions": False, "fitness": "ate_median", "name": "med"}
+    trainer = Trainer(overrides=over)
+    trainer.train()
+    agg = trainer.val_result.aggregate()
+    assert len(trainer.val_result.evaluated) == 3
+    assert agg["median"]["ate"] != pytest.approx(agg["mean"]["ate"], rel=1e-6)
+    assert trainer.stopper.best == pytest.approx(agg["median"]["ate"], rel=1e-9)
+    assert trainer.val_result.value("ate_median") == pytest.approx(agg["median"]["ate"], rel=1e-9)
+    assert trainer.val_result.value("ate") == pytest.approx(agg["mean"]["ate"], rel=1e-9)
+    assert trainer.val_result.value("nope") is None
+    # results.csv 记下该列，便于复盘
+    header = (tmp_path / "train" / "med" / "results.csv").read_text().splitlines()[0]
+    assert "val/ate_median" in header.split(",")
+    # 均值型 fitness 仍然取均值（默认行为不变）
+    mean_trainer = Trainer(overrides={**over, "fitness": "ate", "name": "mean"})
+    mean_trainer.train()
+    assert mean_trainer.stopper.best == pytest.approx(
+        mean_trainer.val_result.aggregate()["mean"]["ate"], rel=1e-9)
+
+
 def test_nio_custom_trainer(dataset, tmp_path):
     class Counting(Trainer):
         calls = 0

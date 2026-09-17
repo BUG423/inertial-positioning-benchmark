@@ -150,6 +150,9 @@ MultiheadAttention `= 4·L·E² + L²·E`。不同后端约定略有差异（Res
 ## 6. 诚实协议
 
 训练期间只在 `val` 上计算上述指标并据此选模型（`fitness`，默认 `ate`，越小越好，配置解析时即校验）；
+每个越小越好的指标另有中位数型变体 `<指标>_median`（`ate_median` 等），取逐序列该指标的中位数，
+供 val 划分小而偏斜的数据集使用（RIDI 自动生成的 val 只有 1 名受试者、含 2 条 train 中不存在的
+携带方式，均值型选模信号很噪）；缺省不变，改用时须在结果中注明，详见 `docs/CLI.md` §4.3。
 `test` 及其官方子集只在最终评测（`ipb val split=test` 或 `ipb benchmark`）中运行。
 序列级/标定型方法（`pdr`、`mean_speed_heading`）的标定标量只在 `train` 划分上拟合，
 结果写入 `metrics.json` 的 `calibration` 块随结果一起发布。

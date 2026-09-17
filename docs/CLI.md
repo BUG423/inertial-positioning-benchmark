@@ -231,7 +231,7 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 | `amp` | `false` | 自动混合精度，仅 CUDA 生效；与 `deterministic=true` 叠加是四种组合里最慢的，因此默认关闭，见下 |
 | `cache` | `true` | true 把序列载入内存；false 逐窗口读取 HDF5（train 与 val 划分都生效） |
 | `val_interval` | `1` | 每多少个 epoch 验证一次（最后一轮总会验证） |
-| `fitness` | `ate` | 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse … |
+| `fitness` | `ate` | 模型选择指标（越小越好），只在 val 上计算；ate / rte / loss / vel_rmse …，以及中位数型变体 `<指标>_median`（如 `ate_median`），见第 4.3 节 |
 | `save_period` | `0` | 每多少个 epoch 额外保存 epoch<k>.pt，0 表示关闭 |
 | `val_batch` | `512` | 推理批大小 |
 | **任务视图（DESIGN 第 3 节）** | | |
@@ -286,6 +286,28 @@ runs/<mode>/<name>/            # mode = train / val / predict；name 缺省 exp�
 所以保留 `deterministic=true`、关掉 `amp`。想用混合精度时显式 `amp=true`；若同时要吞吐又不需要
 逐位复现，用 `deterministic=false amp=true`（batch 512 下 20 337 窗口/s，是四种组合里最快的）。
 两者都不改变配方超参数，`batch` 属于配方，不应为了速度单独调大。
+
+### 4.3 `fitness`：均值型与中位数型
+
+`fitness` 的缺省值 `ate` 是**逐序列 ATE 的跨序列均值**。每个越小越好的验证指标另有一个中位数型
+变体 `<指标>_median`（`ate_median`、`rte_median`、`t_rte_1s_median`…），取**逐序列该指标的中位数**：
+
+```bash
+ipb train data=ridi fitness=ate_median      # 按逐序列 ATE 的中位数选模
+```
+
+什么时候该用它：**val 划分小、构成偏斜**时。例如 RIDI 自动生成的 val 只有 1 名受试者，其中 2 条序列
+的携带方式在 train 中根本不存在——这两条的误差远高于其余序列，均值型 `ate` 几乎完全由它们决定，
+选模信号非常噪；中位数不受少数极端序列主导，在这种划分上更稳。反过来，val 划分大且均衡时均值型
+用到全部序列的信息，方差更小，所以**缺省仍是 `ate`**，改用中位数需要显式声明并在结果中注明。
+
+注意：
+- `loss` 没有中位数变体——它是按窗口数加权的窗口级损失，没有“逐序列中位数”的语义；
+- `ate_oracle` 及比值型指标（`plr` 等）连同它们的 `_median` 变体都不能做 fitness（前者与模型无关，
+  后者不是越小越好），配置解析时直接报错；
+- `dir_err_median` 本身是一个指标名（序列内窗口角度的中位数），它的**跨序列**中位数写作
+  `dir_err_median_median`；
+- 生效的 fitness 值每轮写入 `results.csv` 的 `fitness` 列与 `val/<fitness 键>` 列。
 
 ### 4.2 `train_eval_gap`：train/eval 失配诊断
 
