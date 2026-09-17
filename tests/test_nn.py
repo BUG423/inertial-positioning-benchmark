@@ -61,6 +61,11 @@ def test_model_args_override_and_loss():
     assert loss.ndim == 0 and "mse" in items
     with pytest.raises(KeyError, match="logstd"):
         model.loss(out, {"target": torch.zeros(4, 2)}, epoch=5)
+    # 训练时的损失写入模型配置，从 checkpoint 重建时保持一致
+    assert model.model_cfg["loss"] == "mse_then_nll"
+    rebuilt = build_model(get_cfg({"model": "ronin_resnet18"}), model_cfg=model.model_cfg)
+    assert rebuilt.loss_name == "mse_then_nll" and rebuilt.loss_kwargs == {"switch_epoch": 3}
+    assert build_model(get_cfg({})).model_cfg["loss"] == "mse"
 
 
 def test_registry():

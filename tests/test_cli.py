@@ -41,6 +41,7 @@ def test_help_version_and_errors(capsys):
     assert entrypoint(["train", "epochs"]) == 2
     assert entrypoint(["convert", "dataset=x"]) == 2
     assert entrypoint(["report", "runs=/nonexistent", "colour=red"]) == 2
+    assert entrypoint(["val", "model=ronin_resnet18"]) == 2  # 缺少 data
 
 
 def test_cfg_and_info(capsys):

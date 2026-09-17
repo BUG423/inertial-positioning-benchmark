@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import importlib
+import os
 import platform
 import subprocess
 import sys
@@ -72,7 +73,8 @@ def collect_env(device: Any = None, dataset: Any = None) -> dict:
         if device is not None and getattr(device, "type", None) == "cuda":
             props = torch.cuda.get_device_properties(device)
             env["gpu"] = {"name": props.name, "memory_gb": round(props.total_memory / 2**30, 1),
-                          "index": device.index}
+                          "index": device.index,
+                          "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES")}
     if dataset is not None:
         from ..data.manifest import MANIFEST, sha256_file
 

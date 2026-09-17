@@ -51,10 +51,17 @@ def build_model(cfg: Any, input_spec: Optional[Any] = None,
     args = {**(model_cfg.get("args") or {}), **(get("model_args") or {})}
     model = MODELS[arch](spec, **args)
     model_cfg["args"] = args
-    model.model_cfg = model_cfg
-    loss = get("loss") or model_cfg.get("loss")
+    # 损失：用户覆盖 > 模型配置（checkpoint 中保存的是训练时实际使用的损失）
+    if get("loss"):
+        loss = get("loss")
+        kwargs = {"switch_epoch": int(get("loss_switch_epoch", 10))} \
+            if loss == "mse_then_nll" else {}
+    else:
+        loss = model_cfg.get("loss")
+        kwargs = dict(model_cfg.get("loss_kwargs") or {})
     if loss:
-        kwargs = {"switch_epoch": int(get("loss_switch_epoch", 10))} if loss == "mse_then_nll" \
-            else {}
         model.set_loss(loss, **kwargs)
+    model_cfg["loss"] = model.loss_name
+    model_cfg["loss_kwargs"] = dict(model.loss_kwargs)
+    model.model_cfg = model_cfg
     return model

@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 
 import torch
 
-from ..cfg import get_cfg, is_checkpoint
+from ..cfg import ConfigError, get_cfg, is_checkpoint
 from ..data.format import Sequence, load_sequence
 from ..data.manifest import DatasetSpec, resolve_dataset
 from ..data.views import SequenceView
@@ -73,6 +73,8 @@ class Validator:
                  dataset: Optional[DatasetSpec] = None, split: Optional[str] = None) -> RunResult:
         run_callbacks(self.callbacks, "on_val_start", self)
         standalone = sources is None
+        if dataset is None and self.args.data is None:
+            raise ConfigError("data is required for evaluation (e.g. data=ronin)")
         spec = dataset or resolve_dataset(self.args.data)
         split = split or self.args.split
         device = device or select_device(self.args.device, verbose=standalone)
