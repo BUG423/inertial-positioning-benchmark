@@ -1,0 +1,63 @@
+# AirIO：机体系 IMU + 逐样本姿态编码的序列到序列速度回归
+# （Qiu et al., "AirIO: Learning Inertial Odometry with Enhanced IMU Feature Observability",
+# RA-L 2025）。依据 docs/algorithms/airio.md 规格卡独立实现。官方许可 BSD-3-Clause（宽松）。
+# 参数量 387,014 由夹具锁定（其中 32,736 个参数不参与前向：官方遗留的 cnn / fcn1 / batchnorm1，
+# 必须注册以保持与官方 state_dict 一致，但反传后梯度为 None；有效参数 354,278）。
+#
+# 与官方的主要差异：官方是序列到序列监督（逐样本机体系速度标签），IPB 的视图只提供窗口级目标，
+# 因此本实现只监督最后一个 token（vel = net_vel[:, -1]，对应 target=velocity_at_end）。
+# 论文数值来自多旋翼数据集且含 EKF，不能与 IPB 直接对照。
+name: airio
+arch: airio
+paper: https://arxiv.org/abs/2501.15659
+code: https://github.com/Air-IO/Air-IO
+license: BSD-3-Clause (official code); this implementation is written from the spec card
+commit: 7214e8a6ddee95ca07a64f01f1fa3e2f8f60df73
+fidelity: official-code (network and loss); window-level supervision instead of seq2seq
+args:
+  hidden: 32                # CNNEncoder：6→32→64，k7 s3 p3，BN + GELU，末层后 Dropout(0.5)
+  encoder_dim: 64
+  gru_hidden: 64            # gru1 双向 64→64；gru2 双向 128→128
+  decoder_dim: 128          # 解码器 Linear 256→128 → GELU → Linear 128→3
+  dropout: 0.5
+  kernel_size: 7
+  stride: 3
+  padding: 3
+input:                      # coordinate=body_coord；DESIGN §3 规定 body 系目标必须 dims=3
+  window: 1000              # 5 s @200 Hz，与论文 EuRoC 设置一致（参数量与窗口无关）
+  frame: body
+  orientation: reference    # 官方训练用真值姿态；可设 device 单独报告
+  remove_gravity: false     # 机体系保留 R^T g
+  target: velocity_at_end
+  dims: 3
+  extra_inputs: [orientation]   # 逐样本姿态（非特权），模型内部转 so(3) 对数
+loss: airio_huber_cov       # weight·(Huber_{δ=0.005} + cov_weight·mean(e²/σ² + ln σ²))，无阶段切换
+loss_kwargs:
+  weight: 1.0e+2
+  cov_weight: 1.0e-4
+  delta: 0.005
+  covaug: true              # 协方差项的残差不 detach（官方 covaug=True）
+recipes:
+  official:                 # train_motion.py + configs/EuRoC/motion_body_rot.conf
+    epochs: 100
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-3
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 1.0e-4    # Adam 的 L2 形式（Blackbird 配置为 1e-3）
+    scheduler: plateau      # ReduceLROnPlateau(factor=0.2, patience=5, min_lr=1e-5)
+    gamma: 0.2
+    plateau_patience: 5
+    grad_clip: 0.0          # 官方不裁剪
+    stride: 3               # EuRoC/Blackbird 训练步长
+    augment: []             # 官方无增强（motion_collate 的增强分支是 TODO）
+    amp: false
+    fitness: loss           # 官方用 test 集 RMSE 选模；IPB 改用 val（诚实协议）
+    patience: 0
+  unified:                  # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: []             # 增强属于算法本身，两个配方一致（DESIGN §4）；见下面的偏航增强说明
+# 卡 §6 建议 unified 额外加随机偏航（姿态编码含绝对偏航，跨序列易过拟合航向），本实现**不采纳**：
+# (1) DESIGN §4 要求 augment 在两个配方中一致；(2) IPB 的 random_yaw 是重力对齐系下的增强，
+#     它会同时旋转 IMU 与目标，而 frame=body 下机体系 IMU 与机体系目标本来就不随世界偏航改变，
+#     直接套用会制造自相矛盾的样本。真正需要的是“只旋转姿态支路”的增强，IPB v1 没有这个算子。
