@@ -1,0 +1,57 @@
+# EqNIO（TLIO 骨干）：O(2) 规范帧网络 + TLIO ResNet（Jayanth et al., "EqNIO: Subequivariant
+# Neural Inertial Odometry", ICLR 2025）。依据 docs/algorithms/eqnio_tlio.md 规格卡独立实现。
+# 许可风险：官方仓库无 LICENSE，TLIO-master 派生自 BSD-3 的 TLIO——不得复制代码或分发权重。
+# 参数量 6,020,230（规范帧网络 595,584 + TLIO 骨干 5,424,646）由夹具锁定。
+name: eqnio_tlio
+arch: eqnio_tlio
+paper: https://arxiv.org/abs/2408.06321
+code: https://github.com/RoyinaJayanth/EqNIO
+license: none (no LICENSE in the official repo); this implementation is written from the spec card
+commit: 97b7a60a5e5cc8f0132bba343c83de114211f827
+fidelity: official-code
+args:                      # arch=eq_o2_frame_fullCov_2vec_2deep：hidden 64 / depth 2 / 核 (32,1)
+  hidden: 64
+  depth: 2
+  frame_kernel: 32
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+input:                     # 官方按窗口起点去偏航；模型对 O(2) 严格等变，用世界系与之等价（卡 §6）
+  window: 200
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: displacement     # 官方目标 p[199] − p[0]，与 IPB 的 displacement 定义相同
+  dims: 3
+loss: eqnio_canonical_nll  # 官方 losses.py：前 9 个 epoch 真 MSE（logstd 不收梯度），之后对角 NLL
+loss_kwargs:
+  switch_epoch: 9          # IPB 的 epoch 从 0 起，对应官方的“第 1–9 个 epoch”
+  min_logstd: -6.907755278982137   # log(1e-3)，与官方一致；官方没有上限
+recipes:
+  official:                # main_net.py / train.py 与发布权重的 parameters.json
+    epochs: 50             # 官方 --epochs 50，循环 range(start+1, 50) 实际跑 49 个
+    batch: 1024
+    val_batch: 1024
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: none        # 官方构造了 ReduceLROnPlateau 但从未 step()，lr 恒为 1e-4
+    grad_clip: 0.1         # clip_grad_norm_(0.1)
+    stride: 10
+    augment:               # O(2) 分支在数据加载器层面强制开启：重力扰动 + 常值偏置
+      - {gravity_perturb: {max_deg: 5.0}}
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {time_shift: {min_shift: 0, max_shift: 9}}
+    amp: false
+    fitness: loss          # 官方按 val 损失均值保存 checkpoint_best.pt（跨阶段比较两种量纲）
+    patience: 0
+  unified:                 # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    grad_clip: 0.1
+    augment:               # 等变架构不做随机偏航；增强属于算法本身，两个配方一致
+      - {gravity_perturb: {max_deg: 5.0}}
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {time_shift: {min_shift: 0, max_shift: 9}}

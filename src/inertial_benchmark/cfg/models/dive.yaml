@@ -1,0 +1,61 @@
+# DIVE：局部重力对齐系的 [Log(C), acc − g] 输入 + TLIO 风格 ResNet1D（深度 3）
+# （Bajwa et al., "DIVE: Deep Inertial-Only Velocity Aided Estimation for Quadrotors", RA-L 2024）。
+# 依据 docs/algorithms/dive.md 规格卡独立实现。官方许可 MIT（宽松，保留署名即可）。
+#
+# !!! IPB 适配改变了结构 !!!
+# 官方为 400 Hz / 3.5 s 窗（1400 样本、3D 输出，12,367,110 参数）；IPB 统一 200 Hz，按卡 §6 取
+# window=200（1.0 s，与官方 DIDO EKF 脚本默认窗长一致）与 dims=2，两个头的 fc3 由 512→3 变 512→2。
+# 参数量取 IPB 变体的夹具值 7,516,420。官方数值来自四旋翼数据集且是 EKF 融合后的结果，不可直接对照。
+name: dive
+arch: dive
+paper: https://doi.org/10.1109/LRA.2024.3370006
+code: https://github.com/decargroup/DIVE
+license: MIT (official code); this implementation is written from the spec card
+commit: e982ddd0643c9d831de77a95467b282b07cceec1
+fidelity: official-code (network, input construction, loss); IPB window/dims adaptation
+args:
+  group_sizes: [3, 3, 3, 3]   # residual_block_depth = 3（network/train.py:26），不是 TLIO 的 2
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+  gravity: 9.80665            # 官方用 scipy.constants.g；IPB 的 GRAVITY 为 9.81（差 1.5e-3）
+input:                        # 目标为窗口末端速度，表达在末端偏航去除的重力对齐系中
+  window: 200
+  frame: gravity_yaw_local
+  orientation: reference
+  remove_gravity: false       # 去重力在模型内部完成（在局部系减 [0, 0, 9.80665]）
+  target: velocity_at_end
+  dims: 2
+  extra_inputs: [orientation] # 逐样本姿态（非特权）；只有窗口末端一个姿态参与坐标系定义
+loss: dive_mse_then_nll       # modules.py：第 0–9 轮 MSE，第 10 轮起对角 NLL（s 上加 1e-7，无截断）
+loss_kwargs:
+  switch_epoch: 10            # Lightning 的 current_epoch 从 0 起，与 IPB 一致
+  offset: 1.0e-7
+recipes:
+  official:                   # network/train.py + pl_trainer.py
+    epochs: 100
+    batch: 32
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adamw
+    momentum: 0.9
+    weight_decay: 0.01        # AdamW 的 PyTorch 默认值，官方实际生效（配置中未写出）
+    scheduler: none           # Lightning 路径无调度
+    grad_clip: 0.0
+    stride: 10                # 官方 20 Hz 采样率 → 0.05 s，200 Hz 下为 10 个样本
+    augment:                  # 官方在 __getitem__ 里注入白噪声与常值偏置（轴失准被计算但未施加）
+      # 官方的连续谱密度 sigma_g ~ U(1e-3, 2e-3]、sigma_a ~ U(6e-3, 2e-2]，离散标准差 = sigma/sqrt(dt)。
+      # IPB 的 noise 增强用固定标准差，这里取区间中点在 200 Hz 下的折算值（官方逐样本重采样）。
+      - {noise: {gyro: 0.0212, acc: 0.184}}
+      - {bias_shift: {gyro: 0.01, acc: 0.05}}   # b_g ~ U(-0.01, 0.01]，b_a ~ U(-0.05, 0.05]
+    amp: false
+    fitness: loss             # ModelCheckpoint(monitor="val_loss")
+    patience: 0
+  unified:                    # IPB 统一预算（epochs/调度用 default.yaml）
+    optimizer: adamw
+    weight_decay: 0.01
+    augment:                  # 增强属于算法本身，两个配方一致
+      - {noise: {gyro: 0.0212, acc: 0.184}}
+      - {bias_shift: {gyro: 0.01, acc: 0.05}}

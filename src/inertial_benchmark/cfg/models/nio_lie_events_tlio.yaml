@@ -1,0 +1,66 @@
+# NIO from Lie Events（TLIO 骨干）：SE(3) 李事件表示 + TLIO ResNet
+# （Jayanth et al., "Neural Inertial Odometry from Lie Events", RSS 2025）。
+# 依据 docs/algorithms/nio_lie_events.md 规格卡独立实现。参数量 5,427,334 由夹具锁定。
+# 许可风险：官方仓库无 LICENSE，TLIO/ 派生自 BSD-3 的 TLIO 但未重新声明——不得复制代码或分发权重。
+#
+# !!! 特权输入 !!!  extra_inputs 含 init_velocity（窗口首样本的参考真值速度）。
+# metrics.json 会记录 privileged_inputs，`ipb report` 把本方法单列一张表，不与纯 IMU 方法混排。
+# 官方纯网络测试（test.py）同样直接使用真值 vel[0]，与此一致。
+name: nio_lie_events_tlio
+arch: nio_lie_events_tlio
+paper: https://arxiv.org/abs/2505.09780
+code: https://github.com/RoyinaJayanth/NIO_Lie_Events
+license: none (no LICENSE in the official repo); this implementation is written from the spec card
+commit: 1e87470f6479c198875c5f1a32b392a46eb5af74
+fidelity: official-code
+args:
+  threshold: 0.01           # θ（README 与权重 args）
+  v0_noise: 0.5             # v0 噪声 U(±0.5)（官方 add_vel_perturb）
+  polarity_noise: 0.5       # 极性噪声 U(±0.5)（官方不分 split，IPB 只加在训练上）
+  zero_pseudo_measurements: false  # true 复现官方 TLIO 路径“伪事件量测恒为 0”的行为
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+  max_events_per_step: 64   # 数值保护：单步事件数上限
+input:                      # 官方按窗口起点偏航去偏航；IPB 的 gravity_yaw_local 按末端偏航
+  window: 200
+  frame: gravity_yaw_local
+  orientation: reference
+  remove_gravity: false
+  target: displacement      # 官方目标 p[199] − p[0]，与 IPB 的 displacement 定义相同
+  dims: 3
+  extra_inputs: [orientation, init_velocity]   # init_velocity 为特权输入（DESIGN §3.3）
+loss: nll_detach_then_nll   # 与 TLIO 相同：前 9 个 epoch 的 NLL 中 logstd 被 detach
+loss_kwargs:
+  switch_epoch: 9           # IPB 的 epoch 从 0 起，对应官方的“前 9 个 epoch”
+  min_logstd: -6.907755278982137   # log(1e-3)，与官方一致；官方没有上限
+recipes:
+  official:                 # main_net.py / train.py 与权重 parameters.json
+    epochs: 50              # 官方 --epochs 50，循环 range(start+1, 50) 实际跑 49 个
+    batch: 1024
+    val_batch: 1024
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: none         # 官方构造了调度器但从未 step()，lr 恒为 1e-4
+    grad_clip: 0.1          # clip_grad_norm_(0.1)
+    stride: 10
+    augment:                # 偏置统一用 U(±r)：官方误用了 randn − 0.5（高斯且均值为负）
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}
+    amp: false
+    fitness: loss           # 官方按 val 损失均值保存 checkpoint_best.pt（跨阶段比较两种量纲）
+    patience: 0
+  unified:                  # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    grad_clip: 0.1
+    augment:                # 增强属于算法本身，两个配方一致
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 9}}

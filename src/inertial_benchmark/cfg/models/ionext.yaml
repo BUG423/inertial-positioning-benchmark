@@ -1,0 +1,50 @@
+# IONext：自适应动态卷积（ADM）+ 自适应门控（AGU）骨干
+# （Zhang et al., "IONext: Unlocking the Next Era of Inertial Odometry", arXiv:2507.17089）。
+# paper-only：官方称审稿结束后发布代码，依据 docs/algorithms/ionext.md 规格卡实现，以 v2 为准。
+# 参数量 10,641,506 是**本卡的解析计数**（论文 v1 表 I 报告 1.1e7，两位有效数字一致），
+# 其中标 [假设] 的 stem/下采样归一化与头部共 4,074 个参数论文并未给出。
+# 论文把 6 个数据集全部随机重划分 8:1:1、指标还做了长度归一化并乘 100，数值不可与 IPB 直接比较。
+name: ionext
+arch: ionext
+paper: https://arxiv.org/abs/2507.17089
+code: none (v2 says the code will be released after peer review)
+license: paper-only re-implementation (no official code)
+commit: n/a
+fidelity: paper-only
+args:
+  depths: [2, 2, 6, 2]        # v1 表 I 的阶段深度
+  widths: [96, 192, 384, 768] # v1 表 I 的阶段通道
+  stem_kernel: 4              # 非重叠卷积 stem（k=4, s=4）
+  downsample_kernel: 2        # 阶段间 k=2, s=2 的非重叠卷积
+  wing0_kernels: [1, 3, 11]   # 核组 (1, k, 3k+2)，k=3
+  wing1_kernels: [1, 5, 17]   # 核组 (1, k, 3k+2)，k=5
+  value_kernel: 3             # [假设] AGU 值支路的深度卷积核大小
+  softmax_axis: branch        # [假设] 每个通道在 3 个分支之间 softmax（见卡 §10-2）
+input:                        # 论文未明示输入系；对比基线都用 RoNIN 式重力对齐世界系
+  window: 200
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity        # “the average velocity over the unit time window”
+  dims: 2                     # 论文未写明维度，与 RoNIN 系基线一致（dims=3 时 10,642,275）
+loss: mse                     # v1 式 (1)：平均速度 MSE
+recipes:
+  official:                   # v2 IV-A
+    epochs: 100
+    batch: 512
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0         # 未给出，取 Adam 默认
+    scheduler: plateau        # [推断] 论文只说“学习率降到 1e-6 以下即提前终止”，取 RoNIN 式
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0            # 未给出
+    stride: 10                # 未给出，取 IPB 默认
+    augment: []               # 未给出；v1 结论称“当前设计未考虑随机设备旋转”
+    amp: false
+    fitness: loss             # [推断] 按 val loss 选模
+    patience: 0
+  unified:                    # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: []               # 增强属于算法本身，两个配方一致

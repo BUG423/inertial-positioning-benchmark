@@ -1,0 +1,56 @@
+# NIO from Lie Events（RoNIN 骨干）：SE(3) 李事件表示 + RoNIN-ResNet18
+# （Jayanth et al., "Neural Inertial Odometry from Lie Events", RSS 2025）。
+# 依据 docs/algorithms/nio_lie_events.md 规格卡独立实现。参数量 4,637,570 由夹具锁定。
+# 许可风险：官方仓库无 LICENSE，RONIN/ 派生自 GPL-3.0 的 RoNIN——不得复制代码或分发权重。
+#
+# !!! 特权输入 !!!  extra_inputs 含 init_velocity（窗口首样本的参考真值速度）。
+# metrics.json 会记录 privileged_inputs，`ipb report` 把本方法单列一张表，不与纯 IMU 方法混排。
+# 官方 RoNIN 测试是“第 1 个窗口用真值、之后用上一个窗口的预测”的有状态递归协议；IPB v1 的
+# Predictor 无状态，每个窗口都用真值 v0，比官方测试协议更乐观，报告时必须注明。
+name: nio_lie_events_ronin
+arch: nio_lie_events_ronin
+paper: https://arxiv.org/abs/2505.09780
+code: https://github.com/RoyinaJayanth/NIO_Lie_Events
+license: none (no LICENSE in the official repo); this implementation is written from the spec card
+commit: 1e87470f6479c198875c5f1a32b392a46eb5af74
+fidelity: official-code
+args:
+  threshold: 0.1            # θ（README 与权重 config.json）
+  v0_noise: 0.5             # v0 噪声 U(±0.5)，方法自带的正则；IPB 只在训练模式生效
+  polarity_noise: 0.5       # 极性噪声 U(±0.5)（官方连验证集缓存也带噪，IPB 只加在训练上）
+  group_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  kernel_size: 3
+  fc_dim: 512
+  trans_planes: 128
+  dropout: 0.5
+  max_events_per_step: 64   # 数值保护：单步事件数上限（正常窗口为 0 或 1）
+input:                      # 官方：重力对齐世界系、1 s 窗口、2D 平均速度
+  window: 200
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+  extra_inputs: [orientation, init_velocity]   # init_velocity 为特权输入（DESIGN §3.3）
+loss: mse                   # 官方 nn.MSELoss()（2D）
+recipes:
+  official:                 # ronin_resnet.py + 权重 config.json
+    epochs: 120
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau      # ReduceLROnPlateau(factor=0.1, patience=10, eps=1e-12) on val MSE
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0          # 官方不裁剪
+    stride: 10              # 官方缓存写死每 10 个样本一个窗口
+    augment: []             # 官方不做水平旋转，也不做时间偏移；v0/极性噪声在模型内部
+    amp: false
+    fitness: loss           # 官方按验证 MSE 保存；README 测试用 checkpoint_last
+    patience: 0
+  unified:                  # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: []             # 增强属于算法本身，两个配方一致

@@ -1,13 +1,19 @@
 """算法实现：每个算法一个子包，导入即注册（``@register_model``）。"""
 
 from . import (  # noqa: F401
+    airio,
     ctin,
     deepils,
+    dive,
     eqnio,
+    gnio,
+    imot,
     imunet,
     ionet,
+    ionext,
     llio,
     mean_speed_heading,
+    nio_lie_events,
     pdr,
     rio,
     rnin,
@@ -15,16 +21,23 @@ from . import (  # noqa: F401
     tartanimu,
     tinyodom,
     tlio,
+    velobins,
 )
 
 __all__ = [
+    "airio",
     "ctin",
     "deepils",
+    "dive",
     "eqnio",
+    "gnio",
+    "imot",
     "imunet",
     "ionet",
+    "ionext",
     "llio",
     "mean_speed_heading",
+    "nio_lie_events",
     "pdr",
     "rio",
     "rnin",
@@ -32,4 +45,5 @@ __all__ = [
     "tartanimu",
     "tinyodom",
     "tlio",
+    "velobins",
 ]

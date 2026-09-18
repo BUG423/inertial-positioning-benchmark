@@ -1,0 +1,67 @@
+# GNIO：Motion Bank（全局运动原型注意力）+ 门控预测头的 TLIO 式惯性里程计
+# （Feng et al., "GNIO: Gated Neural Inertial Odometry", arXiv:2603.15281）。
+# paper-only：论文未发布代码，依据 docs/algorithms/gnio.md 规格卡实现；卡中标 [A] 的细节
+# （注意力维度与头数、池化方式、u 的下限、增强/调度）都取卡片推荐默认值并在下面显式声明。
+# 参数量 4,934,153 为**本卡推导值**（论文 Table I 报告 4.90 M），由单元测试锁定。
+# EKF 不在 v1 范围内：论文全部数值为 EKF 融合后结果，与本实现的“网络 + 统一积分”不可直接对照。
+name: gnio
+arch: gnio
+paper: https://arxiv.org/abs/2603.15281
+code: none (the paper neither links nor promises a public repository)
+license: paper-only re-implementation (no official code); backbone re-implemented in IPB
+commit: n/a
+fidelity: paper-only
+args:
+  group_sizes: [2, 2, 2, 2]   # 与 tlio 相同的 1D ResNet-18 骨干（论文 §IV-A.3）
+  base_plane: 64
+  kernel_size: 3
+  prototypes: 64              # Motion Bank 的原型数 m（论文 §IV-A.3；Fig. 2 扫过 16/32/64/128）
+  attention_heads: 8          # [A] 论文未给出头数与 d_k；本实现固定 nn.MultiheadAttention(512, 8)
+  attention_dropout: 0.0      # [A] 论文未提及注意力 dropout
+  motion_bank: true           # 消融开关（论文 Table III：只加 Motion Bank 2.40 → 1.98）
+  gated_head: true            # 消融开关（论文 Table III：只加门控头 2.40 → 1.84）
+  scale_fn: softplus          # 论文 Table IV 的最优组合（Tanh + Softplus，RMSE 1.84）
+  gate_fn: tanh
+  channel_order: gyro_acc     # 论文式 (1) 写 [a, ω]，正文又说 "Following TLIO"（[ω, a]）；见卡 §10-5
+input:                        # 论文 §IV-A.2：1.0 s 窗口、0.1 s 步长、重力对齐系、3D 位移
+  window: 200
+  frame: gravity_yaw_local
+  orientation: reference
+  remove_gravity: false
+  target: displacement
+  dims: 3
+loss: gnio_static_weighted    # 式 13：静态加权和，**没有**按 epoch 的阶段切换（卡 §10-1）
+loss_kwargs:
+  mse_weight: 1.0e+2          # λ_MSE（论文 §IV-A.1）
+  nll_weight: 1.0e-4          # λ_NLL（论文 §IV-A.1）；λ_MSE/λ_NLL = 1e6
+  min_logstd:                 # 论文没有 TLIO 的 log σ >= log(1e-3) 下限；可选保护，默认关闭
+  max_logstd:
+recipes:
+  official:                   # 论文 §IV-A
+    epochs: 200
+    batch: 1024
+    val_batch: 1024
+    lr: 1.0e-4                # warm-up 终点；前 5 个 epoch 由 1e-6 线性升到 1e-4
+    warmup_epochs: 5
+    optimizer: adam
+    momentum: 0.9             # Adam beta1 = 0.9（论文 §IV-A）
+    weight_decay: 0.0         # [A] 论文未提及权重衰减
+    scheduler: cosine         # 论文：warm-up 后余弦退火到 1e-6
+    lr_final: 0.01            # 1e-6 / 1e-4
+    grad_clip: 0.1            # [A] 沿用 TLIO 的 clip_grad_norm_(0.1)
+    stride: 20                # 论文固定 0.1 s 步长（200 Hz → 20 个样本）
+    augment:                  # [A] 论文未写增强；沿用 TLIO 的偏置/重力/偏航扰动（卡 §5）
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 19}}
+    amp: false
+    fitness: loss             # [A] 论文未写选模依据；official 用 val 损失
+    patience: 0
+  unified:                    # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    grad_clip: 0.1
+    augment:                  # 增强管线属于算法本身，两个配方一致
+      - {bias_shift: {gyro: 0.05, acc: 0.2}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - random_yaw
+      - {time_shift: {min_shift: 0, max_shift: 19}}
