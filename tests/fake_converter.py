@@ -3,7 +3,8 @@
 ``source/spec.json`` 描述序列：``{"sequences": [{"id", "seed", "group", "split", "kind", ...}]}``，
 ``kind`` 取 ``normal`` / ``reject`` / ``bad_gravity`` / ``short`` / ``nan`` / ``raise`` /
 ``duplicate_of:<id>``（复制另一条的原始数据，模拟重复发布）。
-条目可带 ``pose_offset``（位姿时钟相对 IMU 的平移，秒）与 ``imu_gaps``/``pose_gaps``。
+条目可带 ``pose_offset``（位姿时钟相对 IMU 的平移，秒）、``imu_gaps``/``pose_gaps``
+与 ``attrs``（覆盖 ``placement``/``device_id`` 等条件维度）。
 顶层可选 ``extra``（``extra_splits`` 的返回值）、``grouped``（``grouped_splits`` 的返回值，
 此时模块表现为 ``OFFICIAL_SPLITS_LEAK = True``，由测试通过 ``make_module`` 生成）。
 """
@@ -81,6 +82,7 @@ def iter_raw_sequences(source: Path, only=None):
             pose_offset=entry.get("pose_offset", 0.0),
             device_gaps=[tuple(g) for g in entry.get("device_gaps", [])],
         )
+        raw.attrs.update(entry.get("attrs", {}))  # placement/device_id… 供条件覆盖测试
         if kind == "reject":
             raw = RawSequence(sequence_id=sid, imu_time=np.zeros(0), gyroscope=np.zeros((0, 3)),
                               accelerometer=np.zeros((0, 3)), pose_time=np.zeros(0),

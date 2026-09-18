@@ -27,7 +27,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from types import ModuleType
-from typing import Collection, Iterable, Optional, Union
+from typing import Collection, Iterable, Mapping, Optional, Union
 
 import numpy as np
 
@@ -48,9 +48,11 @@ from .format import (
 from .manifest import (
     MANIFEST,
     REPORT,
+    dataset_strata,
     find_duplicates,
     fingerprint,
     imu_content_hash,
+    resolve_dataset,
     sha256_file,
 )
 from .resample import (
@@ -61,7 +63,20 @@ from .resample import (
     trim_result,
     valid_extent,
 )
-from .splits import OFFICIAL_PREFIX, check_leakage, resolve_splits, split_family, write_split
+from .splits import (
+    DEFAULT_SIZE_TOLERANCE,
+    OFFICIAL_PREFIX,
+    OOD_PREFIX,
+    build_conditions,
+    check_leakage,
+    condition_coverage,
+    load_splits,
+    normalise_strata,
+    ood_subsets,
+    resolve_splits,
+    split_family,
+    write_split,
+)
 
 PathLike = Union[str, Path]
 
@@ -169,6 +184,8 @@ def raw_to_sequence(raw: RawSequence, dataset: str, converter: str, license_: st
         group_id=str(attrs["group_id"]),
         subject_id=str(attrs["subject_id"]),
         placement=str(attrs["placement"]),
+        device_id=str(attrs["device_id"]),
+        position_source=str(attrs["position_source"]),
         source_sample_rate_hz=attrs["source_sample_rate_hz"],
         imu_sha256=imu_content_hash(seq.gyroscope, seq.accelerometer),
     )
@@ -317,12 +334,16 @@ def convert_dataset(
     val_fraction: float = 0.1,
     seed: int = 0,
     overwrite: bool = True,
+    strata: Optional[Iterable] = None,
+    size_tolerance: float = DEFAULT_SIZE_TOLERANCE,
 ) -> dict:
     """转换整个数据集，写出 ``sequences/``、``splits/``、``dataset.json`` 与
     ``conversion_report.json``，返回 ``dataset.json`` 内容。
 
     ``converter`` 默认按 ``name`` 加载 ``converters.<name>``，也可传入模块对象或文件路径
     （测试注入）。``overwrite=False`` 时跳过已有文件的序列（沿用上次报告中的记录）。
+    ``strata`` 缺省取数据卡 ``cfg/datasets/<name>.yaml`` 的 ``strata:``（没有则
+    ``splits.DEFAULT_STRATA``）；只想重算划分时用 ``recompute_splits``，无需重新解析原始数据。
 
     单条序列的解析或写出失败只会让该序列变成 ``rejected``（原因写入转换报告），无论串行还是多进程：
     清单与转换报告总会写出，每个 ``sequence_id`` 都有一个结论。
@@ -399,7 +420,9 @@ def convert_dataset(
     return write_dataset_files(output, name, meta, sources["official"], records, opts,
                                val_fraction=val_fraction, seed=seed, source=source,
                                grouped=sources["grouped"], extra=sources["extra"],
-                               policy=sources["policy"])
+                               policy=sources["policy"],
+                               strata=dataset_strata(name) if strata is None else strata,
+                               size_tolerance=size_tolerance)
 
 
 def _log_record(rec: dict, k: int, total: Optional[int]) -> None:
@@ -433,9 +456,12 @@ def _stats(entries: Iterable[dict]) -> dict:
 
 
 def _resolve_all(official: dict, grouped: Optional[dict], extra: dict, accepted: dict,
-                 groups: dict, weights: dict, val_fraction: float, seed: int) -> tuple:
+                 groups: dict, weights: dict, val_fraction: float, seed: int,
+                 conditions: Optional[dict] = None, coverage_only: Iterable[str] = (),
+                 tolerance: float = DEFAULT_SIZE_TOLERANCE) -> tuple:
     """按划分策略合并各来源，返回 ``(splits, method, missing)``（官方泄漏族带前缀）。"""
-    kw = dict(fraction=val_fraction, seed=seed, weights=weights)
+    kw = dict(fraction=val_fraction, seed=seed, weights=weights, conditions=conditions,
+              coverage_only=list(coverage_only), tolerance=tolerance)
     if grouped is None:
         splits, method, missing = resolve_splits(official, accepted, groups, **kw)
     else:
@@ -460,14 +486,47 @@ def _resolve_all(official: dict, grouped: Optional[dict], extra: dict, accepted:
     return splits, method, missing
 
 
+def sequence_metadata(output: Path, records: Mapping[str, Mapping],
+                      fields: Iterable[str]) -> dict:
+    """为条件维度收集每条序列的元信息：优先用转换记录，缺的字段从已写出的 h5 根属性读。
+
+    只读根属性（不读数组），因此重算划分不需要重新解析原始数据。
+    """
+    meta = {sid: dict(rec) for sid, rec in records.items()}
+    wanted = [f for f in dict.fromkeys(fields)
+              if f not in ("sequence_id", "mean_speed")
+              and any(f not in m for m in meta.values())]
+    if not wanted:
+        return meta
+    import h5py
+
+    for sid, m in meta.items():
+        path = Path(output) / m.get("file", f"sequences/{sid}.h5")
+        if not path.exists():
+            continue
+        try:
+            with h5py.File(path, "r") as handle:
+                for field in wanted:
+                    if field in handle.attrs:
+                        value = handle.attrs[field]
+                        m[field] = value.item() if hasattr(value, "item") else value
+        except OSError as exc:  # pragma: no cover - 损坏文件只影响该条的条件标签
+            LOGGER.warning(f"cannot read attributes of {path.name} for split strata: {exc}")
+    return meta
+
+
 def write_dataset_files(output: Path, name: str, meta: dict, official: dict, records: list,
                         opts: dict, *, val_fraction: float, seed: int,
                         source: Optional[Path] = None, grouped: Optional[dict] = None,
-                        extra: Optional[dict] = None, policy: Optional[dict] = None) -> dict:
+                        extra: Optional[dict] = None, policy: Optional[dict] = None,
+                        strata: Optional[Iterable] = None,
+                        size_tolerance: float = DEFAULT_SIZE_TOLERANCE) -> dict:
     """根据转换记录写出划分文件、``dataset.json`` 与 ``conversion_report.json``。
 
     ``grouped`` 非空表示官方划分泄漏：默认划分取 ``grouped``，官方划分以 ``official_`` 前缀写出；
-    ``extra`` 为转换器声明的附加子集（原样写出）。
+    ``extra`` 为转换器声明的附加子集（原样写出）。``strata`` 为条件维度声明（见
+    ``splits.normalise_strata`` 与数据卡 ``strata:``）：生成 val 时按条件分层并保证 val 的条件
+    被 train 覆盖，同时把 test 里 train 没有的条件拆成 ``test_ood_*`` 子集单列（DESIGN 2.4）。
     """
     output = Path(output)
     records = sorted(records, key=lambda r: r["sequence_id"])
@@ -479,8 +538,14 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     if "train" in extra:
         raise ConverterError("extra_splits must not define 'train'")
     policy = dict(policy or {"default": "official", "official_splits_leak": grouped is not None})
+    dims = normalise_strata(strata)
+    attr_meta = sequence_metadata(output, accepted, [d["of"] for d in dims])
+    conditions, cond_info = build_conditions(sorted(accepted), attr_meta, dims, groups)
     splits, method, missing = _resolve_all(official, grouped, extra, accepted, groups, weights,
-                                           val_fraction, seed)
+                                           val_fraction, seed, conditions=conditions,
+                                           coverage_only=cond_info["coverage_only"],
+                                           tolerance=size_tolerance)
+    splits.update(ood_subsets(splits, conditions))
     for record in rejected:  # 上一次转换接收过、这次被拒的序列不能留下陈旧文件
         stale = output / "sequences" / f"{record['sequence_id']}.h5"
         if stale.exists():
@@ -497,13 +562,21 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     leakage = check_leakage(splits, groups)
     if "official" in leakage:
         policy["official_leaks"] = leakage["official"]["leaks"]
+    coverage = condition_coverage(splits, conditions)
+    policy["strata"] = cond_info["strata"]
+    policy["strata_coverage_only"] = cond_info["coverage_only"]
+    if cond_info["dropped"]:
+        policy["strata_dropped"] = cond_info["dropped"]
+    policy["condition_values"] = cond_info["values"]
+    policy["condition_coverage"] = coverage["splits"]
+    policy["ood_subsets"] = {k: len(v) for k, v in splits.items() if k.startswith(OOD_PREFIX)}
     assigned = {i for key, ids in splits.items() if not split_family(key) for i in ids}
     unassigned = sorted(set(accepted) - assigned)
     duplicates = find_duplicates({sid: r.get("imu_sha256") for sid, r in accepted.items()})
 
     keys = ("file", "sha256", "imu_sha256", "num_samples", "duration_s", "distance_m", "group_id",
-            "subject_id", "placement", "valid_fraction", "valid_fraction_device",
-            "source_sample_rate_hz")
+            "subject_id", "placement", "device_id", "position_source", "valid_fraction",
+            "valid_fraction_device", "source_sample_rate_hz")
     sequences = {sid: {k: r[k] for k in keys if k in r} for sid, r in accepted.items()}
     by_split = {s: _stats(accepted[i] for i in ids) for s, ids in splits.items()}
     now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
@@ -558,7 +631,172 @@ def write_dataset_files(output: Path, name: str, meta: dict, official: dict, rec
     if unassigned:
         LOGGER.warning(f"convert {name}: {len(unassigned)} accepted sequences are in no split "
                        f"(listed as 'unassigned' in {MANIFEST}): {unassigned[:5]}")
+    _log_split_audit(name, method, coverage, policy["ood_subsets"])
     return manifest
+
+
+def _log_split_audit(name: str, method: Mapping, coverage: Mapping, ood: Mapping) -> None:
+    """把划分审计的关键结论写进日志：val 的条件覆盖与 test 的分布外条件。"""
+    info = method.get("val")
+    if isinstance(info, Mapping) and info.get("method") == "stratified_group_holdout":
+        LOGGER.info(f"splits {name}: val = groups {info.get('val_groups')} "
+                    f"({info.get('val_fraction_actual', 0):.1%} of the train pool, target "
+                    f"{info.get('fraction')}), conditions not represented in val: "
+                    f"{info.get('conditions_not_in_val')}")
+        if info.get("conditions_not_in_train"):
+            LOGGER.warning(f"splits {name}: val has conditions train does not: "
+                           f"{info['conditions_not_in_train']}")
+        if info.get("warning"):
+            LOGGER.warning(f"splits {name}: {info['warning']}")
+    for split, entry in sorted(coverage.get("splits", {}).items()):
+        if entry.get("novel") and not split.startswith(OOD_PREFIX):
+            LOGGER.warning(f"splits {name}: {split} has conditions absent from train "
+                           f"(out-of-distribution, report separately): {entry['novel']}")
+    if ood:
+        LOGGER.info(f"splits {name}: derived out-of-distribution test subsets {dict(ood)}")
+
+
+def _generated_val(manifest: Mapping) -> bool:
+    """``dataset.json`` 的 val 是流水线生成的（而不是官方/转换器给出的）吗？"""
+    return isinstance(manifest.get("split_method", {}).get("val"), Mapping)
+
+
+def recompute_splits(
+    data: Union[str, Path, Mapping],
+    *,
+    val_fraction: float = 0.1,
+    seed: int = 0,
+    strata: Optional[Iterable] = None,
+    size_tolerance: float = DEFAULT_SIZE_TOLERANCE,
+    dry_run: bool = False,
+    force: bool = False,
+) -> dict:
+    """只重算划分：不重新解析原始数据，也不重写任何 ``sequences/*.h5``。
+
+    从已有的 ``dataset.json`` 与 ``splits/*.txt`` 恢复各划分的来源：``train ∪ val`` 是原始
+    train 池（val 由流水线生成时），``test`` 与 ``test_*`` 原样保留，``official_*`` 原样保留。
+    在这个池上重新做条件分层的分组抽样，重写 ``train.txt`` / ``val.txt`` 与派生的
+    ``test_ood_*.txt``，并更新 ``dataset.json`` 里与划分有关的部分（``split_policy``、
+    ``split_method``、``splits``、``statistics.by_split``、``fingerprint``）。
+
+    val 来自官方/转换器时默认拒绝改动（``force=True`` 才重算，因为那会违反“官方划分优先”）。
+    返回 ``{"dataset", "changed", "moved_to_val", "moved_to_train", "splits", "split_method",
+    "coverage", "fingerprint", ...}``；``dry_run=True`` 时只返回差异，不写任何文件。
+    """
+    spec = resolve_dataset(data)
+    root = spec.root
+    manifest = spec.manifest()
+    if not manifest:
+        raise FileNotFoundError(f"{root / MANIFEST} missing: convert the dataset first")
+    entries = manifest.get("sequences", {})
+    previous = load_splits(root)
+    if "train" not in previous:
+        raise ConverterError(f"{spec.name}: no splits/train.txt to recompute from")
+    regenerate = _generated_val(manifest) or force
+    if not regenerate:
+        LOGGER.info(f"splits {spec.name}: val comes from {manifest['split_method'].get('val')!r} "
+                    "(official/converter), keeping it as is (use force=true to override); "
+                    "only the condition audit and the derived test_ood_* subsets are refreshed")
+    sources: dict = {}
+    for name, ids in previous.items():
+        if name.startswith(OOD_PREFIX):
+            continue  # 派生子集每次重算
+        sources[name] = list(ids)
+    if regenerate:  # train 池 = 旧 train ∪ 旧 val，由分层抽样重新划出 val
+        sources["train"] = sorted(set(previous["train"]) | set(previous.get("val", [])))
+        sources.pop("val", None)
+    groups = {sid: e.get("group_id", sid) for sid, e in entries.items()}
+    weights = {sid: float(e.get("duration_s", 0.0)) for sid, e in entries.items()}
+    # 维度来源：显式参数 → 数据卡 ``strata:`` → 上次写进 dataset.json 的维度 → 默认维度
+    dims = normalise_strata(strata if strata is not None else (
+        spec.strata or dataset_strata(spec.name)
+        or manifest.get("split_policy", {}).get("strata")))
+    attr_meta = sequence_metadata(root, entries, [d["of"] for d in dims])
+    conditions, cond_info = build_conditions(sorted(entries), attr_meta, dims, groups)
+    official = {k: v for k, v in sources.items() if not split_family(k)}
+    leaky = {k[len(OFFICIAL_PREFIX):]: v for k, v in sources.items() if split_family(k)}
+    splits, method, missing = _resolve_all(
+        official, None, {}, entries, groups, weights, val_fraction, seed,
+        conditions=conditions, coverage_only=cond_info["coverage_only"],
+        tolerance=size_tolerance)
+    for key, ids in leaky.items():  # 官方泄漏族原样保留
+        splits[OFFICIAL_PREFIX + key] = sorted(ids)
+        method[OFFICIAL_PREFIX + key] = manifest["split_method"].get(OFFICIAL_PREFIX + key,
+                                                                    "official (leaks)")
+    for key in splits:
+        if key not in ("train", "val") and not split_family(key):
+            method[key] = manifest["split_method"].get(key, method.get(key, "official"))
+    splits.update(ood_subsets(splits, conditions))
+
+    old_val, new_val = set(previous.get("val", [])), set(splits["val"])
+    result = {
+        "dataset": spec.name,
+        "root": str(root),
+        "changed": {k: sorted(v) for k, v in splits.items()} != {k: sorted(v) for k, v in
+                                                                 previous.items()},
+        "moved_to_val": sorted(new_val - old_val),
+        "moved_to_train": sorted(old_val - new_val),
+        "splits": {k: len(v) for k, v in sorted(splits.items())},
+        "previous_splits": {k: len(v) for k, v in sorted(previous.items())},
+        "split_method": method,
+        "coverage": condition_coverage(splits, conditions)["splits"],
+        "strata": cond_info["strata"],
+        "previous_fingerprint": manifest.get("fingerprint"),
+        "fingerprint": fingerprint({k: v["sha256"] for k, v in entries.items()}, splits),
+        "dry_run": bool(dry_run),
+    }
+    if missing:
+        result["missing_from_splits"] = missing
+    _log_split_audit(spec.name, method, {"splits": result["coverage"]},
+                     {k: v for k, v in result["splits"].items() if k.startswith(OOD_PREFIX)})
+    LOGGER.info(f"splits {spec.name}: {'would move' if dry_run else 'moved'} "
+                f"{len(result['moved_to_val'])} sequences train->val and "
+                f"{len(result['moved_to_train'])} val->train")
+    if dry_run:
+        return result
+
+    split_dir = root / "splits"
+    for old in sorted(split_dir.glob("*.txt")):
+        if old.stem not in splits:
+            old.unlink()
+            LOGGER.info(f"splits {spec.name}: removed stale {old.name}")
+    for split, ids in splits.items():
+        write_split(split_dir / f"{split}.txt", ids)
+    policy = dict(manifest.get("split_policy", {}))
+    policy["strata"] = cond_info["strata"]
+    policy["strata_coverage_only"] = cond_info["coverage_only"]
+    if cond_info["dropped"]:
+        policy["strata_dropped"] = cond_info["dropped"]
+    else:
+        policy.pop("strata_dropped", None)
+    policy["condition_values"] = cond_info["values"]
+    policy["condition_coverage"] = result["coverage"]
+    policy["ood_subsets"] = {k: len(v) for k, v in splits.items() if k.startswith(OOD_PREFIX)}
+    policy["splits_recomputed_utc"] = _dt.datetime.now(_dt.timezone.utc).replace(
+        microsecond=0).isoformat()
+    manifest["split_policy"] = policy
+    manifest["split_method"] = method
+    manifest["splits"] = {s: len(ids) for s, ids in splits.items()}
+    stats = dict(manifest.get("statistics", {}))
+    stats["by_split"] = {s: _stats(entries[i] for i in ids if i in entries)
+                         for s, ids in splits.items()}
+    manifest["statistics"] = stats
+    manifest["unassigned"] = sorted(
+        set(entries) - {i for k, ids in splits.items() if not split_family(k) for i in ids})
+    manifest["fingerprint"] = result["fingerprint"]
+    manifest["ipb_version"] = __version__
+    json_save(root / MANIFEST, manifest)
+    leakage = check_leakage(splits, groups)
+    result["leakage"] = leakage
+    if not leakage["ok"]:
+        LOGGER.error(f"splits {spec.name}: LEAKAGE after recompute: {leakage['leaks']}")
+    report_path = root / REPORT
+    if report_path.exists():
+        report = json_load(report_path)
+        report["leakage"] = leakage
+        report["splits_recomputed_utc"] = policy["splits_recomputed_utc"]
+        json_save(report_path, report)
+    return result
 
 
 def default_workers() -> int:

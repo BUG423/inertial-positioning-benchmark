@@ -6,6 +6,11 @@ splits:
   val: val
   test: test
 test_splits: [test, test_unseen_subject, test_unlisted_seen_subject]
+strata:                     # 条件/分层维度（DESIGN 2.4）：生成 val 时保证条件被 train 覆盖
+  - placement
+  - name: motion_variant    # 细粒度携带/运动变体只写在序列名里（bag_low、leg_front、body_backward…）
+    of: sequence_id
+    pattern: '^[^_]+_(.+?)(?:_test)?\d*$'
 notes: >-
   约 202 Hz、单台 Tango 手机（同设备 VIO 参考，不等同于动捕真值）；handheld/pocket(leg)/bag/body。
   官方只给出 train/test 发布列表（按序列划分，受试者跨划分：seen-subject 设定），val 由流水线按受试者抽取。

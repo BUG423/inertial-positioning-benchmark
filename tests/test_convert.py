@@ -75,7 +75,7 @@ def test_manifest_and_files(converted):
     stats = manifest["statistics"]
     assert stats["num_sequences"] == 11
     assert stats["by_split"]["test"]["num_sequences"] == 2
-    assert manifest["split_method"]["val"]["method"] == "group_holdout"
+    assert manifest["split_method"]["val"]["method"] == "stratified_group_holdout"
     assert manifest["split_method"]["test"] == "official"
     assert len(manifest["fingerprint"]) == 64
 
@@ -519,3 +519,107 @@ def test_rejected_sequences_do_not_leave_stale_files(tmp_path):
     assert "tr2" not in manifest["sequences"]
     assert not (out / "sequences" / "tr2.h5").exists()
     assert check_dataset(out)["ok"]
+
+
+def strata_entries() -> list:
+    """5 个受试者 × 几种携带方式；``solo`` 独占 ``bag_low``，test 里有训练没见过的设备。"""
+    plan = {"alice": ["handheld", "bag", "body"], "bob": ["handheld", "bag", "body"],
+            "carol": ["handheld", "bag", "body"], "dave": ["handheld", "body"],
+            "solo": ["handheld", "bag_low"]}
+    entries, seed = [], 0
+    for subject, placements in plan.items():
+        for placement in placements:
+            seed += 1
+            entries.append({"id": f"{subject}_{placement}", "seed": seed, "group": subject,
+                            "split": "train", "attrs": {"placement": placement}})
+    entries.append({"id": "te_known", "seed": 90, "group": "zoe", "split": "test",
+                    "attrs": {"placement": "handheld"}})
+    entries.append({"id": "te_novel", "seed": 91, "group": "zoe", "split": "test",
+                    "attrs": {"placement": "handheld", "device_id": "other_phone"}})
+    return entries
+
+
+@pytest.fixture(scope="module")
+def stratified(tmp_path_factory):
+    root = tmp_path_factory.mktemp("strata")
+    source = write_spec(root / "raw", strata_entries())
+    out = root / "ipb" / "fake"
+    manifest = convert_dataset("fake", source, out, converter=FAKE, val_fraction=0.2,
+                               strata=["placement", "device_id"])
+    return source, out, manifest
+
+
+def test_conversion_generates_a_condition_covered_val(stratified):
+    _, out, manifest = stratified
+    policy = manifest["split_policy"]
+    assert [d["name"] for d in policy["strata"]] == ["placement", "device_id"]
+    info = manifest["split_method"]["val"]
+    assert info["method"] == "stratified_group_holdout"
+    assert "solo" not in info["val_groups"]
+    assert info["ineligible_groups"]["solo"] == ["placement=bag_low"]
+    assert info["conditions_not_in_train"] == []
+    splits = {p.stem: read_split(p) for p in (out / "splits").glob("*.txt")}
+    groups = {k: v["group_id"] for k, v in manifest["sequences"].items()}
+    assert not {groups[i] for i in splits["train"]} & {groups[i] for i in splits["val"]}
+    assert "solo_bag_low" in splits["train"]
+    # test 里训练没见过的设备被单列为派生子集，主 test 不变
+    assert splits["test_ood_device_id"] == ["te_novel"]
+    assert sorted(splits["test"]) == ["te_known", "te_novel"]
+    assert policy["ood_subsets"] == {"test_ood_device_id": 1}
+    assert policy["condition_coverage"]["test"]["novel"] == {"device_id=other_phone": 1}
+    assert manifest["sequences"]["te_novel"]["device_id"] == "other_phone"
+    assert check_dataset(out)["ok"]
+
+
+def test_recompute_splits_is_split_only_deterministic_and_reversible(stratified, tmp_path):
+    import shutil
+
+    from inertial_benchmark.data.convert import recompute_splits
+
+    _, out, manifest = stratified
+    copy = tmp_path / "recompute"
+    shutil.copytree(out, copy)
+    before = {p.name: p.stat().st_mtime_ns for p in (copy / "sequences").glob("*.h5")}
+    # 先退回旧的“只看组”的划分，再用新入口重算，检查能恢复到分层结果
+    plain = json.loads((copy / MANIFEST).read_text())
+    plain["split_method"]["val"] = {"method": "group_holdout", "key": "group_id"}
+    (copy / MANIFEST).write_text(json.dumps(plain))
+    dry = recompute_splits(copy, val_fraction=0.2, dry_run=True)
+    assert dry["dry_run"] and dry["splits"] == manifest["splits"]
+    assert read_split(copy / "splits" / "val.txt") == read_split(out / "splits" / "val.txt")
+
+    wet = recompute_splits(copy, val_fraction=0.2)
+    assert wet["moved_to_val"] == dry["moved_to_val"] == []
+    assert wet["fingerprint"] == manifest["fingerprint"]
+    assert wet["leakage"]["ok"]
+    updated = json.loads((copy / MANIFEST).read_text())
+    assert updated["split_method"]["val"]["method"] == "stratified_group_holdout"
+    assert updated["splits"] == manifest["splits"]
+    assert updated["statistics"]["by_split"]["val"] == manifest["statistics"]["by_split"]["val"]
+    assert "splits_recomputed_utc" in updated["split_policy"]
+    # 序列文件一个都没被重写（只重算划分，不重新解析原始数据）
+    assert {p.name: p.stat().st_mtime_ns for p in (copy / "sequences").glob("*.h5")} == before
+    assert check_dataset(copy)["ok"]
+
+    # 换 val 比例会真的改变划分，并给出移动明细
+    bigger = recompute_splits(copy, val_fraction=0.45, dry_run=True)
+    assert bigger["moved_to_val"] and bigger["changed"]
+
+
+def test_recompute_splits_keeps_official_val_unless_forced(tmp_path):
+    from inertial_benchmark.data.convert import recompute_splits
+
+    entries = strata_entries() + [{"id": "va0", "seed": 95, "group": "vic", "split": "val",
+                                   "attrs": {"placement": "handheld"}}]
+    source = write_spec(tmp_path / "raw", entries)
+    out = tmp_path / "official_val"
+    convert_dataset("fake", source, out, converter=FAKE, strata=["placement"])
+    assert read_split(out / "splits" / "val.txt") == ["va0"]
+    result = recompute_splits(out)
+    assert result["changed"] is False
+    assert read_split(out / "splits" / "val.txt") == ["va0"]
+    forced = recompute_splits(out, val_fraction=0.2, force=True, dry_run=True)
+    assert forced["changed"] and forced["moved_to_val"]
+    assert forced["split_method"]["val"]["method"] == "stratified_group_holdout"
+    assert forced["split_method"]["val"]["conditions_not_in_train"] == []
+    assert read_split(out / "splits" / "val.txt") == ["va0"]  # dry_run 不写任何文件

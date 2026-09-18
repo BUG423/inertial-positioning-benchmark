@@ -6,6 +6,9 @@ splits:                     # 逻辑划分 → splits/<file>.txt
   val: val
   test: test                # test = test_seen ∪ test_unseen
 test_splits: [test_seen, test_unseen]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - placement
+  - device_id
 notes: >-
   官方只公开约一半数据，不能与原论文全量结果直接对比；参考位置来自胸前固定的 Tango 手机（VIO），
   IMU 来自任意携带的另一部手机，参考姿态为起点对齐后的手机姿态。官方 test_seen 与 train 共享受试者

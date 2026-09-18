@@ -20,11 +20,11 @@ ROOT = Path(os.environ.get("IPB_DATASETS", "/workspace/webCodex/datasets/ipb"))
 
 # 数据集 → (序列数, 时长 h, 距离 km, 转换器, 指纹前 16 位)
 RELEASE = {
-    "ronin": (151, 23.11, 61.94, "ronin@1.0", "f29e5c58e71935cc"),
-    "ridi": (94, 2.71, 10.30, "ridi@1.1", "6e47893cb3b6dbf0"),
-    "oxiod": (126, 13.60, 36.90, "oxiod@1.1", "559c7c3de007887e"),
+    "ronin": (151, 23.11, 61.94, "ronin@1.0", "8cbb25ce5ce74237"),
+    "ridi": (94, 2.71, 10.30, "ridi@1.1", "0f436fe433c25130"),
+    "oxiod": (126, 13.60, 36.90, "oxiod@1.1", "77713e0df4cefa96"),
     "tlio": (354, 31.60, 37.63, "tlio@1.0.0", "c2d0ddbe9d6ea11f"),
-    "idol": (130, 19.89, 64.94, "idol@1.0.0", "dadeed68bbc3f119"),
+    "idol": (130, 19.89, 64.94, "idol@1.0.0", "0dc064cb0f7d61de"),
     "rnin": (300, 8.49, 25.56, "rnin@1.1.0", "6d7f93e5734c88b5"),
     "imunet": (113, 7.91, 30.80, "imunet@1.0", "3fe0f633264ab36a"),
     "pedlocdata": (1924, 89.14, 257.58, "pedlocdata@1.1.0", "79b8e288ac4be804"),

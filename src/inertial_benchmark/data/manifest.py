@@ -65,6 +65,7 @@ class DatasetSpec:
     splits: dict = field(default_factory=lambda: {s: s for s in MAIN_SPLITS})
     test_splits: list = field(default_factory=lambda: ["test"])
     notes: str = ""
+    strata: Optional[list] = None  # 划分分层/条件维度声明（DESIGN 2.4），None 表示用默认维度
 
     def split_file(self, split: str) -> Path:
         """逻辑划分名 → ``splits/<file>.txt``；未映射的名字按原名查找。"""
@@ -94,11 +95,24 @@ class DatasetSpec:
 
     def to_dict(self) -> dict:
         return {"name": self.name, "root": str(self.root), "splits": dict(self.splits),
-                "test_splits": list(self.test_splits), "notes": self.notes}
+                "test_splits": list(self.test_splits), "strata": self.strata,
+                "notes": self.notes}
 
 
 def dataset_yaml_names() -> list:
     return sorted(p.stem for p in (CFG_DIR / "datasets").glob("*.yaml"))
+
+
+def dataset_strata(name: str) -> Optional[list]:
+    """数据卡 ``cfg/datasets/<name>.yaml`` 声明的条件/分层维度；没有数据卡时返回 ``None``。
+
+    返回 ``None`` 表示由 ``splits.normalise_strata`` 用 ``DEFAULT_STRATA``。
+    """
+    path = CFG_DIR / "datasets" / f"{name}.yaml"
+    if not path.exists():
+        return None
+    raw = yaml_load(path).get("strata")
+    return list(raw) if raw else None
 
 
 def _spec_from_dict(d: Mapping[str, Any], base: Optional[Path] = None) -> DatasetSpec:
@@ -114,6 +128,7 @@ def _spec_from_dict(d: Mapping[str, Any], base: Optional[Path] = None) -> Datase
         root=path,
         splits=splits,
         test_splits=list(d.get("test_splits") or ["test"]),
+        strata=list(d["strata"]) if d.get("strata") else None,
         notes=str(d.get("notes", "")),
     )
 

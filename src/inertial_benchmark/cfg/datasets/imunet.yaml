@@ -6,6 +6,11 @@ splits:
   val: val
   test: test
 test_splits: [test]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - device_id               # S10 / S21 / Tango，受试者内混用
+  - name: environment
+    attr: imunet_environment
+  - position_source
 notes: >-
   约 200 Hz 手机数据，参考为同设备 Tango VIO 或 ARCore VIO（相机位姿已换到 Android 机体系）。
   使用数据包自带的 list_train/list_test（按序列划分，受试者跨划分：seen-subject 设定）；

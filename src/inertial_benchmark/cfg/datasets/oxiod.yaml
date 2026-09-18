@@ -6,6 +6,11 @@ splits:
   val: val
   test: test
 test_splits: [test, test_unseen_subject, test_unseen_device]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - placement
+  - name: scene             # 官方场景目录：handheld/pocket/handbag/trolley/slow_walking/running
+    attr: oxiod_scene
+  - device_id
 notes: >-
   原生 100 Hz（iPhone），统一上采样到 200 Hz；参考为 Vicon 动捕（外参与时钟逐序列估计）。
   官方 Train/Test 按场景给出（6 个放置/运动场景），val 由流水线按采集会话抽取。

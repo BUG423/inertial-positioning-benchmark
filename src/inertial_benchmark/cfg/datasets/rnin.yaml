@@ -6,6 +6,11 @@ splits:
   val: val
   test: test
 test_splits: [test]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - placement
+  - name: reference
+    attr: reference_type
+  - position_source
 notes: >-
   原生采样率不统一（约 250 Hz 160 条、200–209 Hz 127 条、约 400 Hz 14 条，时间戳非均匀），
   统一重采样到 200 Hz。参考逐序列不同（attrs reference_type：外部 gt 75 条 / BVIO 226 条）。

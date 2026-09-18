@@ -6,6 +6,9 @@ splits:
   val: val
   test: test
 test_splits: [test]
+strata:                     # 条件/分层维度（DESIGN 2.4）；device_id 与 group_id 等价会被自动丢弃
+  - placement
+  - device_id
 notes: >-
   头戴设备（VR 头显）、200 Hz；参考轨迹来自头显上的视觉惯性滤波（MSCKF），不是独立真值；
   IMU 已被该滤波器的零偏估计补偿（与官方设定一致）。使用官方 train/val/test 列表

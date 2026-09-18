@@ -6,6 +6,9 @@ splits:                     # 默认划分 = 转换器 grouped_splits（按受�
   val: val
   test: test                # test = test_yt ∪ test_demo
 test_splits: [test]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - placement
+  - device_id
 notes: >-
   200 Hz 行人数据（YT 27 名受试者 + Demo）。官方 train/valid/test 按切片随机分配、存在录制级泄漏，
   转换器声明 OFFICIAL_SPLITS_LEAK：默认 train/val/test 为分组划分，官方划分另存为

@@ -6,6 +6,12 @@ splits:
   val: val                  # 官方无 val：由流水线从 train 按受试者分组抽取
   test: test                # test = test_known ∪ test_unknown（三栋楼）
 test_splits: [test_known, test_unknown]
+strata:                     # 条件/分层维度（DESIGN 2.4）
+  - placement               # 全部 handheld；building 在 train 池里也只有 building1
+  - building
+  - name: speed_bin         # 分类条件退化为单值时用平均速度三分位分层（只用于覆盖，不做硬判定）
+    of: mean_speed
+    quantiles: 3
 notes: >-
   原生 100 Hz，上采样到 200 Hz；15 名受试者、3 栋楼。known/unknown 指受试者是否出现在训练集中
   （test_known 与 train 共享受试者，属 seen-subject 设定）；building2/3 没有训练子集，对它们而言是未见楼栋。

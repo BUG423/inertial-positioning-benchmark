@@ -19,6 +19,7 @@ usage: ipb <command> [key=value ...]
 
 commands:
   convert    dataset=ronin source=/raw/ronin [output=...] [workers=8] [only=[a,b]]
+  splits     data=ridi [dry_run=true] [val_fraction=0.1] [seed=0] [save=diff.json]
   check      data=ronin [full=true] [hash=true] [save=report.json]
   train      model=ronin_resnet18 data=ronin epochs=40 device=0 ...
   val        model=runs/train/exp/weights/best.pt data=ronin split=test
@@ -33,7 +34,8 @@ Training/evaluation keys are documented in `ipb cfg`; see docs/CLI.md.
 """
 
 CONVERT_KEYS = {"dataset", "source", "output", "only", "workers", "overwrite", "converter",
-                "compression", "gap_threshold", "min_duration", "val_fraction", "seed"}
+                "compression", "gap_threshold", "min_duration", "val_fraction", "seed",
+                "size_tolerance"}
 
 
 def _require(kv: dict, *keys: str) -> None:
@@ -71,6 +73,33 @@ def cmd_convert(kv: dict) -> int:
         only=_as_list(kv.pop("only", None)),
         workers=default_workers() if workers is None else int(workers), **kv)
     return 0 if manifest["sequences"] else 1
+
+
+SPLITS_KEYS = {"data", "dry_run", "val_fraction", "seed", "size_tolerance", "force", "save"}
+
+
+def cmd_splits(kv: dict) -> int:
+    """只重算划分（不重新解析原始数据）；``dry_run=true`` 只打印差异。"""
+    from .data.convert import recompute_splits
+
+    _check_keys(kv, SPLITS_KEYS, "splits")
+    _require(kv, "data")
+    result = recompute_splits(
+        kv["data"], val_fraction=float(kv.get("val_fraction", 0.1)),
+        seed=int(kv.get("seed", 0)),
+        size_tolerance=float(kv.get("size_tolerance", 0.5)),
+        dry_run=bool(kv.get("dry_run", False)), force=bool(kv.get("force", False)))
+    LOGGER.info(f"  splits {result['splits']}")
+    for key in ("moved_to_val", "moved_to_train"):
+        if result.get(key):
+            LOGGER.info(f"  {key}: {result[key]}")
+    if result.get("fingerprint") != result.get("previous_fingerprint"):
+        LOGGER.info(f"  fingerprint {result.get('previous_fingerprint')} -> "
+                    f"{result.get('fingerprint')}")
+    if kv.get("save"):
+        json_save(kv["save"], result)
+    leakage = result.get("leakage")
+    return 1 if leakage is not None and not leakage["ok"] else 0
 
 
 def cmd_check(kv: dict) -> int:
@@ -211,6 +240,7 @@ def cmd_version(kv: dict) -> int:
 
 COMMANDS: dict = {
     "convert": cmd_convert,
+    "splits": cmd_splits,
     "check": cmd_check,
     "train": cmd_train,
     "val": cmd_val,
