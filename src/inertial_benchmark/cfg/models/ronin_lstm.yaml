@@ -1,0 +1,48 @@
+# RoNIN-LSTM：Bilinear + 3 层单向 LSTM 的 seq2seq 逐帧速度网络（Herath et al., ICRA 2020）。
+# 官方 `--type lstm_bi`（`bi` 指 bilinear，LSTM 是单向的，见 docs/algorithms/ronin_lstm.md §1）。
+# 结构、损失与配方依据规格卡独立实现（洁净室，未读官方代码）；参数量 216,620 由单元测试锁定。
+name: ronin_lstm
+arch: ronin_lstm
+paper: https://arxiv.org/abs/1905.12853
+code: https://github.com/Sachini/ronin
+license: GPL-3.0 (official code); this implementation is written from the spec card
+commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+fidelity: official-code (network, loss and recipe)
+args:                      # config/temporal_model_defaults.json: layers=3, layer_size=100
+  lstm_size: 100
+  lstm_layers: 3
+  dropout: 0.0             # 官方 LSTM 层间 dropout 默认 0；论文的线性层 dropout 未实现
+  mix_size: 24             # nn.Bilinear(6, 6, 24)
+input:                     # 官方协议：400 帧 seq2seq 片段、重力对齐世界系、逐帧 2D 速度
+  window: 400
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: frame_velocity   # 输出布局 (B, 400, 2)，DESIGN §3.1
+  dims: 2
+  overlap: mean            # 滑窗下同一时刻的多个逐帧预测取平均（DESIGN §5）
+loss: ronin_global_pos     # GlobalPosLoss(mode='full')：逐帧速度累加成“位置”后求 MSE（不乘 dt）
+loss_kwargs:
+  mode: full
+recipes:
+  official:                # ronin_lstm_tcn.py + config/temporal_model_defaults.json
+    epochs: 1000           # 官方 config；论文称约 300 epoch 收敛
+    batch: 72
+    val_batch: 72
+    lr: 3.0e-4
+    optimizer: adam
+    momentum: 0.9          # Adam beta1（PyTorch 默认）
+    weight_decay: 0.0
+    scheduler: plateau     # --use_scheduler 时 ReduceLROnPlateau(factor=0.75, patience=10)
+    gamma: 0.75
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 100            # step_size=100；time_shift 缺省为 ±stride//2 = ±50，与官方一致
+    augment: [random_yaw, time_shift]   # RandomHoriRotateSeq(U[0,2π)) + randrange(-50,50)
+    amp: false             # 官方训练脚本不用混合精度
+    fitness: loss          # 官方按验证损失保存最优模型
+    patience: 0            # 无早停
+  unified:                 # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: [random_yaw, time_shift]   # 增强属于算法本身，两个配方一致（DESIGN §4）
+# 已知差异：官方训练/验证会丢弃窗口内真值速度 > 3 m/s 的片段（max_velocity_norm），
+# 该过滤尚未在协议层落地（docs/ALGORITHMS.md §3），两个配方都不做。

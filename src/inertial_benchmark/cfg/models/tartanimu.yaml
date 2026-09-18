@@ -1,0 +1,70 @@
+# TartanIMU（Zhao et al., CVPR 2025）公开的 ResNet-LSTM `Foundation_Model`：10 个首尾相接的 1 s
+# 子窗（模型内部 [::5] 抽到 40 点）经共享主干 + 4 个平台头，输出逐子窗机体系 3D 速度（+ log σ）。
+# 结构、损失与配方依据 docs/algorithms/tartanimu.md 独立实现（洁净室，未读官方代码）；
+# 参数量 5,698,346 由单元测试锁定。论文的 LoRA 微调与在线自适应未公开，不实现。
+name: tartanimu
+arch: tartanimu
+paper: https://openaccess.thecvf.com/content/CVPR2025/papers/Zhao_Tartan_IMU_A_Light_Foundation_Model_for_Inertial_Positioning_in_CVPR_2025_paper.pdf
+code: https://github.com/superxslam/TartanIMU
+license: Apache-2.0 (official code); this implementation is written from the spec card
+commit: 8a8025000f85d2c6b0692b88e15c2c91e761f7d7
+fidelity: official-code (public LSTM backbone); LoRA / online adaptation / Transformer not public
+args:                      # config/resnet_lstm_multihead.yaml + data.imu_freq=200, sample_freq=40
+  sub_window: 200          # 1 s @200 Hz
+  sample_step: 5           # [::5] → 40 点（官方直接丢样本，无抗混叠滤波）
+  layer_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  post_channels: 128       # resnet_post_pro：Conv1d(512,128,k1) + BN，展平为 128×3 = 384
+  lstm_size: 128
+  lstm_layers: 2
+  lstm_dropout: 0.1
+  fc_dim: 256
+  dropout: 0.3             # drop_ratio
+  head: human              # 行人数据固定走 human 头（motion_type=4）
+  predict_cov: false       # 官方 body 分支下协方差头永远没有梯度（复现该行为）
+input:                     # 官方协议：10×1 s 子窗 = 10 s、机体系（含重力）、逐子窗 3D 速度
+  window: 2000
+  frame: body              # use_local_coord=True；body 系必须 dims=3（DESIGN §3）
+  orientation: reference   # 只用于构造目标与把预测旋回世界系，网络输入不用姿态
+  remove_gravity: false
+  target: multi_displacement
+  output_steps: 10         # 10 段，模型把每段速度乘以段时长输出为位移（DESIGN §3.1）
+  dims: 3
+  overlap: mean
+loss: tartanimu_velocity   # 官方 body 分支：20·L1，与 epoch 无关；有 logstd 时追加 NLL
+loss_kwargs:
+  l1_weight: 20.0
+  cov_weight: 1.0
+  start_cov_epoch: 0       # unified 打开协方差头后立即开始线性引入 NLL
+  cov_ramp_epochs: 5       # 官方的“5 个 epoch 线性引入”
+recipes:
+  official:                # config/datasets/tartanimu/tartan_imu_dataset.yaml + configer.py
+    epochs: 250
+    batch: 512
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.01     # 耦合 L2，作用于全部参数（HF 卡的 wdfix2 不在此提交中）
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=8)
+    gamma: 0.1
+    plateau_patience: 8
+    grad_clip: 0.0
+    stride: 5              # 序列起点每 5 个样本一个
+    augment:               # 官方顺序：机体偏航 → 常值零偏 → 机体倾斜 → 白噪声
+      - body_yaw           #   （框架按 stage 重排：传感器级 bias_shift/noise 先于坐标级）
+      - {bias_shift: {gyro: 0.002, acc: 0.1}}
+      - {body_tilt: {max_deg: 5.0}}
+      - {noise: {gyro: 1.0e-5, acc: 1.0e-4}}
+    amp: true              # 官方 use_amp: True（GradScaler），仅 CUDA 生效
+    fitness: loss
+    patience: 0            # 官方的早停按“lr < 1.1e-6”判断，IPB 无此规则
+  unified:                 # IPB 统一预算；协方差头确实参与训练（论文式 (2)+(3)）
+    model_args: {predict_cov: true}
+    augment:               # 增强属于算法本身，两个配方一致（DESIGN §4）
+      - body_yaw
+      - {bias_shift: {gyro: 0.002, acc: 0.1}}
+      - {body_tilt: {max_deg: 5.0}}
+      - {noise: {gyro: 1.0e-5, acc: 1.0e-4}}
+# 已知差异：不复刻测试时的 3 点滑动平均与 20 m 分段重锚定评测；官方写死的 5 m/s 子窗速度门限与
+# 15 m/s 真值截断尚未在协议层落地（docs/ALGORITHMS.md §3）。

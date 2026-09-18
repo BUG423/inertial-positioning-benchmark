@@ -1,0 +1,48 @@
+# RoNIN-TCN：6 个膨胀因果卷积块（weight norm + PReLU）的 seq2seq 逐帧速度网络
+# （Herath et al., ICRA 2020）。通道以**官方 config** 为准（论文正文写 [16,32,64,128,72,36]，
+# 官方 config/temporal_model_defaults.json 为 [32,64,128,256,72,36]，见 docs/algorithms/ronin_tcn.md §4）。
+# 结构、损失与配方依据规格卡独立实现（洁净室，未读官方代码）；参数量 540,488 由单元测试锁定。
+name: ronin_tcn
+arch: ronin_tcn
+paper: https://arxiv.org/abs/1905.12853
+code: https://github.com/Sachini/ronin
+license: GPL-3.0 (official code; source/tcn.py adapted from locuslab/TCN, MIT); written from the spec card
+commit: 805b7f0f28bb164ce89ada9ac05a9470dbe3d715
+fidelity: official-code (network, loss and recipe)
+args:                      # config/temporal_model_defaults.json 的通道；dropout 为类默认值
+  kernel_size: 3
+  layer_channels: [32, 64, 128, 256, 72, 36]
+  dropout: 0.2
+input:                     # 官方协议：400 帧 seq2seq 片段、重力对齐世界系、逐帧 2D 速度
+  window: 400
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: frame_velocity   # 输出布局 (B, 400, 2)，DESIGN §3.1
+  dims: 2
+  overlap: mean            # 严格因果的骨干也可用 overlap=center 对照（DESIGN §5）
+loss: ronin_global_pos     # GlobalPosLoss(mode='part', history=253 = 感受野)
+loss_kwargs:
+  mode: part
+  history: 253
+recipes:
+  official:                # 与 ronin_lstm 同一脚本，只有损失与 dropout 不同
+    epochs: 1000           # 官方 config；论文称约 200 epoch 收敛
+    batch: 72
+    val_batch: 72
+    lr: 3.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # --use_scheduler 时 ReduceLROnPlateau(factor=0.75, patience=10)
+    gamma: 0.75
+    plateau_patience: 10
+    grad_clip: 0.0
+    stride: 100            # step_size=100；time_shift 缺省为 ±stride//2 = ±50
+    augment: [random_yaw, time_shift]
+    amp: false
+    fitness: loss
+    patience: 0
+  unified:                 # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: [random_yaw, time_shift]   # 增强属于算法本身，两个配方一致（DESIGN §4）
+# 已知差异：官方的 max_velocity_norm=3.0 样本过滤尚未在协议层落地（docs/ALGORITHMS.md §3）。

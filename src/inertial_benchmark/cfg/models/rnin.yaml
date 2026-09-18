@@ -1,0 +1,67 @@
+# RNIN：RNIN-VIO（Chen et al., ISMAR 2021）的惯性网络。10 个首尾相接的 1 s 子窗（模型内部抽取到
+# 100 Hz）经逐子窗 ResNet + 单向 LSTM，一次输出 10 步 3D 位移（+ 对角 log σ）。
+# 结构、损失与配方依据 docs/algorithms/rnin.md 独立实现（洁净室，未读官方代码）；
+# 参数量 5,358,342 由单元测试锁定。
+name: rnin
+arch: rnin
+paper: http://www.cad.zju.edu.cn/home/gfzhang/papers/rnin_vio.pdf
+code: https://github.com/zju3dv/rnin-vio
+license: Apache-2.0 (official code); this implementation is written from the spec card
+commit: b030ecc94f151159973a9086c8ba76e22bdbc56e
+fidelity: official-code (network, loss and recipe); the RNIN-VIO filter fusion is not public
+args:                      # config/default.yaml + config/resnet_lstm.yaml
+  sub_window: 200          # 1 s @200 Hz；模型内部 x[..., ::2] 抽到官方的 100 样本子窗
+  decimate: 2              # 200 Hz → 100 Hz（官方 imu_freq=100，无抗混叠滤波）
+  layer_sizes: [2, 2, 2, 2]
+  base_plane: 64
+  post_channels: 128       # resnet_post_pro：Conv1d(512,128,k1) + BN，展平为 128×7 = 896
+  lstm_size: 256
+  lstm_layers: 1
+  lstm_dropout: 0.0
+  fc_dim: 256
+  dropout: 0.2
+  predict_cov: false       # 官方默认：start_cov_epochs=2000 > epochs=201，协方差头从未训练
+input:                     # 官方协议：10×1 s 子窗 = 10 s、重力对齐世界系、去重力、10 步 3D 位移
+  window: 2000
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: true
+  target: multi_displacement
+  output_steps: 10         # 窗口等分为 10 段，第 h 段的目标即该段位移（DESIGN §3.1）
+  dims: 3
+  overlap: mean
+loss: rnin_displacement    # RL + 8·AL；有 logstd 且 epoch >= start_cov_epoch 时改用 NLL 形式
+loss_kwargs:
+  absolute_weight: 8.0     # config/default.yaml 的 absolute_weight
+  start_cov_epoch: 0       # unified 打开协方差头后立即用 NLL；official 不输出 logstd，恒为位移阶段
+recipes:
+  official:                # config/default.yaml：协方差头不训练（复现官方真实行为）
+    epochs: 200            # train.py: range(1, 201)；官方另有“lr < 1.1e-6 即停”的早停，IPB 无此规则
+    batch: 32
+    val_batch: 1024
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0
+    scheduler: plateau     # ReduceLROnPlateau(factor=0.1, patience=10)，按 val 平均损失
+    gamma: 0.1
+    plateau_patience: 10
+    grad_clip: 0.0
+    seed: 42               # default.yaml 的随机种子
+    stride: 10             # step_size = imu_freq/sample_freq = 5 @100 Hz = 10 @200 Hz
+    augment:               # 官方顺序：偏航 → 零偏 → “重力噪声” → 白噪声（框架按 stage 重排：
+      - random_yaw         #   传感器级 bias_shift/noise 先于坐标级 random_yaw/gravity_perturb）
+      - {bias_shift: {gyro: 0.002, acc: 0.1}}      # 世界系、去重力后的常值偏置（整段 10 s 相同）
+      - {gravity_perturb: {max_deg: 5.0}}          # 绕随机水平轴 U[0,5°]，目标不变
+      - {noise: {gyro: 1.0e-5, acc: 1.0e-4}}
+    amp: false
+    fitness: loss          # 官方按验证损失保存 checkpoint
+    patience: 0
+  unified:                 # IPB 统一预算；协方差头确实参与训练（论文 §4.4 的 NLL 阶段）
+    model_args: {predict_cov: true}
+    augment:               # 增强属于算法本身，两个配方一致（DESIGN §4）
+      - random_yaw
+      - {bias_shift: {gyro: 0.002, acc: 0.1}}
+      - {gravity_perturb: {max_deg: 5.0}}
+      - {noise: {gyro: 1.0e-5, acc: 1.0e-4}}
+# 已知差异：不做 VIO 零偏补偿（IPB 格式无零偏字段）、不做 4 m/s 子窗速度过滤（协议未落地）。
