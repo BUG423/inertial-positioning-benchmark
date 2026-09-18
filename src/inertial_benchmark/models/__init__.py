@@ -2,6 +2,7 @@
 
 from . import (  # noqa: F401
     deepils,
+    dive,
     eqnio,
     gnio,
     imunet,
@@ -19,6 +20,7 @@ from . import (  # noqa: F401
 
 __all__ = [
     "deepils",
+    "dive",
     "eqnio",
     "gnio",
     "imunet",
