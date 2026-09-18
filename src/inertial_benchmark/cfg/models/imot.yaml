@@ -1,0 +1,52 @@
+# iMoT：变量 token 的惯性运动 Transformer（Nguyen et al., "iMoT: Inertial Motion Transformer
+# for Inertial Navigation", AAAI 2025；arXiv:2412.12190）。
+# paper-only：官方仓库只有 LICENSE 与 README（"will be made publicly available soon"），
+# 依据 docs/algorithms/imot.md 规格卡实现，卡中标 [A] 的项取卡片推荐默认值。
+#
+# !!! 参数量无法由论文唯一确定 !!!
+# 论文 Table 3 报告 200 Hz 下 14.49 M；本卡参考规格推导出 7,137,482（约为它的 49%）。
+# 把 FFN 宽度改成 2048 也只有 9,139,274。单元测试锁定的是**本卡规格**，不是论文值。
+name: imot
+arch: imot
+paper: https://arxiv.org/abs/2412.12190
+code: https://github.com/Minh-Son-Nguyen/iMoT (placeholder only; no code published)
+license: MIT (the official repo's LICENSE); paper-only re-implementation
+commit: 7f275702bd9b0dbdb60bb4d5dae802f8e9ab9dac
+fidelity: paper-only
+args:
+  encoder_layers: 2         # N = 2（论文 [P]）
+  decoder_layers: 2         # M = 2（论文 [P]）
+  particles: 128            # P = 128（论文 Fig. 4 显示 128 最优）
+  heads: 8                  # [A] 论文未给出头数；T=100 时必须改成 4（8 不整除 100）
+  feedforward: 0            # 0 = 4T（[A]）；显式给出绝对宽度可复现卡 §4 的 2048 对照
+  dropout: 0.1              # [A]
+  psd_kernels: [9, 3]       # k1 = 9、k2 = 3（论文 [P]）
+  asc_kernel: 3             # ASC 沿 token 维的 "1×3 conv"（论文 [P]）
+  particle_scale: 6.283185307179586   # [A] DAB-DETR 式，尺度 2π
+  particle_temperature: 10000.0       # [A] DAB-DETR 式，温度 1e4
+input:                      # 论文未说明输入系与目标定义，按卡 §2/§3 的假设
+  window: 200
+  frame: gravity_world
+  orientation: reference
+  remove_gravity: false
+  target: avg_velocity
+  dims: 2
+loss: mse_sum               # 式 8 的 J_vel = mean_b ‖v_GT − v_m‖²（逐样本对分量求和）
+recipes:
+  official:                 # 论文 Implementation Details（epoch/调度/增强均未给出）
+    epochs: 100             # [A] 论文未给出 epoch 数
+    batch: 128
+    val_batch: 512
+    lr: 1.0e-4
+    optimizer: adam
+    momentum: 0.9
+    weight_decay: 0.0       # 未给出
+    scheduler: none         # 未给出
+    grad_clip: 0.0          # 未给出
+    stride: 10              # 未给出，取 IPB 默认
+    augment: []             # 未给出
+    amp: false
+    fitness: loss           # [A] 按 val 选模
+    patience: 0
+  unified:                  # IPB 统一预算（epochs/优化器/调度用 default.yaml）
+    augment: []             # 增强属于算法本身，两个配方一致
