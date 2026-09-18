@@ -12,11 +12,13 @@
 窗口前处理。每个增强接收 ``numpy.random.Generator``，保证可复现。
 
 外部模块可用 ``@register_augmentation(name)`` 注册 :class:`Augmentation` 子类；配置中出现未知名字时
-会先加载 ``IPB_PLUGINS`` 列出的插件（见 ``utils/plugins.py``）再查找。
+会先加载 ``IPB_PLUGINS`` 列出的插件（见 ``utils/plugins.py``）与模型包（算法专用增强随模型一起
+注册，例如 TartanIMU 的 ``body_yaw``/``body_tilt``）再查找。
 """
 
 from __future__ import annotations
 
+import importlib
 import math
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -247,15 +249,28 @@ def _parse(item: Any) -> tuple:
     raise ValueError(f"cannot parse augmentation spec {item!r}")
 
 
+def _import_registrars() -> None:
+    """按需导入可能注册增强的模块：插件，以及模型包（算法专用增强随模型一起注册）。
+
+    本模块本身不依赖 torch，因此模型包只在**遇到未知增强名**时才导入（例如 TartanIMU 的
+    ``body_yaw``/``body_tilt``）；没有安装 torch 时静默跳过，仍由调用方报“未知增强”。
+    """
+    from ..utils.plugins import load_plugins
+
+    load_plugins()
+    try:
+        importlib.import_module("inertial_benchmark.models")
+    except Exception as exc:  # pragma: no cover - 没装 torch / 模型包导入失败
+        LOGGER.debug(f"augment: could not import model packages for augmentation lookup ({exc})")
+
+
 def build_augmentations(spec: Optional[Iterable[Any]], frame: str = "gravity_world") -> tuple:
     """解析 ``augment`` 配置，返回 ``(time_shift 或 None, [按阶段排序的增强])``。"""
     time_shift, augs = None, []
     for item in spec or []:
         name, kwargs = _parse(item)
         if name not in REGISTRY:
-            from ..utils.plugins import load_plugins
-
-            load_plugins()
+            _import_registrars()
         if name not in REGISTRY:
             raise ValueError(f"unknown augmentation {name!r}; available: {sorted(REGISTRY)}")
         obj = REGISTRY[name](**kwargs)
