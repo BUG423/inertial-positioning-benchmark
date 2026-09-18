@@ -2,6 +2,7 @@
 
 | Document | Scope |
 | --- | --- |
+| [HANDOFF.md](HANDOFF.md) | 开发交接：目的、要求、环境部署、已完成/未完成工作、必知的坑（接手开发先读这份） |
 | [DESIGN.md](DESIGN.md) | IPB v1 design charter: architecture, data format v1.0, task views, inference, and metrics |
 | [METRICS.md](METRICS.md) | Exact metric definitions, edge cases, and report statistics |
 | [CLI.md](CLI.md) | `ipb` commands, benchmark YAML, output layout, and all configuration keys |
